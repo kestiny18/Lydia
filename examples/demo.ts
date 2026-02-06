@@ -52,7 +52,8 @@ async function main() {
   agent.on('task:error', (err) => console.error('\n❌ Task Failed:', err));
 
   // 4. Run a test task
-  const userRequest = "List all files in the current directory and read the package.json file";
+  // Updated task to verify real MCP capabilities
+  const userRequest = "Create a file named 'hello_lydia.txt' with content 'Hello from the real MCP world!' and then read it back to verify.";
   console.log(`\n👤 User Request: "${userRequest}"`);
 
   await agent.run(userRequest);

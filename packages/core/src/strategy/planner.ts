@@ -27,9 +27,10 @@ User Request: "${task.description}"
 Intent: ${JSON.stringify(intent)}
 
 Available Tools:
-- shell: Execute shell commands (args: { command: string })
-- file_read: Read file content (args: { path: string })
-- file_write: Write file content (args: { path: string, content: string })
+- shell_execute: Execute shell commands. USE CAUTION. (args: { command: string })
+- fs_read_file: Read file content (args: { path: string })
+- fs_write_file: Write file content (args: { path: string, content: string })
+- fs_list_directory: List files and directories (args: { path: string })
 
 Output format: JSON object with a "steps" array.
 Each step must have:
@@ -42,7 +43,7 @@ Example:
 {
   "steps": [
     { "type": "thought", "description": "I need to check the current directory content first." },
-    { "type": "action", "description": "List files", "tool": "shell", "args": { "command": "ls -la" } }
+    { "type": "action", "description": "List files", "tool": "shell_execute", "args": { "command": "ls -la" } }
   ]
 }
 `;

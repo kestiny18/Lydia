@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { ILLMProvider } from '../llm/index.js';
 import {
   type Task,
@@ -8,27 +9,54 @@ import {
   IntentAnalyzer,
   SimplePlanner
 } from '../strategy/index.js';
+import { McpClientManager, ShellServer, FileSystemServer } from '../mcp/index.js';
 
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
   private intentAnalyzer: IntentAnalyzer;
   private planner: SimplePlanner;
-
-  // Minimal tool registry for MVP
-  private tools: Record<string, (args: any) => Promise<string>> = {
-    'shell': async (args) => `[Mock Shell] Executing: ${args.command}`,
-    'file_read': async (args) => `[Mock Read] Reading: ${args.path}`,
-    'file_write': async (args) => `[Mock Write] Writing to ${args.path}: ${args.content?.slice(0, 20)}...`
-  };
+  private mcpClientManager: McpClientManager;
+  private isInitialized = false;
 
   constructor(llm: ILLMProvider) {
     super();
     this.llm = llm;
     this.intentAnalyzer = new IntentAnalyzer(llm);
     this.planner = new SimplePlanner(llm);
+    this.mcpClientManager = new McpClientManager();
+  }
+
+  async init() {
+    if (this.isInitialized) return;
+
+    // 1. Initialize Built-in Servers
+    const shellServer = new ShellServer();
+    const fsServer = new FileSystemServer();
+
+    // 2. Connect Shell Server
+    const [shellClientTransport, shellServerTransport] = InMemoryTransport.createLinkedPair();
+    await shellServer.server.connect(shellServerTransport);
+    await this.mcpClientManager.connect({
+      id: 'internal-shell',
+      type: 'in-memory',
+      transport: shellClientTransport
+    });
+
+    // 3. Connect FS Server
+    const [fsClientTransport, fsServerTransport] = InMemoryTransport.createLinkedPair();
+    await fsServer.server.connect(fsServerTransport);
+    await this.mcpClientManager.connect({
+      id: 'internal-fs',
+      type: 'in-memory',
+      transport: fsClientTransport
+    });
+
+    this.isInitialized = true;
   }
 
   async run(userInput: string): Promise<Task> {
+    await this.init();
+
     // 1. Initialize Task
     const task: Task = {
       id: `task-${Date.now()}`,
@@ -90,11 +118,20 @@ export class Agent extends EventEmitter {
 
     try {
       if (step.type === 'action' && step.tool) {
-        const toolFn = this.tools[step.tool];
-        if (toolFn) {
-          step.result = await toolFn(step.args);
-        } else {
-          step.result = `Tool '${step.tool}' not found (Mock execution)`;
+        try {
+          // Use MCP Client Manager to call tool
+          const result = await this.mcpClientManager.callTool(step.tool, step.args || {});
+
+          // Flatten MCP result content to string for MVP
+          const textContent = result.content
+            .filter((c: any) => c.type === 'text')
+            .map((c: any) => c.text)
+            .join('\n');
+
+          step.result = textContent;
+        } catch (error) {
+          step.result = `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`;
+          throw error;
         }
       } else {
         // Thought step - just simulate a pause or processing
