@@ -10,7 +10,7 @@ import {
   SimplePlanner
 } from '../strategy/index.js';
 import { SkillRegistry, SkillLoader } from '../skills/index.js';
-import { McpClientManager, ShellServer, FileSystemServer } from '../mcp/index.js';
+import { McpClientManager, ShellServer, FileSystemServer, GitServer } from '../mcp/index.js';
 
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
@@ -57,6 +57,16 @@ export class Agent extends EventEmitter {
       id: 'internal-fs',
       type: 'in-memory',
       transport: fsClientTransport
+    });
+
+    // 4. Connect Git Server
+    const gitServer = new GitServer();
+    const [gitClientTransport, gitServerTransport] = InMemoryTransport.createLinkedPair();
+    await gitServer.server.connect(gitServerTransport);
+    await this.mcpClientManager.connect({
+      id: 'internal-git',
+      type: 'in-memory',
+      transport: gitClientTransport
     });
 
     this.isInitialized = true;
