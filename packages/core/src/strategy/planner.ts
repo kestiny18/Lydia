@@ -32,6 +32,11 @@ Available Tools:
 - fs_write_file: Write file content (args: { path: string, content: string })
 - fs_list_directory: List files and directories (args: { path: string })
 
+Context Variables:
+- {{cwd}}: Current working directory (absolute path)
+- {{lastResult}}: Output of the previous step
+- Use these variables in arguments to pass data between steps.
+
 Output format: JSON object with a "steps" array.
 Each step must have:
 - type: "thought" | "action"
@@ -42,8 +47,9 @@ Each step must have:
 Example:
 {
   "steps": [
-    { "type": "thought", "description": "I need to check the current directory content first." },
-    { "type": "action", "description": "List files", "tool": "shell_execute", "args": { "command": "ls -la" } }
+    { "type": "thought", "description": "Check current directory" },
+    { "type": "action", "description": "Get CWD", "tool": "shell_execute", "args": { "command": "pwd" } },
+    { "type": "action", "description": "List files", "tool": "fs_list_directory", "args": { "path": "{{lastResult}}" } }
   ]
 }
 `;

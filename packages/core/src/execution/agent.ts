@@ -68,7 +68,10 @@ export class Agent extends EventEmitter {
     const context: AgentContext = {
       taskId: task.id,
       history: [],
-      state: {},
+      state: {
+        cwd: process.cwd(),
+        lastResult: ''
+      },
     };
 
     this.emit('task:start', task);
@@ -111,6 +114,35 @@ export class Agent extends EventEmitter {
     return task;
   }
 
+  private resolveArgs(args: any, context: AgentContext): any {
+    if (!args) return args;
+    const state = context.state || {};
+
+    // Handle string substitution
+    if (typeof args === 'string') {
+      return args.replace(/\{\{([^}]+)\}\}/g, (_, key) => {
+        const val = state[key.trim()];
+        return val !== undefined ? String(val) : `{{${key}}}`;
+      });
+    }
+
+    // Handle arrays
+    if (Array.isArray(args)) {
+      return args.map(item => this.resolveArgs(item, context));
+    }
+
+    // Handle objects
+    if (typeof args === 'object') {
+      const result: any = {};
+      for (const key in args) {
+        result[key] = this.resolveArgs(args[key], context);
+      }
+      return result;
+    }
+
+    return args;
+  }
+
   private async executeStep(step: Step, context: AgentContext): Promise<void> {
     step.status = 'running';
     step.startedAt = Date.now();
@@ -119,8 +151,16 @@ export class Agent extends EventEmitter {
     try {
       if (step.type === 'action' && step.tool) {
         try {
+          // Resolve arguments with context state
+          const resolvedArgs = this.resolveArgs(step.args, context);
+
+          // Log if args were modified (debug info)
+          if (JSON.stringify(resolvedArgs) !== JSON.stringify(step.args)) {
+             // We could emit a debug event here, but for now let's just use the resolved args
+          }
+
           // Use MCP Client Manager to call tool
-          const result = await this.mcpClientManager.callTool(step.tool, step.args || {});
+          const result = await this.mcpClientManager.callTool(step.tool, resolvedArgs || {});
 
           // Flatten MCP result content to string for MVP
           const textContent = result.content
@@ -129,6 +169,9 @@ export class Agent extends EventEmitter {
             .join('\n');
 
           step.result = textContent;
+
+          // Update context state
+          context.state.lastResult = textContent.trim();
         } catch (error) {
           step.result = `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`;
           throw error;
