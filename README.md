@@ -128,12 +128,12 @@ Lydia automatically learns this on the next run!
 - Skill System (Markdown-based knowledge)
 - CLI Interface
 
-### 🚧 Phase 4: Intelligence & Safety (In Progress)
-- [ ] **Long-term Memory**: Remembering your preferences and past tasks (SQLite)
-- [ ] **Human-in-the-Loop**: Interactive confirmation for risky actions
-- [ ] **Offline Replay**: Validating new strategies against past success
+### ✅ Phase 4: Intelligence & Safety (Completed)
+- [x] **Long-term Memory**: Remembering your preferences and past tasks (SQLite)
+- [x] **Human-in-the-Loop**: Interactive confirmation for risky actions
+- [x] **Offline Replay**: Validating new strategies against past success
 
-### 📅 Phase 5: Production Ready
+### 📅 Phase 5: Production Ready (Next)
 - [ ] Web Dashboard
 - [ ] Pre-built Skill Library
 - [ ] One-click Installer
