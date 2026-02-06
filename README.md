@@ -13,68 +13,62 @@ Unlike traditional AI agents that evolve unpredictably, Lydia separates **strate
 - ✅ **Remain Auditable**: Every decision is traceable to a specific strategy version
 - ✅ **Recover Gracefully**: Full version control with one-click rollback
 
-## 🎯 Key Innovations
+## 🚀 Status: Phase 3 Complete (Prototype)
 
-### 1. Strategy-Behavior Separation
-Strategies are first-class citizens, explicitly defined and version-controlled separately from execution logic.
+We have successfully built the core functional prototype.
 
-### 2. Offline Replay Validation
-Before deploying any strategy update, Lydia replays historical tasks to validate improvements.
+- **Core Engine**: Intent Analysis -> Strategic Planning -> Execution Loop
+- **Skill System**: Knowledge injection via Markdown files (`.md` skills in `packages/core/skills` or `~/.lydia/skills`)
+- **MCP Integration**: Full support for Model Context Protocol (Internal & External Servers)
+- **Git Integration**: Autonomous version control capabilities
+- **CLI**: Interactive terminal interface with real-time feedback
 
-### 3. Multi-Branch Evolution
-Parallel exploration of different strategies, with data-driven selection of the optimal path.
-
-### 4. Update Gate System
-Multi-layer validation (automated + human) ensures only safe, beneficial updates are deployed.
-
-### 5. Execution Binding
-Every decision is bound to a specific strategy version, enabling complete traceability.
-
-## 🚀 Quick Start
+## 🛠️ Installation & Usage
 
 ```bash
-# Install dependencies
+# 1. Install dependencies
 pnpm install
 
-# Run in development mode
-pnpm dev
-
-# Build for production
+# 2. Build the project
 pnpm build
 
-# Run tests
-pnpm test
+# 3. Configure (Optional)
+# Create ~/.lydia/config.json to add external MCP servers
+
+# 4. Run the Agent
+# Example: Ask Lydia to check git status
+pnpm tsx packages/cli/src/index.ts run "check git status"
 ```
 
 ## 📚 Documentation
 
 - [Architecture Overview](./docs/architecture.md)
-- [Core Concepts](./docs/concepts.md)
-- [API Reference](./docs/api.md)
-- [Examples](./examples/)
+- [Configuration Guide](./packages/core/src/config/README.md)
 
 ## 🛣️ Roadmap
 
-### Phase 1: Foundation (Current)
-- [x] Project structure
-- [ ] Strategy system
-- [ ] Execution engine
-- [ ] Basic CLI
+### Phase 1: Foundation (Completed)
+- [x] Project structure (Monorepo)
+- [x] Core Strategy Engine (Planner, Agent, Intent)
+- [x] LLM Abstraction (Anthropic Provider)
+- [x] CLI Client
 
-### Phase 2: Safety & Control
-- [ ] Update Gate implementation
-- [ ] Offline Replay engine
-- [ ] Human review interface
+### Phase 2: Capabilities (Completed)
+- [x] MCP SDK Integration
+- [x] Built-in Servers: Shell, FileSystem
+- [x] Context Variable Substitution
 
-### Phase 3: Evolution
-- [ ] Multi-branch strategy management
-- [ ] Automated evaluation
-- [ ] Delta generation
+### Phase 3: Expansion (Completed)
+- [x] **Skill System**: Loader, Registry, Parser
+- [x] **Git MCP Server**: Autonomous git operations
+- [x] **Configuration System**: `~/.lydia/config.json` support
+- [x] External MCP Server Support
 
-### Phase 4: Production Ready
-- [ ] Web UI dashboard
-- [ ] Skills ecosystem
-- [ ] Deployment tools
+### Phase 4: Intelligence & Safety (Next)
+- [ ] Long-term Memory (SQLite)
+- [ ] Human-in-the-loop (AskUserQuestion)
+- [ ] Offline Replay Validation
+- [ ] Web Dashboard
 
 ## 🤝 Contributing
 
@@ -83,13 +77,3 @@ Lydia is in early development. Contributions are welcome!
 ## 📄 License
 
 MIT License - see [LICENSE](./LICENSE) for details.
-
-## 🙏 Acknowledgments
-
-Inspired by discussions on AI agent safety, controlled evolution, and the need for enterprise-grade autonomous systems.
-
----
-
-**Status**: 🚧 Early Development - Not Ready for Production
-
-**Version**: 0.1.0
