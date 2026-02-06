@@ -10,8 +10,11 @@ import {
   SimplePlanner
 } from '../strategy/index.js';
 import { SkillRegistry, SkillLoader } from '../skills/index.js';
-import { McpClientManager, ShellServer, FileSystemServer, GitServer } from '../mcp/index.js';
+import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServer } from '../mcp/index.js';
 import { ConfigLoader } from '../config/index.js';
+import { MemoryManager } from '../memory/index.js';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
@@ -21,6 +24,7 @@ export class Agent extends EventEmitter {
   private skillRegistry: SkillRegistry;
   private skillLoader: SkillLoader;
   private configLoader: ConfigLoader;
+  private memoryManager: MemoryManager;
   private isInitialized = false;
 
   constructor(llm: ILLMProvider) {
@@ -39,6 +43,23 @@ export class Agent extends EventEmitter {
 
     // 0. Load Configuration
     const config = await this.configLoader.load();
+
+    // 0.5 Initialize Memory
+    const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+    // Ensure .lydia dir exists (handled by MemoryManager internal DB creation usually, or assume parent exists)
+    // MemoryManager will create file, but better check parent dir in loader or here.
+    // ConfigLoader already ensures .lydia exists.
+    this.memoryManager = new MemoryManager(dbPath);
+    const memoryServer = new MemoryServer(this.memoryManager);
+
+    // Connect Memory Server
+    const [memClientTransport, memServerTransport] = InMemoryTransport.createLinkedPair();
+    await memoryServer.server.connect(memServerTransport);
+    await this.mcpClientManager.connect({
+      id: 'internal-memory',
+      type: 'in-memory',
+      transport: memClientTransport
+    });
 
     // 1. Load Skills
     await this.skillLoader.loadAll();
@@ -130,9 +151,15 @@ export class Agent extends EventEmitter {
         // console.log('Matched skills:', matchedSkills.map(s => s.name));
       }
 
+      // 2.6 Retrieve Memories
+      this.emit('phase:start', 'memory');
+      const facts = this.memoryManager.searchFacts(userInput);
+      const episodes = this.memoryManager.recallEpisodes(userInput);
+      this.emit('phase:end', 'memory');
+
       // 3. Generate Plan
       this.emit('phase:start', 'planning');
-      const steps = await this.planner.createPlan(task, intent, context, matchedSkills);
+      const steps = await this.planner.createPlan(task, intent, context, matchedSkills, { facts, episodes });
       this.emit('plan', steps);
       this.emit('phase:end', 'planning');
 
@@ -150,6 +177,15 @@ export class Agent extends EventEmitter {
       // Complete Task
       task.status = 'completed';
       task.result = 'All steps executed successfully.';
+
+      // Save Episode
+      this.memoryManager.recordEpisode({
+        input: userInput,
+        plan: JSON.stringify(steps),
+        result: task.result,
+        created_at: Date.now()
+      });
+
       this.emit('task:complete', task);
 
     } catch (error) {

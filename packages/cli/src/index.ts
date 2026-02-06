@@ -7,6 +7,8 @@ import { Agent, AnthropicProvider } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import * as readline from 'node:readline/promises';
+import { stdin as input, stdout as output } from 'node:process';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -98,6 +100,26 @@ async function main() {
           }
           spinner.start('Thinking...');
         });
+
+        // --- Interaction Handler ---
+        agent.on('interaction_request', async (request) => {
+          // 1. Stop the current spinner so it doesn't conflict with input
+          spinner.stopAndPersist({ symbol: '❓', text: 'User Input Required' });
+
+          // 2. Prompt user
+          const rl = readline.createInterface({ input, output });
+
+          console.log(chalk.yellow(`\nAgent asks: ${request.prompt}`));
+          const answer = await rl.question(chalk.bold('> '));
+          rl.close();
+
+          // 3. Resume Agent
+          agent.resolveInteraction(request.id, answer);
+
+          // 4. Restart spinner for next steps
+          spinner.start('Resuming execution...');
+        });
+
 
         agent.on('task:complete', () => {
           spinner.succeed(chalk.bold.green('Task Completed Successfully! ✨'));

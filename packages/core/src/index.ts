@@ -7,5 +7,6 @@ export * from './skills/index.js';
 export * from './llm/index.js';
 export * from './mcp/index.js';
 export * from './config/index.js';
+export * from './memory/index.js';
 
 
