@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider } from '@lydia/core';
+import { Agent, AnthropicProvider, ReplayManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -137,6 +137,22 @@ async function main() {
         spinner.fail(chalk.red('Fatal Error'));
         console.error(error);
         process.exit(1);
+      }
+    });
+
+  program
+    .command('replay')
+    .description('Replay a past episode')
+    .argument('<episodeId>', 'The ID of the episode to replay')
+    .action(async (episodeId) => {
+      try {
+        const id = parseInt(episodeId, 10);
+        if (isNaN(id)) throw new Error('Episode ID must be a number');
+
+        const replayer = new ReplayManager();
+        await replayer.replay(id);
+      } catch (error: any) {
+        console.error(chalk.red('Replay Error:'), error.message);
       }
     });
 

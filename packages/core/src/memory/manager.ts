@@ -17,6 +17,17 @@ export interface Episode {
   created_at: number;
 }
 
+export interface Trace {
+  id?: number;
+  episode_id?: number;
+  step_index: number;
+  tool_name: string;
+  tool_args: string; // JSON string
+  tool_output: string; // JSON string
+  duration: number;
+  status: 'success' | 'failed';
+}
+
 export class MemoryManager extends EventEmitter {
   private db: Database.Database;
 
@@ -90,6 +101,21 @@ export class MemoryManager extends EventEmitter {
         INSERT INTO episodes_fts(rowid, input, result) VALUES (new.id, new.input, new.result);
       END;
     `);
+
+    // 5. Traces Table (New for Replay)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS traces (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        episode_id INTEGER NOT NULL,
+        step_index INTEGER NOT NULL,
+        tool_name TEXT NOT NULL,
+        tool_args TEXT NOT NULL,
+        tool_output TEXT NOT NULL,
+        duration INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        FOREIGN KEY(episode_id) REFERENCES episodes(id)
+      );
+    `);
   }
 
   /**
@@ -132,10 +158,6 @@ export class MemoryManager extends EventEmitter {
       LIMIT ?
     `);
 
-    // FTS syntax: wrap in quotes for phrase matching or sanitize if needed
-    // Simple sanitization for better-sqlite3 binding
-    // For FTS5, we need to be careful with syntax. Using "NEAR" or simple tokens.
-    // Here we assume simple token matching.
     const ftsQuery = `"${query.replace(/"/g, '""')}"`;
 
     try {
@@ -145,7 +167,6 @@ export class MemoryManager extends EventEmitter {
             tags: JSON.parse(row.tags || '[]')
         }));
     } catch (e) {
-        // Fallback for empty or invalid queries
         return [];
     }
   }
@@ -160,14 +181,20 @@ export class MemoryManager extends EventEmitter {
   }
 
   /**
-   * Record a completed task execution
+   * Record a completed task execution and return its ID
    */
-  public recordEpisode(episode: Episode): void {
+  public recordEpisode(episode: Episode): number {
     const stmt = this.db.prepare(`
       INSERT INTO episodes (input, plan, result, created_at)
       VALUES (?, ?, ?, ?)
     `);
-    stmt.run(episode.input, episode.plan, episode.result, episode.created_at);
+    const info = stmt.run(episode.input, episode.plan, episode.result, episode.created_at);
+    return info.lastInsertRowid as number;
+  }
+
+  public getEpisode(id: number): Episode | undefined {
+    const stmt = this.db.prepare('SELECT * FROM episodes WHERE id = ?');
+    return stmt.get(id) as Episode | undefined;
   }
 
   /**
@@ -189,5 +216,36 @@ export class MemoryManager extends EventEmitter {
     } catch(e) {
         return [];
     }
+  }
+
+  /**
+   * Record execution traces for an episode
+   */
+  public recordTraces(episodeId: number, traces: Trace[]): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO traces (episode_id, step_index, tool_name, tool_args, tool_output, duration, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const transaction = this.db.transaction((items: Trace[]) => {
+      for (const trace of items) {
+        stmt.run(
+          episodeId,
+          trace.step_index,
+          trace.tool_name,
+          trace.tool_args,
+          trace.tool_output,
+          trace.duration,
+          trace.status
+        );
+      }
+    });
+
+    transaction(traces);
+  }
+
+  public getTraces(episodeId: number): Trace[] {
+    const stmt = this.db.prepare('SELECT * FROM traces WHERE episode_id = ? ORDER BY step_index ASC');
+    return stmt.all(episodeId) as Trace[];
   }
 }

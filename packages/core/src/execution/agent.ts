@@ -12,7 +12,7 @@ import {
 import { SkillRegistry, SkillLoader } from '../skills/index.js';
 import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServer } from '../mcp/index.js';
 import { ConfigLoader } from '../config/index.js';
-import { MemoryManager } from '../memory/index.js';
+import { MemoryManager, type Trace } from '../memory/index.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -25,7 +25,9 @@ export class Agent extends EventEmitter {
   private skillLoader: SkillLoader;
   private configLoader: ConfigLoader;
   private memoryManager: MemoryManager;
+  private interactionServer?: InteractionServer;
   private isInitialized = false;
+  private traces: Trace[] = [];
 
   constructor(llm: ILLMProvider) {
     super();
@@ -136,6 +138,7 @@ export class Agent extends EventEmitter {
     };
 
     this.emit('task:start', task);
+    this.traces = []; // Reset traces
 
     try {
       // 2. Analyze Intent
@@ -178,13 +181,15 @@ export class Agent extends EventEmitter {
       task.status = 'completed';
       task.result = 'All steps executed successfully.';
 
-      // Save Episode
-      this.memoryManager.recordEpisode({
+      // Save Episode and Traces
+      const episodeId = this.memoryManager.recordEpisode({
         input: userInput,
         plan: JSON.stringify(steps),
         result: task.result,
         created_at: Date.now()
       });
+
+      this.memoryManager.recordTraces(episodeId, this.traces);
 
       this.emit('task:complete', task);
 
@@ -231,6 +236,8 @@ export class Agent extends EventEmitter {
     step.startedAt = Date.now();
     this.emit('step:start', step);
 
+    const stepIndex = this.traces.length; // Use current trace count as step index
+
     try {
       if (step.type === 'action' && step.tool) {
         try {
@@ -242,8 +249,10 @@ export class Agent extends EventEmitter {
              // We could emit a debug event here, but for now let's just use the resolved args
           }
 
+          const start = Date.now();
           // Use MCP Client Manager to call tool
           const result = await this.mcpClientManager.callTool(step.tool, resolvedArgs || {});
+          const duration = Date.now() - start;
 
           // Flatten MCP result content to string for MVP
           const textContent = result.content
@@ -253,10 +262,31 @@ export class Agent extends EventEmitter {
 
           step.result = textContent;
 
+          // Record Trace
+          this.traces.push({
+            step_index: stepIndex,
+            tool_name: step.tool,
+            tool_args: JSON.stringify(resolvedArgs || {}),
+            tool_output: JSON.stringify(result), // Store full MCP result
+            duration,
+            status: 'success'
+          });
+
           // Update context state
           context.state.lastResult = textContent.trim();
-        } catch (error) {
+        } catch (error: any) {
           step.result = `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`;
+
+          // Record Failed Trace
+          this.traces.push({
+            step_index: stepIndex,
+            tool_name: step.tool,
+            tool_args: JSON.stringify(this.resolveArgs(step.args, context) || {}),
+            tool_output: error.message,
+            duration: 0,
+            status: 'failed'
+          });
+
           throw error;
         }
       } else {

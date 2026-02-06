@@ -8,5 +8,6 @@ export * from './llm/index.js';
 export * from './mcp/index.js';
 export * from './config/index.js';
 export * from './memory/index.js';
+export * from './replay/index.js';
 
 
