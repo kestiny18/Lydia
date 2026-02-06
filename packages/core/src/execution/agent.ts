@@ -9,6 +9,7 @@ import {
   IntentAnalyzer,
   SimplePlanner
 } from '../strategy/index.js';
+import { SkillRegistry, SkillLoader } from '../skills/index.js';
 import { McpClientManager, ShellServer, FileSystemServer } from '../mcp/index.js';
 
 export class Agent extends EventEmitter {
@@ -16,6 +17,8 @@ export class Agent extends EventEmitter {
   private intentAnalyzer: IntentAnalyzer;
   private planner: SimplePlanner;
   private mcpClientManager: McpClientManager;
+  private skillRegistry: SkillRegistry;
+  private skillLoader: SkillLoader;
   private isInitialized = false;
 
   constructor(llm: ILLMProvider) {
@@ -24,12 +27,17 @@ export class Agent extends EventEmitter {
     this.intentAnalyzer = new IntentAnalyzer(llm);
     this.planner = new SimplePlanner(llm);
     this.mcpClientManager = new McpClientManager();
+    this.skillRegistry = new SkillRegistry();
+    this.skillLoader = new SkillLoader(this.skillRegistry);
   }
 
   async init() {
     if (this.isInitialized) return;
 
-    // 1. Initialize Built-in Servers
+    // 1. Load Skills
+    await this.skillLoader.loadAll();
+
+    // 2. Initialize Built-in Servers
     const shellServer = new ShellServer();
     const fsServer = new FileSystemServer();
 
@@ -83,9 +91,16 @@ export class Agent extends EventEmitter {
       this.emit('intent', intent);
       this.emit('phase:end', 'intent');
 
+      // 2.5 Find Relevant Skills
+      // Basic matching for now using summary or raw input
+      const matchedSkills = this.skillRegistry.match(userInput + ' ' + intent.summary);
+      if (matchedSkills.length > 0) {
+        // console.log('Matched skills:', matchedSkills.map(s => s.name));
+      }
+
       // 3. Generate Plan
       this.emit('phase:start', 'planning');
-      const steps = await this.planner.createPlan(task, intent, context);
+      const steps = await this.planner.createPlan(task, intent, context, matchedSkills);
       this.emit('plan', steps);
       this.emit('phase:end', 'planning');
 

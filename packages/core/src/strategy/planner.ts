@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { ILLMProvider, LLMRequest } from '../llm/index.js';
 import type { Task, Step, Intent, AgentContext } from './index.js';
+import type { Skill } from '../skills/types.js';
 
 const PlanSchema = z.object({
   steps: z.array(z.object({
@@ -18,14 +19,19 @@ export class SimplePlanner {
     this.llm = llm;
   }
 
-  async createPlan(task: Task, intent: Intent, context: AgentContext): Promise<Step[]> {
+  async createPlan(task: Task, intent: Intent, context: AgentContext, skills: Skill[] = []): Promise<Step[]> {
+    let skillContext = '';
+    if (skills.length > 0) {
+      skillContext = `\nRELEVANT SKILLS (Follow these instructions):\n${skills.map(s => `--- SKILL: ${s.name} ---\n${s.content}\n--- END SKILL ---`).join('\n')}\n`;
+    }
+
     const systemPrompt = `
 You are a strategic planner for an AI Agent.
 Your goal is to break down a user's request into executable steps.
 
 User Request: "${task.description}"
 Intent: ${JSON.stringify(intent)}
-
+${skillContext}
 Available Tools:
 - shell_execute: Execute shell commands. USE CAUTION. (args: { command: string })
 - fs_read_file: Read file content (args: { path: string })
