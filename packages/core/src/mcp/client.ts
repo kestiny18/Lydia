@@ -8,6 +8,7 @@ export interface McpServerConfig {
   type: 'stdio' | 'in-memory';
   command?: string;
   args?: string[];
+  env?: Record<string, string>;
   transport?: InMemoryTransport; // For in-process servers
 }
 
@@ -24,6 +25,7 @@ export class McpClientManager {
       transport = new StdioClientTransport({
         command: config.command,
         args: config.args || [],
+        env: config.env,
       });
     } else {
       throw new Error(`Invalid MCP server configuration: ${JSON.stringify(config)}`);

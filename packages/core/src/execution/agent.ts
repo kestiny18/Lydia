@@ -11,6 +11,7 @@ import {
 } from '../strategy/index.js';
 import { SkillRegistry, SkillLoader } from '../skills/index.js';
 import { McpClientManager, ShellServer, FileSystemServer, GitServer } from '../mcp/index.js';
+import { ConfigLoader } from '../config/index.js';
 
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
@@ -19,6 +20,7 @@ export class Agent extends EventEmitter {
   private mcpClientManager: McpClientManager;
   private skillRegistry: SkillRegistry;
   private skillLoader: SkillLoader;
+  private configLoader: ConfigLoader;
   private isInitialized = false;
 
   constructor(llm: ILLMProvider) {
@@ -29,10 +31,14 @@ export class Agent extends EventEmitter {
     this.mcpClientManager = new McpClientManager();
     this.skillRegistry = new SkillRegistry();
     this.skillLoader = new SkillLoader(this.skillRegistry);
+    this.configLoader = new ConfigLoader();
   }
 
   async init() {
     if (this.isInitialized) return;
+
+    // 0. Load Configuration
+    const config = await this.configLoader.load();
 
     // 1. Load Skills
     await this.skillLoader.loadAll();
@@ -68,6 +74,22 @@ export class Agent extends EventEmitter {
       type: 'in-memory',
       transport: gitClientTransport
     });
+
+    // 5. Connect External MCP Servers
+    for (const [id, serverConfig] of Object.entries(config.mcpServers)) {
+      try {
+        await this.mcpClientManager.connect({
+          id,
+          type: 'stdio',
+          command: serverConfig.command,
+          args: serverConfig.args,
+          env: serverConfig.env,
+        });
+        // console.log(`Connected to external MCP server: ${id}`);
+      } catch (error) {
+        console.warn(`Failed to connect to external MCP server ${id}:`, error);
+      }
+    }
 
     this.isInitialized = true;
   }
