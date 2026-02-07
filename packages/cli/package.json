@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --clean",
     "dev": "tsup src/index.ts --format esm --watch",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "lint": "biome check .",
     "clean": "rm -rf dist node_modules"
   },
