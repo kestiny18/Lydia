@@ -52,7 +52,8 @@ Config fields:
 {
   "strategy": {
     "approvalCooldownDays": 7,
-    "approvalDailyLimit": 1
+    "approvalDailyLimit": 1,
+    "replayEpisodes": 10
   }
 }
 ```

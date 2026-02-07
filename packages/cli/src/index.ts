@@ -289,7 +289,6 @@ async function main() {
         let baselineMetrics = null;
         let baselineMeta: any = null;
         try {
-          const config = await new ConfigLoader().load();
           const baselinePath = config.strategy?.activePath;
           const baseline = baselinePath
             ? await registry.loadFromFile(baselinePath)
@@ -323,7 +322,9 @@ async function main() {
           }
         };
 
-        const evalEpisodes = episodes.slice(0, 10);
+        const config = await new ConfigLoader().load();
+        const replayCount = config.strategy?.replayEpisodes ?? 10;
+        const evalEpisodes = episodes.slice(0, replayCount);
         for (const ep of evalEpisodes) {
           if (!ep.id) continue;
           const traces = memory.getTraces(ep.id);

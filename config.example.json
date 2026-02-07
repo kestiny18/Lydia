@@ -12,7 +12,8 @@
   "strategy": {
     "activePath": "",
     "approvalCooldownDays": 7,
-    "approvalDailyLimit": 1
+    "approvalDailyLimit": 1,
+    "replayEpisodes": 10
   },
   "safety": {
     "userDataDirs": [
