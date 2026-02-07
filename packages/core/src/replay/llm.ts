@@ -1,18 +1,26 @@
-import type { ILLMProvider, LLMRequest, LLMResponse } from '../../llm/index.js';
+import type { ILLMProvider, LLMRequest, LLMResponse } from '../llm/index.js';
 
 export class ReplayLLMProvider implements ILLMProvider {
+  public readonly id = 'replay';
   private originalPlan: string;
   private callCount = 0;
 
   constructor(originalPlan: string) {
-    this.originalPlan = originalPlan;
+    this.originalPlan = this.normalizePlan(originalPlan);
   }
 
   async generate(request: LLMRequest): Promise<LLMResponse> {
     this.callCount += 1;
-    const isPlanning = request.system?.includes('strategic planner');
+    const systemPrompt = request.system || '';
+    const isPlanning = systemPrompt.includes('strategic planner');
+    const isIntent = systemPrompt.includes('intent analysis') || systemPrompt.includes('intent analysis engine');
     if (isPlanning) {
       return {
+        id: `replay-${this.callCount}`,
+        role: 'assistant',
+        model: 'replay',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
         content: [
           {
             type: 'text',
@@ -22,8 +30,34 @@ export class ReplayLLMProvider implements ILLMProvider {
       };
     }
 
+    if (isIntent) {
+      return {
+        id: `replay-${this.callCount}`,
+        role: 'assistant',
+        model: 'replay',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              category: 'action',
+              summary: request.messages?.[0]?.content?.toString?.() || 'replay intent',
+              entities: [],
+              complexity: 'simple'
+            })
+          }
+        ]
+      };
+    }
+
     // For non-planning calls, return a minimal deterministic response to keep replay flowing.
     return {
+      id: `replay-${this.callCount}`,
+      role: 'assistant',
+      model: 'replay',
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 0, output_tokens: 0, total_tokens: 0 },
       content: [
         {
           type: 'text',
@@ -31,5 +65,20 @@ export class ReplayLLMProvider implements ILLMProvider {
         }
       ]
     };
+  }
+
+  private normalizePlan(plan: string): string {
+    try {
+      const parsed = JSON.parse(plan);
+      if (Array.isArray(parsed)) {
+        return JSON.stringify({ steps: parsed });
+      }
+      if (parsed && typeof parsed === 'object' && Array.isArray((parsed as any).steps)) {
+        return JSON.stringify(parsed);
+      }
+      return JSON.stringify({ steps: [] });
+    } catch {
+      return JSON.stringify({ steps: [] });
+    }
   }
 }

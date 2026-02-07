@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "pnpm -r run dev",
     "build": "pnpm -r run build",
+    "build:dashboard": "pnpm -C packages/dashboard run build",
     "test": "pnpm -r run test",
     "typecheck": "pnpm -r run typecheck",
     "lint": "biome check .",

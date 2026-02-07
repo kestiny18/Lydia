@@ -1,8 +1,10 @@
+
 import { z } from 'zod';
 import type { ILLMProvider, LLMRequest } from '../llm/index.js';
 import type { Task, Step, Intent, AgentContext } from './index.js';
 import type { Skill } from '../skills/types.js';
 import type { Fact, Episode } from '../memory/index.js';
+import type { StrategyConfig } from './strategy.js';
 
 const PlanSchema = z.object({
   steps: z.array(z.object({
@@ -15,9 +17,18 @@ const PlanSchema = z.object({
 
 export class SimplePlanner {
   private llm: ILLMProvider;
+  private config: StrategyConfig;
 
-  constructor(llm: ILLMProvider) {
+  constructor(llm: ILLMProvider, config: StrategyConfig) {
     this.llm = llm;
+    this.config = config;
+  }
+
+  private fillTemplate(template: string, variables: Record<string, string>): string {
+    return template.replace(/\{\{([^}]+)\}\}/g, (_, key) => {
+      const val = variables[key.trim()];
+      return val !== undefined ? val : `{{${key}}}`; // Keep allow missing vars? or empty?
+    });
   }
 
   async createPlan(task: Task, intent: Intent, context: AgentContext, skills: Skill[] = [], memories: { facts: Fact[], episodes: Episode[] } = { facts: [], episodes: [] }): Promise<Step[]> {
@@ -37,15 +48,8 @@ export class SimplePlanner {
       }
     }
 
-    const systemPrompt = `
-    You are a strategic planner for an AI Agent.
-    Your goal is to break down a user's request into executable steps.
-
-    User Request: "${task.description}"
-    Intent: ${JSON.stringify(intent)}
-    ${skillContext}
-    ${memoryContext}
-    Available Tools:
+    // Default tools list (hardcoded for now as placeholders, ideally passed from Agent)
+    const predefinedTools = `
     - shell_execute: Execute shell commands. USE CAUTION. (args: { command: string })
     - fs_read_file: Read file content (args: { path: string })
     - fs_write_file: Write file content (args: { path: string, content: string })
@@ -54,33 +58,35 @@ export class SimplePlanner {
     - remember: Store persistent info (args: { content: string, key?: string })
     - recall: Search memory (args: { query: string })
     - ask_user: Ask user for confirmation or input (args: { prompt: string })
-
-    Context Variables:
-    - {{cwd}}: Current working directory (absolute path)
-    - {{lastResult}}: Output of the previous step
-    - Use these variables in arguments to pass data between steps.
-
-    Output format: JSON object with a "steps" array.
-    Each step must have:
-    - type: "thought" | "action"
-    - description: Clear explanation of the step
-    - tool: (Optional, only for "action") Tool name
-    - args: (Optional, only for "action") Tool arguments
-
-    Example:
-    {
-      "steps": [
-        { "type": "thought", "description": "Check current directory" },
-        { "type": "action", "description": "Get CWD", "tool": "shell_execute", "args": { "command": "pwd" } },
-        { "type": "action", "description": "List files", "tool": "fs_list_directory", "args": { "path": "{{lastResult}}" } }
-      ]
-    }
     `;
+
+    // Use prompt from strategy or fallback
+    const template = this.config.prompts?.planning || `
+    You are a strategic planner.
+    User Request: "{{task.description}}"
+    Intent: {{intent}}
+    {{skillContext}}
+    {{memoryContext}}
+    Available Tools:
+    {{tools}}
+    Create a JSON plan.
+    `;
+
+    const systemPrompt = this.fillTemplate(template, {
+      'task.description': task.description,
+      'intent': JSON.stringify(intent),
+      'skillContext': skillContext,
+      'memoryContext': memoryContext,
+      'tools': predefinedTools,
+      'cwd': 'Current Working Directory', // Placeholder
+      'lastResult': 'Output of previous step' // Placeholder
+    });
+
 
     const request: LLMRequest = {
       system: systemPrompt,
       messages: [{ role: 'user', content: "Create a plan for this task." }],
-      temperature: 0.2
+      temperature: this.config.planning?.temperature ?? 0.2
     };
 
     const response = await this.llm.generate(request);

@@ -23,7 +23,7 @@ import type { LydiaConfig } from '../config/index.js';
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
   private intentAnalyzer: IntentAnalyzer;
-  private planner: SimplePlanner;
+  private planner!: SimplePlanner;
   private mcpClientManager: McpClientManager;
   private skillRegistry: SkillRegistry;
   private skillLoader: SkillLoader;
@@ -41,7 +41,7 @@ export class Agent extends EventEmitter {
     super();
     this.llm = llm;
     this.intentAnalyzer = new IntentAnalyzer(llm);
-    this.planner = new SimplePlanner(llm);
+    // this.planner is initialized in init() after loading strategy
     this.mcpClientManager = new McpClientManager();
     this.skillRegistry = new SkillRegistry();
     this.skillLoader = new SkillLoader(this.skillRegistry);
@@ -87,17 +87,26 @@ export class Agent extends EventEmitter {
     // 1. Load Skills
     await this.skillLoader.loadAll();
 
+
     // 1.5 Load Active Strategy
     try {
       const customPath = this.config?.strategy?.activePath;
       if (customPath) {
         this.activeStrategy = await this.strategyRegistry.loadFromFile(customPath);
-        this.strategyRegistry.setActive(this.activeStrategy.id);
+        this.strategyRegistry.setActive(this.activeStrategy.metadata.id);
       } else {
         this.activeStrategy = await this.strategyRegistry.loadDefault();
       }
     } catch (error) {
       console.warn('Failed to load default strategy:', error);
+      // Fallback or exit? For now warning is okay, but agent might fail
+    }
+
+    // Initialize Planner with Strategy
+    if (this.activeStrategy) {
+      this.planner = new SimplePlanner(this.llm, this.activeStrategy);
+    } else {
+      throw new Error("Failed to initialize Agent: No strategy loaded.");
     }
 
     // 2. Initialize Built-in Servers
@@ -219,10 +228,10 @@ export class Agent extends EventEmitter {
       // Save Episode and Traces
       const episodeId = this.memoryManager.recordEpisode({
         input: userInput,
-        plan: JSON.stringify(steps),
+        plan: JSON.stringify({ steps }),
         result: task.result,
-        strategy_id: this.activeStrategy?.id,
-        strategy_version: this.activeStrategy?.version,
+        strategy_id: this.activeStrategy?.metadata.id,
+        strategy_version: this.activeStrategy?.metadata.version,
         created_at: Date.now()
       });
 
@@ -276,7 +285,7 @@ export class Agent extends EventEmitter {
     const prompt = `${reason}.\nTool: ${toolName}${details}\n\nOptions: yes, no, always.\n- yes: allow this action for the current task only\n- always: remember and allow in future\n\nYour choice:`;
 
     const result = await this.mcpClientManager.callTool('ask_user', { prompt });
-    const textContent = result.content
+    const textContent = (result.content as any[])
       .filter((c: any) => c.type === 'text')
       .map((c: any) => c.text)
       .join('\n')
@@ -358,7 +367,7 @@ export class Agent extends EventEmitter {
 
           // Log if args were modified (debug info)
           if (JSON.stringify(resolvedArgs) !== JSON.stringify(step.args)) {
-             // We could emit a debug event here, but for now let's just use the resolved args
+            // We could emit a debug event here, but for now let's just use the resolved args
           }
 
           const start = Date.now();
@@ -367,7 +376,7 @@ export class Agent extends EventEmitter {
           const duration = Date.now() - start;
 
           // Flatten MCP result content to string for MVP
-          const textContent = result.content
+          const textContent = (result.content as any[])
             .filter((c: any) => c.type === 'text')
             .map((c: any) => c.text)
             .join('\n');

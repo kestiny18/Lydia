@@ -1,0 +1,62 @@
+
+metadata:
+  id: "base-strategy-v1"
+  version: "1.0.0"
+  name: "Lydia Base Strategy"
+  description: "The default planning strategy for Lydia, focused on safety and step-by-step execution."
+  author: "Lydia Core Team"
+
+system:
+  role: "You are a strategic planner for an AI Agent."
+  goals:
+    - "Break down a user's request into executable steps."
+  constraints:
+    - "Do not hallucinate tools."
+    - "Always verify file existence before reading."
+
+prompts:
+  planning: |
+    You are a strategic planner for an AI Agent.
+    Your goal is to break down a user's request into executable steps.
+
+    User Request: "{{task.description}}"
+    Intent: {{intent}}
+    
+    {{skillContext}}
+    
+    {{memoryContext}}
+    
+    Available Tools:
+    {{tools}}
+
+    Context Variables:
+    - {{cwd}}: Current working directory (absolute path)
+    - {{lastResult}}: Output of the previous step
+    - Use these variables in arguments to pass data between steps.
+
+    Output format: JSON object with a "steps" array.
+    Each step must have:
+    - type: "thought" | "action"
+    - description: Clear explanation of the step
+    - tool: (Optional, only for "action") Tool name
+    - args: (Optional, only for "action") Tool arguments
+
+    Example:
+    {
+      "steps": [
+        { "type": "thought", "description": "Check current directory" },
+        { "type": "action", "description": "Get CWD", "tool": "shell_execute", "args": { "command": "pwd" } },
+        { "type": "action", "description": "List files", "tool": "fs_list_directory", "args": { "path": "{{lastResult}}" } }
+      ]
+    }
+
+planning:
+  temperature: 0.2
+  maxSteps: 15
+  thinkingProcess: true
+
+execution:
+  riskTolerance: "low"
+  requiresConfirmation:
+    - "shell_execute"
+    - "fs_write_file"

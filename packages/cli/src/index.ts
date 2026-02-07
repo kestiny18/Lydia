@@ -43,9 +43,13 @@ async function main() {
     .option('-m, --model <model>', 'Override default model')
     .option('-p, --provider <provider>', 'LLM provider (anthropic|openai|ollama|mock|auto)')
     .action(async (taskDescription, options) => {
-      const config = await new ConfigLoader().load();\r\n      const providerChoice = options.provider || config.llm?.provider || 'auto';\r\n      const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0\r\n        ? config.llm.fallbackOrder\r\n        : ['ollama', 'openai', 'anthropic'];
+      const config = await new ConfigLoader().load();
+      const providerChoice = options.provider || config.llm?.provider || 'auto';
+      const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0
+        ? config.llm.fallbackOrder
+        : ['ollama', 'openai', 'anthropic'];
 
-      console.log(chalk.bold.blue('\nðŸ¤– Lydia is starting...\n'));
+      console.log(chalk.bold.blue('\nLydia is starting...\n'));
 
       const spinner = ora('Initializing Agent...').start();
 
@@ -117,7 +121,7 @@ async function main() {
 
         agent.on('task:start', (task) => {
           spinner.succeed(chalk.green('Agent initialized'));
-          console.log(chalk.bold(`\nðŸ“‹ Task: ${task.description}\n`));
+          console.log(chalk.bold(`\nTask: ${task.description}\n`));
           spinner.start('Analyzing intent...');
         });
 
@@ -130,9 +134,9 @@ async function main() {
 
         agent.on('plan', (steps) => {
           spinner.succeed(chalk.blue('Plan Generated'));
-          console.log(chalk.bold('\nðŸ“ Execution Plan:'));
+          console.log(chalk.bold('\nExecution Plan:'));
           steps.forEach((s: any, i: number) => {
-             const icon = s.type === 'action' ? 'âš? : 'ðŸ’­';
+             const icon = s.type === 'action' ? '*' : '-';
              console.log(`   ${i+1}. ${icon} ${s.description}`);
           });
           console.log(''); // newline
@@ -145,7 +149,7 @@ async function main() {
 
         agent.on('step:complete', (step) => {
           spinner.stopAndPersist({
-            symbol: 'âœ?,
+            symbol: 'OK',
             text: `${step.description}`
           });
 
@@ -164,7 +168,7 @@ async function main() {
         // --- Interaction Handler ---
         agent.on('interaction_request', async (request) => {
           // 1. Stop the current spinner so it doesn't conflict with input
-          spinner.stopAndPersist({ symbol: 'â?, text: 'User Input Required' });
+          spinner.stopAndPersist({ symbol: '!', text: 'User Input Required' });
 
           // 2. Prompt user
           const rl = readline.createInterface({ input, output });
@@ -182,7 +186,7 @@ async function main() {
 
 
         agent.on('task:complete', () => {
-          spinner.succeed(chalk.bold.green('Task Completed Successfully! âœ?));
+          spinner.succeed(chalk.bold.green('Task Completed Successfully.'));
         });
 
         agent.on('task:error', (error) => {
@@ -227,7 +231,7 @@ async function main() {
       server.start();
 
       const url = `http://localhost:${port}`;
-      console.log(chalk.green(`\nðŸš€ Dashboard running at: ${chalk.bold(url)}\n`));
+      console.log(chalk.green(`\n Dashboard running at: ${chalk.bold(url)}\n`));
 
       if (options.open) {
         await open(url);

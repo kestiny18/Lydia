@@ -1,6 +1,7 @@
 import { Agent } from '../execution/index.js';
 import { MemoryManager } from '../memory/index.js';
 import { ReplayLLMProvider } from './llm.js';
+import { SimplePlanner } from '../strategy/planner.js';
 import { ReplayMcpClientManager } from './mcp.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -36,12 +37,25 @@ export class ReplayManager {
     (agent as any).mcpClientManager = mockMcp;
 
     // We also need to prevent Agent.init() from overwriting our mock MCP with real connections.
-    // We can set isInitialized = true
+    // We can set isInitialized = true, then manually wire required dependencies.
     (agent as any).isInitialized = true;
 
-    // But we DO need to load skills/config?
-    // Ideally, Agent should accept dependencies in constructor or init options.
-    // For this MVP, let's manually load what's needed.
+    // Manually initialize minimal dependencies for replay.
+    const tempDb = path.join(os.tmpdir(), `lydia-replay-${Date.now()}-${episodeId}.db`);
+    (agent as any).memoryManager = new MemoryManager(tempDb);
+
+    try {
+      const config = await (agent as any).configLoader.load();
+      (agent as any).config = config;
+
+      const strategyRegistry = (agent as any).strategyRegistry;
+      const activeStrategy = await strategyRegistry.loadDefault();
+      (agent as any).activeStrategy = activeStrategy;
+      (agent as any).planner = new SimplePlanner(mockLLM, activeStrategy);
+    } catch (error) {
+      console.warn('Replay init warning:', error);
+    }
+
     await (agent as any).skillLoader.loadAll();
 
     // 4. Run Execution

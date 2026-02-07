@@ -6,6 +6,14 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+packages/cli/public/
+packages/**/src/**/*.js
+packages/**/src/**/*.d.ts
+packages/**/src/**/*.js.map
+packages/**/src/**/*.d.ts.map
+examples/**/*.js
+examples/**/*.js.map
+examples/**/*.d.ts
 
 # Environment variables
 .env

@@ -4,6 +4,16 @@
 
 **Lydia is an intelligent personal assistant exploring the path to AGI, providing a truly smart AI companion for everyone through a powerful strategy system and scalable architecture.**
 
+## Core Metaphor: Raising Lydia
+
+> "We want to raise Lydia like a child. The final Lydia will be the personal assistant best suited for you, succeeding together with you."
+
+This metaphor guides our engineering:
+*   **Nature (DNA)**: The initial Strategy and Code we provide.
+*   **Nurture (Parenting)**: The Safety Gates and Feedback you provide.
+*   **Growth**: The Evolution Loop where Lydia learns from experience.
+
+
 ---
 
 ## Problems We Solve

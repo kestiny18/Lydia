@@ -1,18 +1,40 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import { StrategySchema, type Strategy } from './strategy.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export class StrategyRegistry {
   private strategies = new Map<string, Strategy>();
   private activeId: string | null = null;
 
+
   public async loadDefault(): Promise<Strategy> {
-    const defaultPath = path.join(os.homedir(), '.lydia', 'strategies', 'default.yml');
-    const strategy = await this.loadFromFile(defaultPath);
-    this.activeId = strategy.id;
-    return strategy;
+    const locations = [
+      // User Home
+      path.join(os.homedir(), '.lydia', 'strategies', 'default.yml'),
+      // Package Built-in
+      path.resolve(__dirname, '../../strategies/base-v1.yml'),
+      // Package Built-in (dev/src)
+      path.resolve(__dirname, '../../../strategies/base-v1.yml')
+    ];
+
+    for (const loc of locations) {
+      try {
+
+        const strategy = await this.loadFromFile(loc);
+        this.activeId = strategy.metadata.id;
+        return strategy;
+      } catch (e) {
+        // Continue searching
+      }
+    }
+
+    throw new Error(`Could not load default strategy from any location: ${locations.join(', ')}`);
   }
 
   public async listFromDirectory(dirPath: string): Promise<Strategy[]> {
@@ -38,7 +60,8 @@ export class StrategyRegistry {
     const content = await fs.readFile(filePath, 'utf-8');
     const raw = parseYaml(content);
     const strategy = StrategySchema.parse(raw);
-    this.strategies.set(strategy.id, strategy);
+
+    this.strategies.set(strategy.metadata.id, strategy);
     return strategy;
   }
 
