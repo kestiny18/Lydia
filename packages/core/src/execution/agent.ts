@@ -10,6 +10,7 @@ import {
   SimplePlanner
 } from '../strategy/index.js';
 import { SkillRegistry, SkillLoader } from '../skills/index.js';
+import { StrategyRegistry, type Strategy } from '../strategy/index.js';
 import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServer } from '../mcp/index.js';
 import { ConfigLoader } from '../config/index.js';
 import { MemoryManager, type Trace } from '../memory/index.js';
@@ -26,6 +27,8 @@ export class Agent extends EventEmitter {
   private mcpClientManager: McpClientManager;
   private skillRegistry: SkillRegistry;
   private skillLoader: SkillLoader;
+  private strategyRegistry: StrategyRegistry;
+  private activeStrategy?: Strategy;
   private configLoader: ConfigLoader;
   private memoryManager!: MemoryManager;
   private interactionServer?: InteractionServer;
@@ -42,6 +45,7 @@ export class Agent extends EventEmitter {
     this.mcpClientManager = new McpClientManager();
     this.skillRegistry = new SkillRegistry();
     this.skillLoader = new SkillLoader(this.skillRegistry);
+    this.strategyRegistry = new StrategyRegistry();
     this.configLoader = new ConfigLoader();
   }
 
@@ -82,6 +86,13 @@ export class Agent extends EventEmitter {
 
     // 1. Load Skills
     await this.skillLoader.loadAll();
+
+    // 1.5 Load Active Strategy
+    try {
+      this.activeStrategy = await this.strategyRegistry.loadDefault();
+    } catch (error) {
+      console.warn('Failed to load default strategy:', error);
+    }
 
     // 2. Initialize Built-in Servers
     const shellServer = new ShellServer();
@@ -204,6 +215,8 @@ export class Agent extends EventEmitter {
         input: userInput,
         plan: JSON.stringify(steps),
         result: task.result,
+        strategy_id: this.activeStrategy?.id,
+        strategy_version: this.activeStrategy?.version,
         created_at: Date.now()
       });
 

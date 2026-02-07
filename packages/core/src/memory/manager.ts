@@ -14,6 +14,8 @@ export interface Episode {
   input: string;
   plan: string; // JSON string
   result: string;
+  strategy_id?: string;
+  strategy_version?: string;
   created_at: number;
 }
 
@@ -86,9 +88,26 @@ export class MemoryManager extends EventEmitter {
         input TEXT NOT NULL,
         plan TEXT NOT NULL,
         result TEXT,
+        strategy_id TEXT,
+        strategy_version TEXT,
         created_at INTEGER NOT NULL
       );
     `);
+
+    // Migrate existing DBs if columns are missing
+    try {
+      const cols = this.db.prepare("PRAGMA table_info(episodes)").all() as any[];
+      const hasStrategyId = cols.some(c => c.name === 'strategy_id');
+      const hasStrategyVersion = cols.some(c => c.name === 'strategy_version');
+      if (!hasStrategyId) {
+        this.db.exec("ALTER TABLE episodes ADD COLUMN strategy_id TEXT;");
+      }
+      if (!hasStrategyVersion) {
+        this.db.exec("ALTER TABLE episodes ADD COLUMN strategy_version TEXT;");
+      }
+    } catch {
+      // Ignore migration errors to keep startup resilient
+    }
 
     // 4. FTS for Episodes
     this.db.exec(`
@@ -218,10 +237,17 @@ export class MemoryManager extends EventEmitter {
    */
   public recordEpisode(episode: Episode): number {
     const stmt = this.db.prepare(`
-      INSERT INTO episodes (input, plan, result, created_at)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO episodes (input, plan, result, strategy_id, strategy_version, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
-    const info = stmt.run(episode.input, episode.plan, episode.result, episode.created_at);
+    const info = stmt.run(
+      episode.input,
+      episode.plan,
+      episode.result,
+      episode.strategy_id || null,
+      episode.strategy_version || null,
+      episode.created_at
+    );
     return info.lastInsertRowid as number;
   }
 
