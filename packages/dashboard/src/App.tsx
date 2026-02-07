@@ -169,6 +169,7 @@ function MemoryView() {
 
 function ReplayView() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [expandedStep, setExpandedStep] = useState<number | null>(null);
 
   const { data: episodes } = useQuery({
     queryKey: ['episodes'],
@@ -260,12 +261,22 @@ function ReplayView() {
                         {t.status}
                       </div>
                     </div>
+                    <button
+                      onClick={() => setExpandedStep(expandedStep === index ? null : index)}
+                      className="mt-2 text-xs text-blue-600 hover:underline"
+                    >
+                      {expandedStep === index ? 'Hide details' : 'Show details'}
+                    </button>
                     <div className="mt-2 text-gray-500">Tool</div>
                     <div className="font-mono">{t.tool_name}</div>
-                    <div className="mt-2 text-gray-500">Args</div>
-                    <pre className="bg-gray-50 p-2 rounded overflow-auto">{formatArgs(t.args)}</pre>
-                    <div className="mt-2 text-gray-500">Output</div>
-                    <pre className="bg-gray-50 p-2 rounded overflow-auto">{formatArgs(t.output)}</pre>
+                    {expandedStep === index && (
+                      <div>
+                        <div className="mt-2 text-gray-500">Args</div>
+                        <pre className="bg-gray-50 p-2 rounded overflow-auto">{formatArgs(t.args)}</pre>
+                        <div className="mt-2 text-gray-500">Output</div>
+                        <pre className="bg-gray-50 p-2 rounded overflow-auto">{formatArgs(t.output)}</pre>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
