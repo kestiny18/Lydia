@@ -57,6 +57,8 @@ export class SkillLoader {
       // 1. Built-in skills (relative to this file in dist/skills)
       // Note: In dev mode (ts-node/tsx), this might need adjustment, but for now we assume standard structure
       path.resolve(__dirname, '../../skills'),
+      // 1.5 Built-in skills in source tree (dev mode)
+      path.resolve(__dirname, '../skills'),
 
       // 2. User global skills
       path.join(os.homedir(), '.lydia', 'skills'),

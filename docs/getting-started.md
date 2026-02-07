@@ -12,6 +12,10 @@ This creates:
 - `~/.lydia/strategies/default.yml`
 - `~/.lydia/skills/`
 
+## Built-in Skills
+Lydia ships with a minimal built-in skill set located at:
+`packages/core/skills/`
+
 ## Run a Task
 ```bash
 lydia run "check git status"
