@@ -31,13 +31,26 @@ export function createServer(port: number = 3000) {
   // Get Facts
   app.get('/api/memory/facts', (c) => {
     const limit = Number(c.req.query('limit')) || 100;
-    const facts = memoryManager.getAllFacts(limit);
+    const tag = c.req.query('tag');
+    const facts = tag ? memoryManager.getFactsByTag(tag, limit) : memoryManager.getAllFacts(limit);
     return c.json(facts);
   });
 
+  // Get Risk Approval Facts
+  app.get('/api/memory/approvals', (c) => {
+    const limit = Number(c.req.query('limit')) || 100;
+    const facts = memoryManager.getFactsByTag('risk_approval', limit);
+    return c.json(facts);
+  });
+
+  // List Episodes
+  app.get('/api/replay', (c) => {
+    const limit = Number(c.req.query('limit')) || 50;
+    const episodes = memoryManager.listEpisodes(limit);
+    return c.json(episodes);
+  });
+
   // Get Replay Traces (Episodes)
-  // Since we don't have a direct method to list ALL episodes in MemoryManager yet,
-  // we might need to add one or use raw SQL. For now, let's implement getEpisode.
   app.get('/api/replay/:id', (c) => {
     const id = Number(c.req.param('id'));
     const episode = memoryManager.getEpisode(id);

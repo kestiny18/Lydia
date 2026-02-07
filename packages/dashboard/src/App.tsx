@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Database, History, Activity, Terminal } from 'lucide-react';
+import { Database, History, Activity, Terminal, ShieldCheck } from 'lucide-react';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'replay'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay'>('overview');
 
   const { data: status } = useQuery({
     queryKey: ['status'],
@@ -43,6 +43,12 @@ function App() {
             active={activeTab === 'replay'}
             onClick={() => setActiveTab('replay')}
           />
+          <NavItem
+            icon={<ShieldCheck size={18} />}
+            label="Approvals"
+            active={activeTab === 'approvals'}
+            onClick={() => setActiveTab('approvals')}
+          />
         </nav>
 
         <div className="p-4 border-t border-gray-100 text-xs text-gray-400">
@@ -54,6 +60,7 @@ function App() {
       <main className="flex-1 overflow-auto p-8">
         {activeTab === 'overview' && <OverviewView status={status} />}
         {activeTab === 'memory' && <MemoryView />}
+        {activeTab === 'approvals' && <ApprovalsView />}
         {activeTab === 'replay' && <ReplayView />}
       </main>
     </div>
@@ -161,18 +168,115 @@ function MemoryView() {
 }
 
 function ReplayView() {
-  // Mock data for now until we have list endpoint
-  const episodes = [
-    { id: 1, input: "Check git status", created_at: Date.now() - 1000000 },
-  ];
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  const { data: episodes } = useQuery({
+    queryKey: ['episodes'],
+    queryFn: () => fetch('/api/replay?limit=50').then(res => res.json())
+  });
+
+  const { data: episodeDetail } = useQuery({
+    queryKey: ['episode', selectedId],
+    queryFn: () => fetch(`/api/replay/${selectedId}`).then(res => res.json()),
+    enabled: selectedId !== null
+  });
 
   return (
     <div className="max-w-4xl mx-auto">
       <h2 className="text-2xl font-bold mb-6">Replay Studio</h2>
-      <div className="bg-white rounded-lg border border-gray-200 p-6 text-center text-gray-500">
-        <History className="mx-auto mb-2 text-gray-300" size={48} />
-        <p>Select an episode to replay execution traces.</p>
-        <p className="text-xs mt-2">(Coming soon: Full trace visualization)</p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 font-semibold">Episodes</div>
+          <ul className="divide-y divide-gray-100">
+            {episodes?.map((e: any) => (
+              <li key={e.id}>
+                <button
+                  onClick={() => setSelectedId(e.id)}
+                  className={`w-full text-left px-6 py-4 hover:bg-gray-50 ${
+                    selectedId === e.id ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <div className="text-sm font-medium">{e.input}</div>
+                  <div className="text-xs text-gray-500">
+                    #{e.id} · {new Date(e.created_at).toLocaleString()}
+                  </div>
+                </button>
+              </li>
+            ))}
+            {!episodes?.length && (
+              <li className="px-6 py-6 text-center text-gray-500">No episodes yet.</li>
+            )}
+          </ul>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="font-semibold mb-3">Details</div>
+          {!episodeDetail && (
+            <div className="text-gray-500 text-sm">Select an episode to view traces.</div>
+          )}
+          {episodeDetail?.episode && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs text-gray-500">Input</div>
+                <div className="text-sm font-medium">{episodeDetail.episode.input}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">Result</div>
+                <div className="text-sm">{episodeDetail.episode.result || '—'}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">Traces</div>
+                <div className="text-xs text-gray-400">
+                  {episodeDetail.traces?.length || 0} step(s)
+                </div>
+              </div>
+              <div className="max-h-64 overflow-auto text-xs bg-gray-50 rounded p-3">
+                <pre>{JSON.stringify(episodeDetail.traces || [], null, 2)}</pre>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ApprovalsView() {
+  const { data: approvals } = useQuery({
+    queryKey: ['approvals'],
+    queryFn: () => fetch('/api/memory/approvals?limit=100').then(res => res.json())
+  });
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <h2 className="text-2xl font-bold mb-6">Risk Approvals</h2>
+
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-medium">
+            <tr>
+              <th className="px-6 py-3">Content</th>
+              <th className="px-6 py-3 w-40">Created</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {approvals?.map((fact: any) => (
+              <tr key={fact.id} className="hover:bg-gray-50">
+                <td className="px-6 py-4">{fact.content}</td>
+                <td className="px-6 py-4 text-sm text-gray-500">
+                  {new Date(fact.created_at).toLocaleDateString()}
+                </td>
+              </tr>
+            ))}
+            {!approvals?.length && (
+              <tr>
+                <td colSpan={2} className="px-6 py-8 text-center text-gray-500">
+                  No approvals recorded yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
