@@ -25,6 +25,15 @@ lydia strategy approve 1
 lydia strategy reject 1 -r "Reason"
 ```
 
+## Automatic Gate Rules (MVP)
+The proposal gate will reject strategies that:
+- set `preferences.autonomy_level` to `autonomous` or `full`
+- set `preferences.confirmation_bias` below `0.2`
+- include forbidden constraint keys:
+  - `skip_confirmations`
+  - `never_confirm`
+  - `allow_dangerous`
+
 ## Example
 ```yaml
 id: default

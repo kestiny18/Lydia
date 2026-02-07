@@ -3,4 +3,4 @@ export * from './intent.js';
 export * from './planner.js';
 export * from './strategy.js';
 export * from './registry.js';
-
+export * from './gate.js';

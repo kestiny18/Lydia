@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager } from '@lydia/core';
+import { Agent, AnthropicProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -230,7 +230,21 @@ async function main() {
       const registry = new StrategyRegistry();
 
       try {
-        await registry.loadFromFile(absPath);
+        const strategy = await registry.loadFromFile(absPath);
+        const gate = StrategyUpdateGate.validate(strategy);
+        if (!gate.ok) {
+          const id = memory.recordStrategyProposal({
+            strategy_path: absPath,
+            status: 'invalid',
+            reason: gate.reason,
+            created_at: Date.now(),
+            decided_at: Date.now(),
+          });
+          console.error(chalk.red(`Proposal rejected by gate: ${id}`));
+          console.error(chalk.red(gate.reason || 'Invalid strategy'));
+          return;
+        }
+
         const id = memory.recordStrategyProposal({
           strategy_path: absPath,
           status: 'pending_human',
