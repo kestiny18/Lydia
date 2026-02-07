@@ -23,6 +23,7 @@ lydia strategy propose path/to/strategy.yml
 lydia strategy proposals
 lydia strategy approve 1
 lydia strategy reject 1 -r "Reason"
+lydia strategy report 1 report.json
 ```
 
 ## Automatic Gate Rules (MVP)
@@ -44,6 +45,17 @@ When proposing a strategy, Lydia computes a minimal replay-based summary:
 - replay drift counts (episodes and steps)
 
 This summary is stored with the proposal for human review.
+
+## Approval Limits (MVP)
+Config fields:
+```json
+{
+  "strategy": {
+    "approvalCooldownDays": 7,
+    "approvalDailyLimit": 1
+  }
+}
+```
 
 ## Example
 ```yaml

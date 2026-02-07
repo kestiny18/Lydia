@@ -287,6 +287,7 @@ async function main() {
         };
 
         let baselineMetrics = null;
+        let baselineMeta: any = null;
         try {
           const config = await new ConfigLoader().load();
           const baselinePath = config.strategy?.activePath;
@@ -294,6 +295,7 @@ async function main() {
             ? await registry.loadFromFile(baselinePath)
             : await registry.loadDefault();
           baselineMetrics = computeMetrics(baseline);
+          baselineMeta = { id: baseline.id, version: baseline.version };
         } catch {
           baselineMetrics = null;
         }
@@ -302,6 +304,8 @@ async function main() {
 
         const evaluation = {
           episodes: episodes.length,
+          baseline_strategy: baselineMeta,
+          candidate_strategy: { id: strategy.id, version: strategy.version },
           baseline: baselineMetrics,
           candidate: candidateMetrics,
           delta: baselineMetrics
@@ -395,9 +399,37 @@ async function main() {
         return;
       }
 
+      const config = await new ConfigLoader().load();
+      const cooldownDays = config.strategy?.approvalCooldownDays ?? 7;
+      const dailyLimit = config.strategy?.approvalDailyLimit ?? 1;
+      const now = Date.now();
+
+      const lastApproval = memory.getFactByKey('strategy.approval.last');
+      if (lastApproval?.content) {
+        const lastTime = Number(lastApproval.content);
+        if (!Number.isNaN(lastTime)) {
+          const diffDays = (now - lastTime) / (24 * 60 * 60 * 1000);
+          if (diffDays < cooldownDays) {
+            console.error(chalk.red(`Approval cooldown active (${cooldownDays} days).`));
+            return;
+          }
+        }
+      }
+
+      const dateKey = new Date(now).toISOString().slice(0, 10);
+      const dailyKey = `strategy.approval.daily.${dateKey}`;
+      const dailyFact = memory.getFactByKey(dailyKey);
+      const dailyCount = dailyFact?.content ? Number(dailyFact.content) : 0;
+      if (!Number.isNaN(dailyCount) && dailyCount >= dailyLimit) {
+        console.error(chalk.red(`Daily approval limit reached (${dailyLimit}).`));
+        return;
+      }
+
       const loader = new ConfigLoader();
       await loader.update({ strategy: { activePath: proposal.strategy_path } } as any);
       memory.updateStrategyProposal(proposalId, 'approved');
+      memory.rememberFact(String(now), 'strategy.approval.last', ['strategy', 'approval']);
+      memory.rememberFact(String((Number.isNaN(dailyCount) ? 0 : dailyCount) + 1), dailyKey, ['strategy', 'approval']);
       console.log(chalk.green(`Approved proposal ${proposalId}`));
     });
 
@@ -455,6 +487,29 @@ async function main() {
         const summary = p.evaluation_json ? 'has_eval' : 'no_eval';
         console.log(`${p.id} | ${p.status} | ${summary}${delta} | ${p.strategy_path}`);
       });
+    });
+
+  strategyCmd
+    .command('report')
+    .description('Export proposal evaluation to a JSON file')
+    .argument('<id>', 'Proposal id')
+    .argument('<file>', 'Output file path')
+    .action(async (id, file) => {
+      const proposalId = Number(id);
+      if (Number.isNaN(proposalId)) {
+        console.error(chalk.red('Proposal id must be a number'));
+        return;
+      }
+      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+      const memory = new MemoryManager(dbPath);
+      const proposal = memory.getStrategyProposal(proposalId);
+      if (!proposal || !proposal.evaluation_json) {
+        console.error(chalk.red('Proposal evaluation not found'));
+        return;
+      }
+      const outPath = path.resolve(file);
+      fs.writeFileSync(outPath, proposal.evaluation_json, 'utf-8');
+      console.log(chalk.green(`Report saved: ${outPath}`));
     });
 
   program.parse();

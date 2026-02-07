@@ -415,6 +415,12 @@ function StrategyView() {
                     {evalData && (
                       <div className="text-xs text-gray-500 mt-1">
                         episodes: {evalData.episodes}
+                        {evalData.baseline_strategy && evalData.candidate_strategy && (
+                          <span>
+                            {' '}· baseline: {evalData.baseline_strategy.id} v{evalData.baseline_strategy.version}
+                            {' '}· candidate: {evalData.candidate_strategy.id} v{evalData.candidate_strategy.version}
+                          </span>
+                        )}
                         {evalData.baseline && evalData.candidate && (
                           <span>
                             {' '}· baseline confirm: {evalData.baseline.confirm_required} · candidate confirm: {evalData.candidate.confirm_required}

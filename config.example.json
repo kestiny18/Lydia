@@ -10,7 +10,9 @@
     }
   },
   "strategy": {
-    "activePath": ""
+    "activePath": "",
+    "approvalCooldownDays": 7,
+    "approvalDailyLimit": 1
   },
   "safety": {
     "userDataDirs": [
