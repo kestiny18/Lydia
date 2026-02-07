@@ -19,6 +19,10 @@ You can also manage strategies via CLI:
 ```bash
 lydia strategy list
 lydia strategy use path/to/strategy.yml
+lydia strategy propose path/to/strategy.yml
+lydia strategy proposals
+lydia strategy approve 1
+lydia strategy reject 1 -r "Reason"
 ```
 
 ## Example

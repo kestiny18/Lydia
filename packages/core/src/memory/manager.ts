@@ -30,6 +30,15 @@ export interface Trace {
   status: 'success' | 'failed';
 }
 
+export interface StrategyProposal {
+  id?: number;
+  strategy_path: string;
+  status: 'pending_human' | 'approved' | 'rejected' | 'invalid';
+  reason?: string;
+  created_at: number;
+  decided_at?: number;
+}
+
 export class MemoryManager extends EventEmitter {
   private db: Database.Database;
 
@@ -133,6 +142,18 @@ export class MemoryManager extends EventEmitter {
         duration INTEGER NOT NULL,
         status TEXT NOT NULL,
         FOREIGN KEY(episode_id) REFERENCES episodes(id)
+      );
+    `);
+
+    // 6. Strategy Proposals Table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS strategy_proposals (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        strategy_path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT,
+        created_at INTEGER NOT NULL,
+        decided_at INTEGER
       );
     `);
   }
@@ -259,6 +280,45 @@ export class MemoryManager extends EventEmitter {
   public listEpisodes(limit: number = 100): Episode[] {
     const stmt = this.db.prepare('SELECT * FROM episodes ORDER BY created_at DESC LIMIT ?');
     return stmt.all(limit) as Episode[];
+  }
+
+  public recordStrategyProposal(proposal: StrategyProposal): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO strategy_proposals (strategy_path, status, reason, created_at, decided_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      proposal.strategy_path,
+      proposal.status,
+      proposal.reason || null,
+      proposal.created_at,
+      proposal.decided_at || null
+    );
+    return info.lastInsertRowid as number;
+  }
+
+  public updateStrategyProposal(id: number, status: StrategyProposal['status'], reason?: string): boolean {
+    const stmt = this.db.prepare(`
+      UPDATE strategy_proposals
+      SET status = ?, reason = ?, decided_at = ?
+      WHERE id = ?
+    `);
+    const info = stmt.run(status, reason || null, Date.now(), id);
+    return info.changes > 0;
+  }
+
+  public getStrategyProposal(id: number): StrategyProposal | undefined {
+    const stmt = this.db.prepare('SELECT * FROM strategy_proposals WHERE id = ?');
+    return stmt.get(id) as StrategyProposal | undefined;
+  }
+
+  public listStrategyProposals(limit: number = 50): StrategyProposal[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM strategy_proposals
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(limit) as StrategyProposal[];
   }
 
   /**

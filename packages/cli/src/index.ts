@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, ReplayManager, StrategyRegistry, ConfigLoader } from '@lydia/core';
+import { Agent, AnthropicProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -217,6 +217,112 @@ async function main() {
       } catch (error: any) {
         console.error(chalk.red('Failed to set active strategy:'), error.message);
       }
+    });
+
+  strategyCmd
+    .command('propose')
+    .description('Propose a strategy update for review')
+    .argument('<file>', 'Path to strategy file')
+    .action(async (file) => {
+      const absPath = path.resolve(file);
+      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+      const memory = new MemoryManager(dbPath);
+      const registry = new StrategyRegistry();
+
+      try {
+        await registry.loadFromFile(absPath);
+        const id = memory.recordStrategyProposal({
+          strategy_path: absPath,
+          status: 'pending_human',
+          created_at: Date.now(),
+        });
+        console.log(chalk.green(`Proposal created: ${id}`));
+      } catch (error: any) {
+        const id = memory.recordStrategyProposal({
+          strategy_path: absPath,
+          status: 'invalid',
+          reason: error.message,
+          created_at: Date.now(),
+          decided_at: Date.now(),
+        });
+        console.error(chalk.red(`Proposal invalid: ${id}`));
+        console.error(chalk.red(error.message));
+      }
+    });
+
+  strategyCmd
+    .command('approve')
+    .description('Approve a strategy proposal')
+    .argument('<id>', 'Proposal id')
+    .action(async (id) => {
+      const proposalId = Number(id);
+      if (Number.isNaN(proposalId)) {
+        console.error(chalk.red('Proposal id must be a number'));
+        return;
+      }
+
+      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+      const memory = new MemoryManager(dbPath);
+      const proposal = memory.getStrategyProposal(proposalId);
+      if (!proposal) {
+        console.error(chalk.red('Proposal not found'));
+        return;
+      }
+      if (proposal.status !== 'pending_human') {
+        console.error(chalk.red(`Proposal is ${proposal.status}`));
+        return;
+      }
+
+      const loader = new ConfigLoader();
+      await loader.update({ strategy: { activePath: proposal.strategy_path } } as any);
+      memory.updateStrategyProposal(proposalId, 'approved');
+      console.log(chalk.green(`Approved proposal ${proposalId}`));
+    });
+
+  strategyCmd
+    .command('reject')
+    .description('Reject a strategy proposal')
+    .argument('<id>', 'Proposal id')
+    .option('-r, --reason <reason>', 'Rejection reason')
+    .action(async (id, options) => {
+      const proposalId = Number(id);
+      if (Number.isNaN(proposalId)) {
+        console.error(chalk.red('Proposal id must be a number'));
+        return;
+      }
+
+      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+      const memory = new MemoryManager(dbPath);
+      const proposal = memory.getStrategyProposal(proposalId);
+      if (!proposal) {
+        console.error(chalk.red('Proposal not found'));
+        return;
+      }
+      if (proposal.status !== 'pending_human') {
+        console.error(chalk.red(`Proposal is ${proposal.status}`));
+        return;
+      }
+
+      memory.updateStrategyProposal(proposalId, 'rejected', options.reason);
+      console.log(chalk.yellow(`Rejected proposal ${proposalId}`));
+    });
+
+  strategyCmd
+    .command('proposals')
+    .description('List recent strategy proposals')
+    .option('-n, --limit <limit>', 'Max number of proposals', '20')
+    .action(async (options) => {
+      const limit = Number(options.limit) || 20;
+      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+      const memory = new MemoryManager(dbPath);
+      const proposals = memory.listStrategyProposals(limit);
+      if (proposals.length === 0) {
+        console.log(chalk.yellow('No proposals found.'));
+        return;
+      }
+      proposals.forEach((p) => {
+        console.log(`${p.id} | ${p.status} | ${p.strategy_path}`);
+      });
     });
 
   program.parse();
