@@ -124,7 +124,7 @@ Lydia automatically learns this on the next run!
 └───────────────┬─────────────────────────┘
 ```
 
-**Full Architecture**: [docs/architecture.md](docs/architecture.md)
+**Full Architecture**: [docs/architecture/overview.md](docs/architecture/overview.md)
 
 ---
 

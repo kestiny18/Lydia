@@ -5,31 +5,28 @@
 ### Layer 1: Strategic (Why)
 - [Product Vision](./vision.md) - Long-term goals and value proposition
 - [Core Philosophy](./philosophy.md) - Design philosophy and principles
-- [Positioning](./positioning.md) - Comparison with competitors and differentiation
+- Positioning (planned)
 
 ### Layer 2: Tactical (What)
-- [Product Requirements (PRD)](./prd.md) - Feature requirements and user stories
+- Product Requirements (PRD) (planned)
 - [Technical Roadmap](./roadmap.md) - Phased development plan
 - [Architecture Design (ADD)](./architecture/) - System architecture
   - [Overview](./architecture/overview.md)
-  - [Module Design](./architecture/modules.md)
-  - [Data Model](./architecture/data-model.md)
-  - [API Design](./architecture/api.md)
+  - Module Design (planned)
+  - Data Model (planned)
+  - API Design (planned)
+- [Safety and Risk Controls](./safety.md)
 
 ### Layer 3: Execution (How)
-- [Development Guide](./development/) - Standards and processes
-  - [Code Style](./development/code-style.md)
-  - [Git Workflow](./development/git-workflow.md)
-  - [Testing Strategy](./development/testing.md)
-  - [Release Process](./development/release.md)
-- [API Reference](./api/) - External API documentation
-- [Implementation Details](./implementation/) - Specific module implementation notes
+- Development Guide (planned)
+- API Reference (planned)
+- Implementation Details (planned)
 
 ### Layer 4: Reference (Lookup)
-- [FAQ](./faq.md) - Frequently asked questions
-- [Glossary](./glossary.md) - Term definitions
 - [Decision Records (ADR)](./adr/) - Records of important design decisions
-- [Changelog](../CHANGELOG.md) - Version history
+- FAQ (planned)
+- Glossary (planned)
+- Changelog (planned)
 
 ---
 

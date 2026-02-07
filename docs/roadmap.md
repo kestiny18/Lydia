@@ -9,10 +9,12 @@ Within 2 weeks, using a **vertical slice** approach, implement a runnable Strate
 
 | Included | Excluded (Future Iterations) |
 |----------|-----------------------------|
-| ✅ Strategy Engine Core (Simplified) | ❌ Full Branch Management |
-| ✅ CLI Client | ❌ Web API |
-| ✅ Basic MCP Integration | ❌ Memory System |
-| ✅ Single LLM Support | ❌ Multi-Model Switching |
+| Yes: Strategy Engine Core (Simplified) | No: Full Branch Management |
+| Yes: CLI Client | No: Advanced Web API (Auth/WebSocket) |
+| Yes: Basic MCP Integration | No: Advanced Memory (Sync/Vector) |
+| Yes: Single LLM Support | No: Multi-Model Switching |
+| Yes: Basic Web API (Dashboard) | No: Production-grade API |
+| Yes: Local Memory (SQLite) | No: Distributed Memory |
 
 ### Success Criteria
 
@@ -48,14 +50,14 @@ Successfully running this complete flow constitutes MVP success.
 ### Week 2: End-to-End Connection
 
 #### Day 8-9: MCP Integration
-- [ ] Integrate @modelcontextprotocol/sdk
-- [ ] Implement MCP Client Manager
-- [ ] Built-in Shell Command MCP Server
+- [x] Integrate @modelcontextprotocol/sdk
+- [x] Implement MCP Client Manager
+- [x] Built-in Shell Command MCP Server
 
 #### Day 10-11: CLI Client
-- [ ] Basic command parsing (lydia run "task description")
-- [ ] Interactive conversation mode
-- [ ] Execution process output display
+- [x] Basic command parsing (lydia run "task description")
+- [x] Interactive conversation mode
+- [x] Execution process output display
 
 #### Day 12-14: Integration Testing & Fixes
 - [ ] End-to-end flow testing
@@ -67,9 +69,9 @@ Successfully running this complete flow constitutes MVP success.
 ```
 lydia/
 ├── packages/
-│   ├── core/           # Strategy Engine + LLM + MCP Client
-│   ├── cli/            # Command Line Client
-│   └── shared/         # Shared Types
+�?  ├── core/           # Strategy Engine + LLM + MCP Client
+�?  ├── cli/            # Command Line Client
+�?  └── shared/         # Shared Types
 ├── docs/               # Documentation
 └── README.md           # Quick Start Guide
 ```
@@ -112,7 +114,7 @@ lydia/
 ## Phase 4: Multi-Platform Support (Week 7-8)
 
 ### Web API
-- [ ] RESTful API Design
+- [ ] RESTful API Design (production)
 - [ ] WebSocket Real-time Communication
 - [ ] API Authentication Mechanism
 
@@ -140,8 +142,8 @@ lydia/
 Implement the simplest version of each feature first, run through the complete flow, then iteratively improve.
 
 ```
-❌ Wrong: Spend 1 week perfecting LLM layer, then 1 week perfecting Strategy Engine...
-✅ Right: By Week 1, lydia run "hello" works, then iterate and optimize.
+�?Wrong: Spend 1 week perfecting LLM layer, then 1 week perfecting Strategy Engine...
+�?Right: By Week 1, lydia run "hello" works, then iterate and optimize.
 ```
 
 ### Documentation Driven
@@ -155,4 +157,4 @@ Implement the simplest version of each feature first, run through the complete f
 
 ---
 
-**Last Updated**: 2025-02-06
+**Last Updated**: 2026-02-07

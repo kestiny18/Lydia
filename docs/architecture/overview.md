@@ -65,7 +65,7 @@
 | **Language** | TypeScript | Type safety, rich ecosystem, unified frontend/backend |
 | **Runtime** | Node.js | Mature, stable, async-friendly, cross-platform |
 | **CLI Framework** | Commander + Inquirer | Lightweight, flexible, interactive |
-| **Web Framework** | Fastify | High performance, TypeScript friendly |
+| **Web Framework** | Hono | Lightweight, fast, TypeScript friendly |
 | **LLM Integration** | Custom Abstraction | Support multi-model switching, unified interface |
 | **Tool Execution** | MCP (Model Context Protocol) | Industry standard, rich ecosystem |
 | **Knowledge** | Skill System | Lightweight config, user extensible |
