@@ -210,6 +210,8 @@ async function main() {
       const loader = new ConfigLoader();
       try {
         const absPath = path.resolve(file);
+        const registry = new StrategyRegistry();
+        await registry.loadFromFile(absPath);
         await loader.update({ strategy: { activePath: absPath } } as any);
         console.log(chalk.green(`Active strategy set to: ${absPath}`));
       } catch (error: any) {

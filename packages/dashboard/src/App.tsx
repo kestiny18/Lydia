@@ -234,6 +234,14 @@ function ReplayView() {
                 <div className="text-xs text-gray-500">Result</div>
                 <div className="text-sm">{episodeDetail.episode.result || '—'}</div>
               </div>
+              {(episodeDetail.episode.strategy_id || episodeDetail.episode.strategy_version) && (
+                <div>
+                  <div className="text-xs text-gray-500">Strategy</div>
+                  <div className="text-sm">
+                    {episodeDetail.episode.strategy_id || 'unknown'} v{episodeDetail.episode.strategy_version || '0'}
+                  </div>
+                </div>
+              )}
               <div>
                 <div className="text-xs text-gray-500">Traces</div>
                 <div className="text-xs text-gray-400">
