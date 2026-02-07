@@ -36,6 +36,14 @@ Most current AI agents are either rigid tools (don't learn) or black boxes (lear
 
 ---
 
+## 🎬 See It In Action
+
+> *Placeholder for Demo GIF: Showing Lydia accepting a task, checking memory, asking for confirmation, and executing it.*
+
+![Lydia Demo](docs/demo.gif)
+
+---
+
 ## 🚀 Quick Start (5 Minutes)
 
 ### Install
