@@ -247,6 +247,19 @@ function ApprovalsView() {
     queryFn: () => fetch('/api/memory/approvals?limit=100').then(res => res.json())
   });
 
+  const parseTags = (tags?: string[]) => {
+    const result: Record<string, string> = {};
+    (tags || []).forEach((tag) => {
+      const parts = tag.split(':');
+      if (parts.length >= 2) {
+        const key = parts[0];
+        const value = parts.slice(1).join(':');
+        result[key] = value;
+      }
+    });
+    return result;
+  };
+
   return (
     <div className="max-w-4xl mx-auto">
       <h2 className="text-2xl font-bold mb-6">Risk Approvals</h2>
@@ -256,13 +269,28 @@ function ApprovalsView() {
           <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-medium">
             <tr>
               <th className="px-6 py-3">Content</th>
+              <th className="px-6 py-3 w-40">Scope</th>
               <th className="px-6 py-3 w-40">Created</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {approvals?.map((fact: any) => (
               <tr key={fact.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4">{fact.content}</td>
+                <td className="px-6 py-4">
+                  <div className="font-medium">{fact.content}</div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {(() => {
+                      const tags = parseTags(fact.tags);
+                      const tool = tags.tool ? `tool: ${tags.tool}` : '';
+                      const reason = tags.reason ? `reason: ${tags.reason}` : '';
+                      const signature = tags.signature ? `signature: ${tags.signature}` : '';
+                      return [tool, reason, signature].filter(Boolean).join(' · ');
+                    })()}
+                  </div>
+                </td>
+                <td className="px-6 py-4 text-sm text-gray-500">
+                  {parseTags(fact.tags).scope || 'unknown'}
+                </td>
                 <td className="px-6 py-4 text-sm text-gray-500">
                   {new Date(fact.created_at).toLocaleDateString()}
                 </td>
@@ -270,7 +298,7 @@ function ApprovalsView() {
             ))}
             {!approvals?.length && (
               <tr>
-                <td colSpan={2} className="px-6 py-8 text-center text-gray-500">
+                <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
                   No approvals recorded yet.
                 </td>
               </tr>

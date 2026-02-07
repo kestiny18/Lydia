@@ -15,12 +15,16 @@ High-risk actions include:
 - Destructive shell commands targeting protected paths.
 - File writes inside protected paths.
 
-When a tool call is high risk, Lydia will ask for confirmation. If approved, the decision is stored and can be reused.
+When a tool call is high risk, Lydia will ask for confirmation. Approvals can be temporary (task-only) or persistent.
 
 ## Approval Memory
 Approvals are stored in SQLite as facts with the `risk_approval` tag. This enables:
 - Persistent approvals across tasks.
 - Auditability via the dashboard.
+
+The prompt supports:
+- `yes` for task-only approval
+- `always` for persistent approval
 
 You can disable approval memory in config:
 
