@@ -414,7 +414,17 @@ function StrategyView() {
                     <div className="font-medium">#{p.id} {p.strategy_path}</div>
                     {evalData && (
                       <div className="text-xs text-gray-500 mt-1">
-                        episodes: {evalData.episodes} · traces: {evalData.traces} · confirm_required: {evalData.confirm_required}
+                        episodes: {evalData.episodes}
+                        {evalData.baseline && evalData.candidate && (
+                          <span>
+                            {' '}· baseline confirm: {evalData.baseline.confirm_required} · candidate confirm: {evalData.candidate.confirm_required}
+                          </span>
+                        )}
+                        {evalData.delta && (
+                          <span>
+                            {' '}· delta confirm: {evalData.delta.confirm_required}
+                          </span>
+                        )}
                       </div>
                     )}
                     {p.reason && (

@@ -245,32 +245,60 @@ async function main() {
           return;
         }
 
-        const mustConfirm = Array.isArray((strategy as any).constraints?.must_confirm)
-          ? (strategy as any).constraints.must_confirm
-          : [];
         const episodes = memory.listEpisodes(50);
-        let totalTraces = 0;
-        let confirmTraces = 0;
-        const toolCounts: Record<string, number> = {};
 
-        for (const ep of episodes) {
-          if (!ep.id) continue;
-          const traces = memory.getTraces(ep.id);
-          for (const t of traces) {
-            totalTraces += 1;
-            toolCounts[t.tool_name] = (toolCounts[t.tool_name] || 0) + 1;
-            if (mustConfirm.includes(t.tool_name)) {
-              confirmTraces += 1;
+        const computeMetrics = (s: any) => {
+          const mustConfirm = Array.isArray(s?.constraints?.must_confirm)
+            ? s.constraints.must_confirm
+            : [];
+          let totalTraces = 0;
+          let confirmTraces = 0;
+          const toolCounts: Record<string, number> = {};
+
+          for (const ep of episodes) {
+            if (!ep.id) continue;
+            const traces = memory.getTraces(ep.id);
+            for (const t of traces) {
+              totalTraces += 1;
+              toolCounts[t.tool_name] = (toolCounts[t.tool_name] || 0) + 1;
+              if (mustConfirm.includes(t.tool_name)) {
+                confirmTraces += 1;
+              }
             }
           }
+
+          return {
+            traces: totalTraces,
+            confirm_required: confirmTraces,
+            must_confirm: mustConfirm,
+            tool_usage: toolCounts,
+          };
+        };
+
+        let baselineMetrics = null;
+        try {
+          const config = await new ConfigLoader().load();
+          const baselinePath = config.strategy?.activePath;
+          const baseline = baselinePath
+            ? await registry.loadFromFile(baselinePath)
+            : await registry.loadDefault();
+          baselineMetrics = computeMetrics(baseline);
+        } catch {
+          baselineMetrics = null;
         }
+
+        const candidateMetrics = computeMetrics(strategy);
 
         const evaluation = {
           episodes: episodes.length,
-          traces: totalTraces,
-          confirm_required: confirmTraces,
-          must_confirm: mustConfirm,
-          tool_usage: toolCounts,
+          baseline: baselineMetrics,
+          candidate: candidateMetrics,
+          delta: baselineMetrics
+            ? {
+                confirm_required: candidateMetrics.confirm_required - baselineMetrics.confirm_required,
+                traces: candidateMetrics.traces - baselineMetrics.traces
+              }
+            : null,
         };
 
         const id = memory.recordStrategyProposal({
@@ -364,8 +392,17 @@ async function main() {
         return;
       }
       proposals.forEach((p) => {
+        let delta = '';
+        if (p.evaluation_json) {
+          try {
+            const evalData = JSON.parse(p.evaluation_json);
+            if (evalData?.delta?.confirm_required !== undefined) {
+              delta = ` | delta_confirm: ${evalData.delta.confirm_required}`;
+            }
+          } catch {}
+        }
         const summary = p.evaluation_json ? 'has_eval' : 'no_eval';
-        console.log(`${p.id} | ${p.status} | ${summary} | ${p.strategy_path}`);
+        console.log(`${p.id} | ${p.status} | ${summary}${delta} | ${p.strategy_path}`);
       });
     });
 
