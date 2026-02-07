@@ -8,5 +8,22 @@
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
     }
+  },
+  "safety": {
+    "userDataDirs": [
+      "~/.lydia",
+      "~/Desktop",
+      "~/Documents",
+      "~/Downloads"
+    ],
+    "systemDirs": [
+      "C:\\\\Windows",
+      "C:\\\\Program Files",
+      "C:\\\\Program Files (x86)",
+      "C:\\\\ProgramData"
+    ],
+    "allowPaths": [],
+    "denyPaths": [],
+    "rememberApprovals": true
   }
 }

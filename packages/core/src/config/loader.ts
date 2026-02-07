@@ -19,7 +19,7 @@ export class ConfigLoader {
         if (!existsSync(dir)) {
           await mkdir(dir, { recursive: true });
         }
-        return { mcpServers: {} };
+        return ConfigSchema.parse({});
       }
 
       const content = await readFile(this.configPath, 'utf-8');
@@ -27,7 +27,7 @@ export class ConfigLoader {
       return ConfigSchema.parse(raw);
     } catch (error) {
       console.warn(`Failed to load config from ${this.configPath}:`, error);
-      return { mcpServers: {} };
+      return ConfigSchema.parse({});
     }
   }
 }

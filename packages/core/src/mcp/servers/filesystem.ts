@@ -26,8 +26,11 @@ export class FileSystemServer {
 
   private validatePath(requestedPath: string): string {
     const resolvedPath = path.resolve(this.allowedRootDir, requestedPath);
-    // Basic security check: prevent escaping root (MVP level security)
-    // For now, we allow access relative to CWD.
+    const root = process.platform === 'win32' ? this.allowedRootDir.toLowerCase() : this.allowedRootDir;
+    const target = process.platform === 'win32' ? resolvedPath.toLowerCase() : resolvedPath;
+    if (!target.startsWith(root)) {
+      throw new Error('Access denied: path outside allowed root');
+    }
     return resolvedPath;
   }
 

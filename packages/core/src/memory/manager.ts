@@ -180,6 +180,27 @@ export class MemoryManager extends EventEmitter {
       }));
   }
 
+  public getFactsByTag(tag: string, limit: number = 100): Fact[] {
+      const stmt = this.db.prepare(`
+        SELECT * FROM facts
+        WHERE tags LIKE ?
+        ORDER BY created_at DESC
+        LIMIT ?
+      `);
+      const rows = stmt.all(`%${tag}%`, limit) as any[];
+      return rows.map(row => ({
+          ...row,
+          tags: JSON.parse(row.tags || '[]')
+      }));
+  }
+
+  public getFactByKey(key: string): Fact | undefined {
+      const stmt = this.db.prepare('SELECT * FROM facts WHERE key = ?');
+      const row = stmt.get(key) as any;
+      if (!row) return undefined;
+      return { ...row, tags: JSON.parse(row.tags || '[]') };
+  }
+
   /**
    * Record a completed task execution and return its ID
    */
@@ -195,6 +216,11 @@ export class MemoryManager extends EventEmitter {
   public getEpisode(id: number): Episode | undefined {
     const stmt = this.db.prepare('SELECT * FROM episodes WHERE id = ?');
     return stmt.get(id) as Episode | undefined;
+  }
+
+  public listEpisodes(limit: number = 100): Episode[] {
+    const stmt = this.db.prepare('SELECT * FROM episodes ORDER BY created_at DESC LIMIT ?');
+    return stmt.all(limit) as Episode[];
   }
 
   /**

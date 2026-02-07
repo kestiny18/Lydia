@@ -13,8 +13,11 @@ import { SkillRegistry, SkillLoader } from '../skills/index.js';
 import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServer } from '../mcp/index.js';
 import { ConfigLoader } from '../config/index.js';
 import { MemoryManager, type Trace } from '../memory/index.js';
+import { InteractionServer } from '../mcp/servers/interaction.js';
+import { assessRisk, type RiskAssessment } from '../gate/index.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import type { LydiaConfig } from '../config/index.js';
 
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
@@ -24,8 +27,9 @@ export class Agent extends EventEmitter {
   private skillRegistry: SkillRegistry;
   private skillLoader: SkillLoader;
   private configLoader: ConfigLoader;
-  private memoryManager: MemoryManager;
+  private memoryManager!: MemoryManager;
   private interactionServer?: InteractionServer;
+  private config?: LydiaConfig;
   private isInitialized = false;
   private traces: Trace[] = [];
 
@@ -45,6 +49,7 @@ export class Agent extends EventEmitter {
 
     // 0. Load Configuration
     const config = await this.configLoader.load();
+    this.config = config;
 
     // 0.5 Initialize Memory
     const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
@@ -61,6 +66,17 @@ export class Agent extends EventEmitter {
       id: 'internal-memory',
       type: 'in-memory',
       transport: memClientTransport
+    });
+
+    // 0.6 Interaction Server (ask_user)
+    this.interactionServer = new InteractionServer();
+    this.interactionServer.on('request', (req) => this.emit('interaction_request', req));
+    const [interactionClientTransport, interactionServerTransport] = InMemoryTransport.createLinkedPair();
+    await this.interactionServer.server.connect(interactionServerTransport);
+    await this.mcpClientManager.connect({
+      id: 'internal-interaction',
+      type: 'in-memory',
+      transport: interactionClientTransport
     });
 
     // 1. Load Skills
@@ -202,6 +218,58 @@ export class Agent extends EventEmitter {
     return task;
   }
 
+  public resolveInteraction(id: string, response: string): boolean {
+    if (!this.interactionServer) return false;
+    return this.interactionServer.resolve(id, response);
+  }
+
+  private buildApprovalKey(signature: string): string {
+    return `risk_approval:${signature}`;
+  }
+
+  private getApprovalRecord(signature: string) {
+    const key = this.buildApprovalKey(signature);
+    return this.memoryManager.getFactByKey(key);
+  }
+
+  private recordApproval(signature: string, content: string, tags: string[]) {
+    if (!this.config?.safety?.rememberApprovals) return;
+    const key = this.buildApprovalKey(signature);
+    this.memoryManager.rememberFact(content, key, tags);
+  }
+
+  private async confirmRisk(risk: RiskAssessment, toolName: string): Promise<boolean> {
+    if (!risk.signature) return true;
+    const existing = this.getApprovalRecord(risk.signature);
+    if (existing) return true;
+    if (!this.mcpClientManager.getToolInfo('ask_user')) return true;
+
+    const reason = risk.reason || 'High risk action';
+    const details = risk.details ? `\nDetails: ${risk.details}` : '';
+    const prompt = `${reason}.\nTool: ${toolName}${details}\n\nDo you want to proceed? (yes/no)`;
+
+    const result = await this.mcpClientManager.callTool('ask_user', { prompt });
+    const textContent = result.content
+      .filter((c: any) => c.type === 'text')
+      .map((c: any) => c.text)
+      .join('\n')
+      .trim()
+      .toLowerCase();
+
+    const approved = textContent === 'yes' || textContent === 'y';
+
+    if (approved) {
+      const safeReason = reason.replace(/\s+/g, '_').toLowerCase();
+      this.recordApproval(
+        risk.signature,
+        `Approved: ${reason} (tool: ${toolName})`,
+        ['risk_approval', `tool:${toolName}`, `reason:${safeReason}`]
+      );
+    }
+
+    return approved;
+  }
+
   private resolveArgs(args: any, context: AgentContext): any {
     if (!args) return args;
     const state = context.state || {};
@@ -243,6 +311,14 @@ export class Agent extends EventEmitter {
         try {
           // Resolve arguments with context state
           const resolvedArgs = this.resolveArgs(step.args, context);
+
+          const risk = assessRisk(step.tool, resolvedArgs, this.mcpClientManager, this.config);
+          if (risk.level === 'high') {
+            const approved = await this.confirmRisk(risk, step.tool);
+            if (!approved) {
+              throw new Error('User denied high-risk action');
+            }
+          }
 
           // Log if args were modified (debug info)
           if (JSON.stringify(resolvedArgs) !== JSON.stringify(step.args)) {

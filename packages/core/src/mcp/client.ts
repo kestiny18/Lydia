@@ -69,6 +69,16 @@ export class McpClientManager {
     return Array.from(this.tools.values()).map(t => t.tool);
   }
 
+  getToolInfo(name: string): { serverId: string; tool: Tool } | undefined {
+    return this.tools.get(name);
+  }
+
+  isToolExternal(name: string): boolean {
+    const info = this.tools.get(name);
+    if (!info) return false;
+    return !info.serverId.startsWith('internal-');
+  }
+
   async callTool(name: string, args: any) {
     const toolInfo = this.tools.get(name);
     if (!toolInfo) {
