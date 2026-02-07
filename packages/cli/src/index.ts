@@ -9,6 +9,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
+import open from 'open';
+import { createServer } from './server/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -153,6 +155,24 @@ async function main() {
         await replayer.replay(id);
       } catch (error: any) {
         console.error(chalk.red('Replay Error:'), error.message);
+      }
+    });
+
+  program
+    .command('dashboard')
+    .description('Launch the Web Dashboard')
+    .option('-p, --port <number>', 'Port to run on', '3000')
+    .option('--no-open', 'Do not open browser automatically')
+    .action(async (options) => {
+      const port = parseInt(options.port, 10);
+      const server = createServer(port);
+      server.start();
+
+      const url = `http://localhost:${port}`;
+      console.log(chalk.green(`\n🚀 Dashboard running at: ${chalk.bold(url)}\n`));
+
+      if (options.open) {
+        await open(url);
       }
     });
 
