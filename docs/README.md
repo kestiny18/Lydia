@@ -23,6 +23,7 @@
 - Development Guide (planned)
 - API Reference (planned)
 - Implementation Details (planned)
+- [Getting Started](./getting-started.md)
 
 ### Layer 4: Reference (Lookup)
 - [Decision Records (ADR)](./adr/) - Records of important design decisions

@@ -14,6 +14,7 @@ import { createServer } from './server/index.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -176,6 +177,60 @@ async function main() {
 
       if (options.open) {
         await open(url);
+      }
+    });
+
+  program
+    .command('init')
+    .description('Initialize Lydia config, strategy, and folders')
+    .action(async () => {
+      const home = os.homedir();
+      const baseDir = path.join(home, '.lydia');
+      const strategiesDir = path.join(baseDir, 'strategies');
+      const skillsDir = path.join(baseDir, 'skills');
+      const configPath = path.join(baseDir, 'config.json');
+      const strategyPath = path.join(strategiesDir, 'default.yml');
+
+      try {
+        await fsPromises.mkdir(strategiesDir, { recursive: true });
+        await fsPromises.mkdir(skillsDir, { recursive: true });
+
+        if (!fs.existsSync(configPath)) {
+          const loader = new ConfigLoader();
+          const config = await loader.load();
+          await fsPromises.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+          console.log(chalk.green(`Created config: ${configPath}`));
+        } else {
+          console.log(chalk.gray(`Config already exists: ${configPath}`));
+        }
+
+        if (!fs.existsSync(strategyPath)) {
+          const content = [
+            'id: default',
+            'version: "1.0.0"',
+            'name: Default Strategy',
+            'description: Baseline strategy for safe execution.',
+            'preferences:',
+            '  autonomy_level: assisted',
+            '  confirmation_bias: high',
+            'constraints:',
+            '  must_confirm:',
+            '    - shell_execute',
+            '    - fs_write_file',
+            'evolution_limits:',
+            '  max_delta: 0.1',
+            '  cooldown_days: 7',
+            ''
+          ].join('\n');
+          await fsPromises.writeFile(strategyPath, content, 'utf-8');
+          console.log(chalk.green(`Created strategy: ${strategyPath}`));
+        } else {
+          console.log(chalk.gray(`Strategy already exists: ${strategyPath}`));
+        }
+
+        console.log(chalk.green('Lydia initialization complete.'));
+      } catch (error: any) {
+        console.error(chalk.red('Initialization failed:'), error.message);
       }
     });
 
