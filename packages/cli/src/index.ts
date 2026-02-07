@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
+import { Agent, AnthropicProvider, MockProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,22 +41,29 @@ async function main() {
     .description('Execute a task')
     .argument('<task>', 'The task description')
     .option('-m, --model <model>', 'Override default model')
+    .option('-p, --provider <provider>', 'LLM provider (anthropic|mock)')
     .action(async (taskDescription, options) => {
-      // check api key
-      if (!process.env.ANTHROPIC_API_KEY) {
-        console.error(chalk.red('Error: ANTHROPIC_API_KEY is not set.'));
-        console.error('Please set it in your .env file or environment variables.');
-        process.exit(1);
-      }
+      const config = await new ConfigLoader().load();
+      const provider = options.provider || config.llm?.provider || 'anthropic';
 
       console.log(chalk.bold.blue('\n🤖 Lydia is starting...\n'));
 
       const spinner = ora('Initializing Agent...').start();
 
       try {
-        const llm = new AnthropicProvider({
-            defaultModel: options.model
-        });
+        let llm;
+        if (provider === 'mock') {
+          llm = new MockProvider();
+        } else {
+          if (!process.env.ANTHROPIC_API_KEY) {
+            console.error(chalk.red('Error: ANTHROPIC_API_KEY is not set.'));
+            console.error('Please set it in your .env file or environment variables.');
+            process.exit(1);
+          }
+          llm = new AnthropicProvider({
+            defaultModel: options.model || config.llm?.defaultModel || undefined
+          });
+        }
         const agent = new Agent(llm);
 
         // --- Event Listeners for UI ---
@@ -78,7 +85,7 @@ async function main() {
           spinner.succeed(chalk.blue('Plan Generated'));
           console.log(chalk.bold('\n📝 Execution Plan:'));
           steps.forEach((s: any, i: number) => {
-             const icon = s.type === 'action' ? '⚡' : '💭';
+             const icon = s.type === 'action' ? '�? : '💭';
              console.log(`   ${i+1}. ${icon} ${s.description}`);
           });
           console.log(''); // newline
@@ -91,7 +98,7 @@ async function main() {
 
         agent.on('step:complete', (step) => {
           spinner.stopAndPersist({
-            symbol: '✅',
+            symbol: '�?,
             text: `${step.description}`
           });
 
@@ -110,7 +117,7 @@ async function main() {
         // --- Interaction Handler ---
         agent.on('interaction_request', async (request) => {
           // 1. Stop the current spinner so it doesn't conflict with input
-          spinner.stopAndPersist({ symbol: '❓', text: 'User Input Required' });
+          spinner.stopAndPersist({ symbol: '�?, text: 'User Input Required' });
 
           // 2. Prompt user
           const rl = readline.createInterface({ input, output });
@@ -128,7 +135,7 @@ async function main() {
 
 
         agent.on('task:complete', () => {
-          spinner.succeed(chalk.bold.green('Task Completed Successfully! ✨'));
+          spinner.succeed(chalk.bold.green('Task Completed Successfully! �?));
         });
 
         agent.on('task:error', (error) => {

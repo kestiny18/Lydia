@@ -7,6 +7,10 @@ export const McpServerSchema = z.object({
 });
 
 export const ConfigSchema = z.object({
+  llm: z.object({
+    provider: z.enum(['anthropic', 'mock']).default('anthropic'),
+    defaultModel: z.string().default(''),
+  }).default({}),
   mcpServers: z.record(McpServerSchema).default({}),
   strategy: z.object({
     activePath: z.string().default(''),
