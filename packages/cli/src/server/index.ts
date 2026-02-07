@@ -28,6 +28,19 @@ export function createServer(port: number = 3000) {
     });
   });
 
+  // Setup status
+  app.get('/api/setup', (c) => {
+    const baseDir = join(homedir(), '.lydia');
+    const configPath = join(baseDir, 'config.json');
+    const strategyPath = join(baseDir, 'strategies', 'default.yml');
+    const ready = existsSync(configPath) && existsSync(strategyPath);
+    return c.json({
+      ready,
+      configPath,
+      strategyPath
+    });
+  });
+
   // Get Facts
   app.get('/api/memory/facts', (c) => {
     const limit = Number(c.req.query('limit')) || 100;

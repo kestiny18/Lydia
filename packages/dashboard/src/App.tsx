@@ -10,6 +10,11 @@ function App() {
     queryFn: () => fetch('/api/status').then(res => res.json())
   });
 
+  const { data: setupStatus } = useQuery({
+    queryKey: ['setup'],
+    queryFn: () => fetch('/api/setup').then(res => res.json())
+  });
+
   return (
     <div className="flex h-screen bg-gray-100 text-gray-900 font-sans">
       {/* Sidebar */}
@@ -22,6 +27,11 @@ function App() {
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
             {status?.status === 'ok' ? 'System Online' : 'Connecting...'}
           </div>
+          {setupStatus && !setupStatus.ready && (
+            <div className="mt-2 text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-2 py-1">
+              Setup incomplete: run `lydia init`
+            </div>
+          )}
         </div>
 
         <nav className="flex-1 p-4 space-y-1">
@@ -383,6 +393,8 @@ function StrategyView() {
     queryFn: () => fetch('/api/strategy/proposals?limit=50').then(res => res.json())
   });
 
+  const [selected, setSelected] = useState<any>(null);
+
   const parseEval = (json?: string) => {
     if (!json) return null;
     try {
@@ -396,73 +408,75 @@ function StrategyView() {
     <div className="max-w-4xl mx-auto">
       <h2 className="text-2xl font-bold mb-6">Strategy Proposals</h2>
 
-      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-medium">
-            <tr>
-              <th className="px-6 py-3">Proposal</th>
-              <th className="px-6 py-3 w-32">Status</th>
-              <th className="px-6 py-3 w-40">Created</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {proposals?.map((p: any) => {
-              const evalData = parseEval(p.evaluation_json);
-              return (
-                <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">
-                    <div className="font-medium">#{p.id} {p.strategy_path}</div>
-                    {evalData && (
-                      <div className="text-xs text-gray-500 mt-1">
-                        episodes: {evalData.episodes}
-                        {evalData.baseline_strategy && evalData.candidate_strategy && (
-                          <span>
-                            {' '}· baseline: {evalData.baseline_strategy.id} v{evalData.baseline_strategy.version}
-                            {' '}· candidate: {evalData.candidate_strategy.id} v{evalData.candidate_strategy.version}
-                          </span>
-                        )}
-                        {evalData.baseline && evalData.candidate && (
-                          <span>
-                            {' '}· baseline confirm: {evalData.baseline.confirm_required} · candidate confirm: {evalData.candidate.confirm_required}
-                            {' '}· baseline success: {Math.round((evalData.baseline.success_rate || 0) * 100)}%
-                            {' '}· candidate success: {Math.round((evalData.candidate.success_rate || 0) * 100)}%
-                          </span>
-                        )}
-                        {evalData.delta && (
-                          <span>
-                            {' '}· delta confirm: {evalData.delta.confirm_required}
-                            {' '}· delta success: {Math.round((evalData.delta.success_rate || 0) * 100)}%
-                            {' '}· delta avg ms: {evalData.delta.avg_duration_ms}
-                          </span>
-                        )}
-                        {evalData.replay && (
-                          <span>
-                            {' '}· replay drift episodes: {evalData.replay.drift_episodes}
-                            {' '}· drift steps: {evalData.replay.drift_steps}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {p.reason && (
-                      <div className="text-xs text-red-500 mt-1">reason: {p.reason}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 text-sm">{p.status}</td>
-                  <td className="px-6 py-4 text-sm text-gray-500">
-                    {new Date(p.created_at).toLocaleDateString()}
-                  </td>
-                </tr>
-              );
-            })}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 font-semibold">Proposals</div>
+          <ul className="divide-y divide-gray-100">
+            {proposals?.map((p: any) => (
+              <li key={p.id}>
+                <button
+                  onClick={() => setSelected(p)}
+                  className={`w-full text-left px-6 py-4 hover:bg-gray-50 ${
+                    selected?.id === p.id ? 'bg-blue-50' : ''
+                  }`}
+                >
+                  <div className="text-sm font-medium">#{p.id} {p.strategy_path}</div>
+                  <div className="text-xs text-gray-500">{p.status}</div>
+                </button>
+              </li>
+            ))}
             {!proposals?.length && (
-              <tr>
-                <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
-                  No strategy proposals found.
-                </td>
-              </tr>
+              <li className="px-6 py-6 text-center text-gray-500">No strategy proposals found.</li>
             )}
-          </tbody>
-        </table>
+          </ul>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-6">
+          <div className="font-semibold mb-3">Details</div>
+          {!selected && (
+            <div className="text-gray-500 text-sm">Select a proposal to view details.</div>
+          )}
+          {selected && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs text-gray-500">Strategy Path</div>
+                <div className="text-sm font-medium">{selected.strategy_path}</div>
+              </div>
+              <div>
+                <div className="text-xs text-gray-500">Status</div>
+                <div className="text-sm">{selected.status}</div>
+              </div>
+              {selected.reason && (
+                <div>
+                  <div className="text-xs text-gray-500">Reason</div>
+                  <div className="text-sm text-red-500">{selected.reason}</div>
+                </div>
+              )}
+              {selected.evaluation_json && (
+                <div>
+                  <div className="text-xs text-gray-500">Evaluation</div>
+                  <pre className="bg-gray-50 p-3 rounded text-xs overflow-auto">{selected.evaluation_json}</pre>
+                </div>
+              )}
+              {selected.evaluation_json && (
+                <button
+                  onClick={() => {
+                    const blob = new Blob([selected.evaluation_json], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `proposal-${selected.id}-evaluation.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 text-xs rounded bg-gray-900 text-white"
+                >
+                  Download Evaluation JSON
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
