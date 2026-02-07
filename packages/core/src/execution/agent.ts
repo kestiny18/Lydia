@@ -89,7 +89,13 @@ export class Agent extends EventEmitter {
 
     // 1.5 Load Active Strategy
     try {
-      this.activeStrategy = await this.strategyRegistry.loadDefault();
+      const customPath = this.config?.strategy?.activePath;
+      if (customPath) {
+        this.activeStrategy = await this.strategyRegistry.loadFromFile(customPath);
+        this.strategyRegistry.setActive(this.activeStrategy.id);
+      } else {
+        this.activeStrategy = await this.strategyRegistry.loadDefault();
+      }
     } catch (error) {
       console.warn('Failed to load default strategy:', error);
     }

@@ -8,6 +8,9 @@ export const McpServerSchema = z.object({
 
 export const ConfigSchema = z.object({
   mcpServers: z.record(McpServerSchema).default({}),
+  strategy: z.object({
+    activePath: z.string().default(''),
+  }).default({}),
   safety: z.object({
     userDataDirs: z.array(z.string()).default([]),
     systemDirs: z.array(z.string()).default([]),

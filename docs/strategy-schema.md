@@ -6,6 +6,15 @@ This document defines the minimal strategy file format for Lydia.
 Default path:
 `~/.lydia/strategies/default.yml`
 
+You can override the active strategy in config:
+```json
+{
+  "strategy": {
+    "activePath": "C:\\\\Users\\\\me\\\\.lydia\\\\strategies\\\\default.yml"
+  }
+}
+```
+
 ## Example
 ```yaml
 id: default

@@ -9,6 +9,9 @@
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
     }
   },
+  "strategy": {
+    "activePath": ""
+  },
   "safety": {
     "userDataDirs": [
       "~/.lydia",
