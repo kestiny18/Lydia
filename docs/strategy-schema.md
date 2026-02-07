@@ -37,6 +37,8 @@ The proposal gate will reject strategies that:
 ## Proposal Evaluation (MVP)
 When proposing a strategy, Lydia computes a minimal replay-based summary:
 - baseline vs candidate confirmation counts
+- baseline vs candidate success rate
+- average tool call duration
 - total episodes and traces inspected
 - tool usage distribution
 

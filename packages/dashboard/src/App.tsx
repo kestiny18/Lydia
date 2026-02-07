@@ -418,11 +418,15 @@ function StrategyView() {
                         {evalData.baseline && evalData.candidate && (
                           <span>
                             {' '}· baseline confirm: {evalData.baseline.confirm_required} · candidate confirm: {evalData.candidate.confirm_required}
+                            {' '}· baseline success: {Math.round((evalData.baseline.success_rate || 0) * 100)}%
+                            {' '}· candidate success: {Math.round((evalData.candidate.success_rate || 0) * 100)}%
                           </span>
                         )}
                         {evalData.delta && (
                           <span>
                             {' '}· delta confirm: {evalData.delta.confirm_required}
+                            {' '}· delta success: {Math.round((evalData.delta.success_rate || 0) * 100)}%
+                            {' '}· delta avg ms: {evalData.delta.avg_duration_ms}
                           </span>
                         )}
                       </div>

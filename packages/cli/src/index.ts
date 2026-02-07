@@ -253,6 +253,9 @@ async function main() {
             : [];
           let totalTraces = 0;
           let confirmTraces = 0;
+          let successTraces = 0;
+          let failedTraces = 0;
+          let durationTotal = 0;
           const toolCounts: Record<string, number> = {};
 
           for (const ep of episodes) {
@@ -261,6 +264,9 @@ async function main() {
             for (const t of traces) {
               totalTraces += 1;
               toolCounts[t.tool_name] = (toolCounts[t.tool_name] || 0) + 1;
+              durationTotal += t.duration;
+              if (t.status === 'success') successTraces += 1;
+              if (t.status === 'failed') failedTraces += 1;
               if (mustConfirm.includes(t.tool_name)) {
                 confirmTraces += 1;
               }
@@ -272,6 +278,10 @@ async function main() {
             confirm_required: confirmTraces,
             must_confirm: mustConfirm,
             tool_usage: toolCounts,
+            success: successTraces,
+            failed: failedTraces,
+            success_rate: totalTraces > 0 ? successTraces / totalTraces : 0,
+            avg_duration_ms: totalTraces > 0 ? Math.round(durationTotal / totalTraces) : 0,
           };
         };
 
@@ -296,7 +306,9 @@ async function main() {
           delta: baselineMetrics
             ? {
                 confirm_required: candidateMetrics.confirm_required - baselineMetrics.confirm_required,
-                traces: candidateMetrics.traces - baselineMetrics.traces
+                traces: candidateMetrics.traces - baselineMetrics.traces,
+                success_rate: Number((candidateMetrics.success_rate - baselineMetrics.success_rate).toFixed(4)),
+                avg_duration_ms: candidateMetrics.avg_duration_ms - baselineMetrics.avg_duration_ms
               }
             : null,
         };
