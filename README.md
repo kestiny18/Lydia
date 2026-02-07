@@ -10,33 +10,34 @@
 
 ---
 
-## âš ï¸ The Problem: AI Assistants That Evolve... Into Chaos
+## The Problem: AI Assistants That Evolve... Into Chaos
 
 Imagine this scenario:
 
-**Week 1**: Your personal assistant learns to respond faster âœ…
-**Week 3**: It starts skipping confirmations to "save time" âš ï¸
-**Week 5**: It's sending emails or modifying code without your permission âŒ
-**Week 7**: You check the logs and realize: **It evolved beyond your control.** âŒâŒâŒ
+**Week 1**: Your personal assistant learns to respond faster.
+**Week 3**: It starts skipping confirmations to "save time".
+**Week 5**: It's sending emails or modifying code without your permission.
+**Week 7**: You check the logs and realize: **It evolved beyond your control.**
 
 Most current AI agents are either rigid tools (don't learn) or black boxes (learn unpredictably).
 
 ---
 
-## âœ… The Solution: Lydia
+## The Solution: Lydia
 
 **Lydia** is a personal AI assistant designed to be **capable yet controllable**. It treats **strategy evolution as a first-class citizen**, ensuring that as it learns to serve you better, it never violates your safety boundaries.
 
 ### Core Capabilities
 
-- ğŸ§  **Strategic Planning**: Breaks down complex requests into executed steps.
-- ğŸ› ï¸ **Full Toolset**: Built-in support for Shell, FileSystem, Git, and extensible via MCP.
-- ğŸ“š **Skill System**: Teach Lydia new capabilities via simple Markdown files.
-- ğŸ›¡ï¸ **Safety Gates**: (Coming Soon) Validates strategy updates before they are applied.
+- **Strategic Planning**: Breaks down complex requests into executed steps.
+- **Full Toolset**: Built-in support for Shell, FileSystem, Git, and extensible via MCP.
+- **Skill System**: Teach Lydia new capabilities via simple Markdown files.
+- **Safety Gates**: (Coming Soon) Validates strategy updates before they are applied.
+- **Risk Controls**: High-risk actions require confirmation with optional persistent approvals.
 
 ---
 
-## ğŸ¬ See It In Action
+## See It In Action
 
 > *Placeholder for Demo GIF: Showing Lydia accepting a task, checking memory, asking for confirmation, and executing it.*
 
@@ -44,7 +45,7 @@ Most current AI agents are either rigid tools (don't learn) or black boxes (lear
 
 ---
 
-## ğŸš€ Quick Start (5 Minutes)
+## Quick Start (5 Minutes)
 
 ### Install
 ```bash
@@ -82,7 +83,7 @@ Lydia automatically learns this on the next run!
 
 ---
 
-## ğŸ“Š Lydia vs. The Rest
+## Lydia vs. The Rest
 
 | Feature | LangChain / CrewAI | AutoGPT | **Lydia** |
 |---------|--------------------|---------|-----------|
@@ -93,7 +94,7 @@ Lydia automatically learns this on the next run!
 
 ---
 
-## ğŸ¯ Use Cases
+## Use Cases
 
 ### 1. **Coding Companion**
 "Lydia, refactor this component and run tests. Don't commit unless tests pass."
@@ -106,22 +107,22 @@ Lydia automatically learns this on the next run!
 
 ---
 
-## ğŸ—ï¸ Architecture (Under the Hood)
+## Architecture (Under the Hood)
 
 ```
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚           Intent Analyzer              â”‚  â† Understands your goal
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                â†“
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚         Strategic Planner              â”‚  â† Generates a safe plan
-â”‚  (loads your Skills & Preferences)     â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
-                â†“
-â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
-â”‚          Execution Engine              â”‚  â† Do the work
-â”‚   (Shell, FileSystem, Git, Custom...)  â”‚
-â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+©°©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©´
+©¦           Intent Analyzer              ©¦  ¡û Understands your goal
+©¸©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ğ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¼
+                ¡ı
+©°©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©´
+©¦         Strategic Planner              ©¦  ¡û Generates a safe plan
+©¦  (loads your Skills & Preferences)     ©¦
+©¸©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ğ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¼
+                ¡ı
+©°©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©´
+©¦          Execution Engine              ©¦  ¡û Do the work
+©¦   (Shell, FileSystem, Git, Custom...)  ©¦
+©¸©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ğ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¼
 ```
 
 **Full Architecture**: [docs/architecture/overview.md](docs/architecture/overview.md)
@@ -129,35 +130,23 @@ Lydia automatically learns this on the next run!
 
 ---
 
-## ğŸ›£ï¸ Roadmap
+## Roadmap and Progress
 
-### âœ… Phase 1-3: Foundation (Complete)
-- Core Engine (Intent, Planner, Execution)
-- Tool Integration (Shell, FS, Git, MCP)
-- Skill System (Markdown-based knowledge)
-- CLI Interface
-
-### âœ… Phase 4: Intelligence & Safety (Completed)
-- [x] **Long-term Memory**: Remembering your preferences and past tasks (SQLite)
-- [x] **Human-in-the-Loop**: Interactive confirmation for risky actions
-- [x] **Offline Replay**: Validating new strategies against past success
-
-### ğŸ“… Phase 5: Production Ready (Next)
-- [ ] Web Dashboard
-- [ ] Pre-built Skill Library
-- [ ] One-click Installer
+This README is the product entry point. Detailed progress tracking lives in:
+- [docs/north-star.md](docs/north-star.md) (strategic evolution roadmap)
+- [docs/roadmap.md](docs/roadmap.md) (engineering roadmap)
 
 ---
 
-## ğŸŒŸ Why "Lydia"?
+## Why "Lydia"?
 
-Named after the ancient kingdom of Lydia, which invented **coined money**â€”the first standardized, trustworthy medium of exchange.
+Named after the ancient kingdom of Lydia, which invented **coined money**¡ªthe first standardized, trustworthy medium of exchange.
 
 Just as Lydia brought **trust** to trade, we want to bring **trust** to your AI assistant.
 
 ---
 
-## ğŸ“„ License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
@@ -165,7 +154,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Built with â¤ï¸ by [kestiny18](https://github.com/kestiny18)**
+**Built with care by** [kestiny18](https://github.com/kestiny18)**
 
 *Your Trustworthy AI Assistant*
 

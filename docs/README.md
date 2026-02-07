@@ -16,6 +16,7 @@
   - Data Model (planned)
   - API Design (planned)
 - [Safety and Risk Controls](./safety.md)
+- [North Star](./north-star.md) - Strategy evolution roadmap
 
 ### Layer 3: Execution (How)
 - Development Guide (planned)
