@@ -248,6 +248,11 @@ function ReplayView() {
                   <span className="px-2 py-1 rounded bg-red-100 text-red-700">
                     failed: {episodeDetail.summary.failed}
                   </span>
+                  {episodeDetail.summary.failed > 0 && (
+                    <span className="px-2 py-1 rounded bg-yellow-100 text-yellow-700">
+                      drift suspected
+                    </span>
+                  )}
                 </div>
               )}
               <div className="space-y-3">
