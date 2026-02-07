@@ -245,9 +245,38 @@ async function main() {
           return;
         }
 
+        const mustConfirm = Array.isArray((strategy as any).constraints?.must_confirm)
+          ? (strategy as any).constraints.must_confirm
+          : [];
+        const episodes = memory.listEpisodes(50);
+        let totalTraces = 0;
+        let confirmTraces = 0;
+        const toolCounts: Record<string, number> = {};
+
+        for (const ep of episodes) {
+          if (!ep.id) continue;
+          const traces = memory.getTraces(ep.id);
+          for (const t of traces) {
+            totalTraces += 1;
+            toolCounts[t.tool_name] = (toolCounts[t.tool_name] || 0) + 1;
+            if (mustConfirm.includes(t.tool_name)) {
+              confirmTraces += 1;
+            }
+          }
+        }
+
+        const evaluation = {
+          episodes: episodes.length,
+          traces: totalTraces,
+          confirm_required: confirmTraces,
+          must_confirm: mustConfirm,
+          tool_usage: toolCounts,
+        };
+
         const id = memory.recordStrategyProposal({
           strategy_path: absPath,
           status: 'pending_human',
+          evaluation_json: JSON.stringify(evaluation),
           created_at: Date.now(),
         });
         console.log(chalk.green(`Proposal created: ${id}`));

@@ -35,6 +35,7 @@ export interface StrategyProposal {
   strategy_path: string;
   status: 'pending_human' | 'approved' | 'rejected' | 'invalid';
   reason?: string;
+  evaluation_json?: string;
   created_at: number;
   decided_at?: number;
 }
@@ -152,10 +153,22 @@ export class MemoryManager extends EventEmitter {
         strategy_path TEXT NOT NULL,
         status TEXT NOT NULL,
         reason TEXT,
+        evaluation_json TEXT,
         created_at INTEGER NOT NULL,
         decided_at INTEGER
       );
     `);
+
+    // Migrate existing DBs if column is missing
+    try {
+      const cols = this.db.prepare("PRAGMA table_info(strategy_proposals)").all() as any[];
+      const hasEval = cols.some(c => c.name === 'evaluation_json');
+      if (!hasEval) {
+        this.db.exec("ALTER TABLE strategy_proposals ADD COLUMN evaluation_json TEXT;");
+      }
+    } catch {
+      // Ignore migration errors to keep startup resilient
+    }
   }
 
   /**
@@ -284,26 +297,27 @@ export class MemoryManager extends EventEmitter {
 
   public recordStrategyProposal(proposal: StrategyProposal): number {
     const stmt = this.db.prepare(`
-      INSERT INTO strategy_proposals (strategy_path, status, reason, created_at, decided_at)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO strategy_proposals (strategy_path, status, reason, evaluation_json, created_at, decided_at)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       proposal.strategy_path,
       proposal.status,
       proposal.reason || null,
+      proposal.evaluation_json || null,
       proposal.created_at,
       proposal.decided_at || null
     );
     return info.lastInsertRowid as number;
   }
 
-  public updateStrategyProposal(id: number, status: StrategyProposal['status'], reason?: string): boolean {
+  public updateStrategyProposal(id: number, status: StrategyProposal['status'], reason?: string, evaluation_json?: string): boolean {
     const stmt = this.db.prepare(`
       UPDATE strategy_proposals
-      SET status = ?, reason = ?, decided_at = ?
+      SET status = ?, reason = ?, evaluation_json = ?, decided_at = ?
       WHERE id = ?
     `);
-    const info = stmt.run(status, reason || null, Date.now(), id);
+    const info = stmt.run(status, reason || null, evaluation_json || null, Date.now(), id);
     return info.changes > 0;
   }
 

@@ -34,6 +34,14 @@ The proposal gate will reject strategies that:
   - `never_confirm`
   - `allow_dangerous`
 
+## Proposal Evaluation (MVP)
+When proposing a strategy, Lydia computes a minimal replay-based summary:
+- total episodes and traces inspected
+- how many past tool calls would require confirmation
+- tool usage distribution
+
+This summary is stored with the proposal for human review.
+
 ## Example
 ```yaml
 id: default
