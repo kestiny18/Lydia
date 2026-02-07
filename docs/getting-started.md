@@ -35,8 +35,9 @@ You can set the provider in `~/.lydia/config.json`:
 ```json
 {
   "llm": {
-    "provider": "anthropic",
-    "defaultModel": ""
+    "provider": "auto",
+    "defaultModel": "",
+    "fallbackOrder": ["ollama", "openai", "anthropic"]
   }
 }
 ```
@@ -50,6 +51,13 @@ To use OpenAI:
 ```bash
 export OPENAI_API_KEY="..."
 lydia run --provider openai "test task"
+```
+
+To use Ollama:
+```bash
+export OLLAMA_BASE_URL="http://localhost:11434/api"
+export OLLAMA_DEFAULT_MODEL="llama3"
+lydia run --provider ollama "test task"
 ```
 
 ## Launch Dashboard

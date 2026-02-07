@@ -1,7 +1,8 @@
 {
   "llm": {
-    "provider": "anthropic",
-    "defaultModel": ""
+    "provider": "auto",
+    "defaultModel": "",
+    "fallbackOrder": ["ollama", "openai", "anthropic"]
   },
   "mcpServers": {
     "sqlite": {

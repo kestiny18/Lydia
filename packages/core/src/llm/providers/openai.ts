@@ -18,9 +18,10 @@ export class OpenAIProvider implements ILLMProvider {
   private client: OpenAI;
   private defaultModel: string;
 
-  constructor(options?: { apiKey?: string; defaultModel?: string }) {
+  constructor(options?: { apiKey?: string; baseURL?: string; defaultModel?: string }) {
     this.client = new OpenAI({
       apiKey: options?.apiKey || process.env.OPENAI_API_KEY,
+      baseURL: options?.baseURL || process.env.OPENAI_BASE_URL,
     });
     this.defaultModel = options?.defaultModel || process.env.OPENAI_DEFAULT_MODEL || 'gpt-4o-mini';
   }

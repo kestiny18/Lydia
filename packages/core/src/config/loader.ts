@@ -33,13 +33,17 @@ export class ConfigLoader {
 
   async update(partial: Partial<LydiaConfig>): Promise<LydiaConfig> {
     const current = await this.load();
-    const merged = ConfigSchema.parse({
-      ...current,
-      ...partial,
-      strategy: {
-        ...(current.strategy || {}),
-        ...(partial as any).strategy
-      },
+      const merged = ConfigSchema.parse({
+        ...current,
+        ...partial,
+        llm: {
+          ...(current.llm || {}),
+          ...(partial as any).llm
+        },
+        strategy: {
+          ...(current.strategy || {}),
+          ...(partial as any).strategy
+        },
       safety: {
         ...(current.safety || {}),
         ...(partial as any).safety

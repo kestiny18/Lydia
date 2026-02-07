@@ -8,8 +8,9 @@ export const McpServerSchema = z.object({
 
 export const ConfigSchema = z.object({
   llm: z.object({
-    provider: z.enum(['anthropic', 'openai', 'mock']).default('anthropic'),
+    provider: z.enum(['anthropic', 'openai', 'ollama', 'mock', 'auto']).default('auto'),
     defaultModel: z.string().default(''),
+    fallbackOrder: z.array(z.enum(['ollama', 'openai', 'anthropic', 'mock'])).default([]),
   }).default({}),
   mcpServers: z.record(McpServerSchema).default({}),
   strategy: z.object({

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { MockProvider } from './providers/mock.js';
 import { AnthropicProvider } from './providers/anthropic.js';
 import { OpenAIProvider } from './providers/openai.js';
+import { OllamaProvider } from './providers/ollama.js';
+import { FallbackProvider } from './providers/fallback.js';
 import type { LLMRequest } from './types.js';
 
 describe('LLM Core', () => {
@@ -75,6 +77,22 @@ describe('LLM Core', () => {
     it('should instantiate without error', () => {
       const provider = new OpenAIProvider({ apiKey: 'sk-dummy' });
       expect(provider.id).toBe('openai');
+    });
+  });
+
+  describe('OllamaProvider', () => {
+    it('should instantiate without error', () => {
+      const provider = new OllamaProvider({ baseURL: 'http://localhost:11434/api' });
+      expect(provider.id).toBe('ollama');
+    });
+  });
+
+  describe('FallbackProvider', () => {
+    it('should instantiate without error', () => {
+      const primary = new MockProvider();
+      const secondary = new MockProvider();
+      const provider = new FallbackProvider([primary, secondary]);
+      expect(provider.id).toBe('fallback');
     });
   });
 });

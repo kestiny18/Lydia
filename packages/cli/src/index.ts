@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, OpenAIProvider, MockProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
+import { Agent, AnthropicProvider, OpenAIProvider, OllamaProvider, MockProvider, FallbackProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,10 +41,9 @@ async function main() {
     .description('Execute a task')
     .argument('<task>', 'The task description')
     .option('-m, --model <model>', 'Override default model')
-    .option('-p, --provider <provider>', 'LLM provider (anthropic|openai|mock)')
+    .option('-p, --provider <provider>', 'LLM provider (anthropic|openai|ollama|mock|auto)')
     .action(async (taskDescription, options) => {
-      const config = await new ConfigLoader().load();
-      const provider = options.provider || config.llm?.provider || 'anthropic';
+      const config = await new ConfigLoader().load();\r\n      const providerChoice = options.provider || config.llm?.provider || 'auto';\r\n      const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0\r\n        ? config.llm.fallbackOrder\r\n        : ['ollama', 'openai', 'anthropic'];
 
       console.log(chalk.bold.blue('\n🤖 Lydia is starting...\n'));
 
@@ -52,27 +51,66 @@ async function main() {
 
       try {
         let llm;
-        if (provider === 'mock') {
-          llm = new MockProvider();
-        } else if (provider === 'openai') {
-          if (!process.env.OPENAI_API_KEY) {
-            console.error(chalk.red('Error: OPENAI_API_KEY is not set.'));
-            console.error('Please set it in your .env file or environment variables.');
+        const createProvider = (name, strict) => {
+          if (name === 'mock') {
+            return new MockProvider();
+          }
+          if (name === 'ollama') {
+            return new OllamaProvider({
+              defaultModel: options.model || config.llm?.defaultModel || undefined
+            });
+          }
+          if (name === 'openai') {
+            if (!process.env.OPENAI_API_KEY) {
+              if (strict) {
+                console.error(chalk.red('Error: OPENAI_API_KEY is not set.'));
+                console.error('Please set it in your .env file or environment variables.');
+                process.exit(1);
+              }
+              console.warn(chalk.yellow('Skipping OpenAI: OPENAI_API_KEY is not set.'));
+              return null;
+            }
+            return new OpenAIProvider({
+              defaultModel: options.model || config.llm?.defaultModel || undefined
+            });
+          }
+          if (name === 'anthropic') {
+            if (!process.env.ANTHROPIC_API_KEY) {
+              if (strict) {
+                console.error(chalk.red('Error: ANTHROPIC_API_KEY is not set.'));
+                console.error('Please set it in your .env file or environment variables.');
+                process.exit(1);
+              }
+              console.warn(chalk.yellow('Skipping Anthropic: ANTHROPIC_API_KEY is not set.'));
+              return null;
+            }
+            return new AnthropicProvider({
+              defaultModel: options.model || config.llm?.defaultModel || undefined
+            });
+          }
+          if (strict) {
+            console.error(chalk.red(`Error: Unknown provider ${name}.`));
             process.exit(1);
           }
-          llm = new OpenAIProvider({
-            defaultModel: options.model || config.llm?.defaultModel || undefined
-          });
+          console.warn(chalk.yellow(`Skipping unknown provider: ${name}.`));
+          return null;
+        };
+
+        if (providerChoice === 'auto') {
+          const providers = fallbackOrder.map((name) => createProvider(name, false)).filter(Boolean);
+          if (providers.length === 0) {
+            console.error(chalk.red('No available providers from fallbackOrder.'));
+            process.exit(1);
+          }
+          llm = providers.length === 1 ? providers[0] : new FallbackProvider(providers);
         } else {
-          if (!process.env.ANTHROPIC_API_KEY) {
-            console.error(chalk.red('Error: ANTHROPIC_API_KEY is not set.'));
-            console.error('Please set it in your .env file or environment variables.');
+          const provider = createProvider(providerChoice, true);
+          if (!provider) {
             process.exit(1);
           }
-          llm = new AnthropicProvider({
-            defaultModel: options.model || config.llm?.defaultModel || undefined
-          });
+          llm = provider;
         }
+
         const agent = new Agent(llm);
 
         // --- Event Listeners for UI ---
