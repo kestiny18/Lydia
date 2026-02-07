@@ -73,7 +73,22 @@ export function createServer(port: number = 3000) {
     if (!episode) return c.json({ error: 'Episode not found' }, 404);
 
     const traces = memoryManager.getTraces(id);
-    return c.json({ episode, traces });
+    const traceDetails = traces.map((t) => {
+      let args: any = null;
+      let output: any = null;
+      try {
+        args = JSON.parse(t.tool_args);
+      } catch {}
+      try {
+        output = JSON.parse(t.tool_output);
+      } catch {}
+      return {
+        ...t,
+        args,
+        output,
+      };
+    });
+    return c.json({ episode, traces: traceDetails });
   });
 
   // --- Static Files ---

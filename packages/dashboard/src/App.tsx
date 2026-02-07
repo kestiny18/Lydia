@@ -181,6 +181,15 @@ function ReplayView() {
     enabled: selectedId !== null
   });
 
+  const formatArgs = (args: any) => {
+    if (!args) return '—';
+    try {
+      return JSON.stringify(args, null, 2);
+    } catch {
+      return String(args);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto">
       <h2 className="text-2xl font-bold mb-6">Replay Studio</h2>
@@ -230,8 +239,25 @@ function ReplayView() {
                   {episodeDetail.traces?.length || 0} step(s)
                 </div>
               </div>
-              <div className="max-h-64 overflow-auto text-xs bg-gray-50 rounded p-3">
-                <pre>{JSON.stringify(episodeDetail.traces || [], null, 2)}</pre>
+              <div className="space-y-3">
+                {(episodeDetail.traces || []).map((t: any, index: number) => (
+                  <div key={t.id || index} className="border border-gray-100 rounded-lg p-3 text-xs">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold">Step {t.step_index + 1}</div>
+                      <div className={`px-2 py-0.5 rounded-full text-[10px] ${
+                        t.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                      }`}>
+                        {t.status}
+                      </div>
+                    </div>
+                    <div className="mt-2 text-gray-500">Tool</div>
+                    <div className="font-mono">{t.tool_name}</div>
+                    <div className="mt-2 text-gray-500">Args</div>
+                    <pre className="bg-gray-50 p-2 rounded overflow-auto">{formatArgs(t.args)}</pre>
+                    <div className="mt-2 text-gray-500">Output</div>
+                    <pre className="bg-gray-50 p-2 rounded overflow-auto">{formatArgs(t.output)}</pre>
+                  </div>
+                ))}
               </div>
             </div>
           )}
