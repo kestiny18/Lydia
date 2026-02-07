@@ -17,6 +17,7 @@
   - API Design (planned)
 - [Safety and Risk Controls](./safety.md)
 - [North Star](./north-star.md) - Strategy evolution roadmap
+- [Strategy Schema](./strategy-schema.md)
 
 ### Layer 3: Execution (How)
 - Development Guide (planned)

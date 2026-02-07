@@ -20,7 +20,7 @@ Exit Criteria:
 - Current behavior bound to a named strategy version.
 - Strategy file stored locally with version history.
 
-Status: In progress
+Status: In progress (schema + binding in code)
 
 ### Phase A2: Update Gate (Safety Review)
 Goal: Prevent unsafe or low-quality strategy changes.
