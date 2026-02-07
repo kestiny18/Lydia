@@ -52,6 +52,10 @@ export class ReplayManager {
       console.log(`Original Result: ${episode.result?.substring(0, 50)}...`);
       console.log(`Replay Result:   ${resultTask.result?.substring(0, 50)}...`);
 
+      if (mockMcp.drifts.length > 0) {
+        console.log(`Replay Drift Detected: ${mockMcp.drifts.length} issue(s)`);
+      }
+
       if (resultTask.status === 'completed') {
         console.log('✅ Replay Successful');
       } else {

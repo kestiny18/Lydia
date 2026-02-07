@@ -239,6 +239,16 @@ function ReplayView() {
                   {episodeDetail.traces?.length || 0} step(s)
                 </div>
               </div>
+              {episodeDetail.summary && (
+                <div className="flex gap-2 text-xs">
+                  <span className="px-2 py-1 rounded bg-green-100 text-green-700">
+                    success: {episodeDetail.summary.success}
+                  </span>
+                  <span className="px-2 py-1 rounded bg-red-100 text-red-700">
+                    failed: {episodeDetail.summary.failed}
+                  </span>
+                </div>
+              )}
               <div className="space-y-3">
                 {(episodeDetail.traces || []).map((t: any, index: number) => (
                   <div key={t.id || index} className="border border-gray-100 rounded-lg p-3 text-xs">

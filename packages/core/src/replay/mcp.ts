@@ -4,6 +4,7 @@ import type { Trace } from '../memory/index.js';
 export class ReplayMcpClientManager extends McpClientManager {
   private traces: Trace[];
   private callIndex = 0;
+  public drifts: Array<{ index: number; expected: string; actual: string; type: 'tool' | 'args' }> = [];
 
   constructor(traces: Trace[]) {
     super();
@@ -27,12 +28,19 @@ export class ReplayMcpClientManager extends McpClientManager {
 
     if (trace.tool_name !== name) {
       console.warn(`[Replay Drift] Expected tool '${trace.tool_name}' but got '${name}' at index ${this.callIndex}`);
+      this.drifts.push({ index: this.callIndex, expected: trace.tool_name, actual: name, type: 'tool' });
     }
 
     // Drift Detection: Args
     const originalArgs = JSON.parse(trace.tool_args);
     if (JSON.stringify(originalArgs) !== JSON.stringify(args)) {
       console.warn(`[Replay Drift] Arguments mismatch for tool '${name}' at index ${this.callIndex}`);
+      this.drifts.push({
+        index: this.callIndex,
+        expected: JSON.stringify(originalArgs),
+        actual: JSON.stringify(args),
+        type: 'args'
+      });
       // console.warn('Expected:', originalArgs);
       // console.warn('Got:', args);
     }
