@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, ReplayManager } from '@lydia/core';
+import { Agent, AnthropicProvider, ReplayManager, StrategyRegistry, ConfigLoader } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,8 @@ import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import open from 'open';
 import { createServer } from './server/index.js';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -173,6 +175,45 @@ async function main() {
 
       if (options.open) {
         await open(url);
+      }
+    });
+
+  const strategyCmd = program
+    .command('strategy')
+    .description('Manage strategies');
+
+  strategyCmd
+    .command('list')
+    .description('List available strategies')
+    .action(async () => {
+      const registry = new StrategyRegistry();
+      const dir = path.join(os.homedir(), '.lydia', 'strategies');
+      try {
+        const strategies = await registry.listFromDirectory(dir);
+        if (strategies.length === 0) {
+          console.log(chalk.yellow('No strategies found.'));
+          return;
+        }
+        strategies.forEach((s) => {
+          console.log(`${chalk.green(s.id)} v${s.version} - ${s.name}`);
+        });
+      } catch (error: any) {
+        console.error(chalk.red('Failed to list strategies:'), error.message);
+      }
+    });
+
+  strategyCmd
+    .command('use')
+    .description('Set active strategy by file path')
+    .argument('<file>', 'Path to strategy file')
+    .action(async (file) => {
+      const loader = new ConfigLoader();
+      try {
+        const absPath = path.resolve(file);
+        await loader.update({ strategy: { activePath: absPath } } as any);
+        console.log(chalk.green(`Active strategy set to: ${absPath}`));
+      } catch (error: any) {
+        console.error(chalk.red('Failed to set active strategy:'), error.message);
       }
     });
 

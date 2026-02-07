@@ -15,6 +15,12 @@ You can override the active strategy in config:
 }
 ```
 
+You can also manage strategies via CLI:
+```bash
+lydia strategy list
+lydia strategy use path/to/strategy.yml
+```
+
 ## Example
 ```yaml
 id: default

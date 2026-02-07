@@ -15,6 +15,25 @@ export class StrategyRegistry {
     return strategy;
   }
 
+  public async listFromDirectory(dirPath: string): Promise<Strategy[]> {
+    const entries = await fs.readdir(dirPath, { withFileTypes: true });
+    const results: Strategy[] = [];
+
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      if (!entry.name.endsWith('.yml') && !entry.name.endsWith('.yaml')) continue;
+      const filePath = path.join(dirPath, entry.name);
+      try {
+        const strategy = await this.loadFromFile(filePath);
+        results.push(strategy);
+      } catch {
+        // Ignore invalid files
+      }
+    }
+
+    return results;
+  }
+
   public async loadFromFile(filePath: string): Promise<Strategy> {
     const content = await fs.readFile(filePath, 'utf-8');
     const raw = parseYaml(content);
