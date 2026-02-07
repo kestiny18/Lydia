@@ -80,4 +80,34 @@ describe('Risk Assessment', () => {
     expect(risk.level).toBe('high');
     expect(risk.reason).toContain('denylisted');
   });
+
+  it('flags relative path traversal on file writes', () => {
+    const risk = assessRisk('fs_write_file', { path: '../secrets.txt' }, mcp, {
+      mcpServers: {},
+      safety: { userDataDirs: [], systemDirs: [], allowPaths: [], denyPaths: [], rememberApprovals: true },
+    } as any);
+
+    expect(risk.level).toBe('high');
+    expect(risk.reason).toContain('relative path traversal');
+  });
+
+  it('flags destructive commands with unknown targets', () => {
+    const risk = assessRisk('shell_execute', { command: 'rm -rf *' }, mcp, {
+      mcpServers: {},
+      safety: { userDataDirs: [], systemDirs: [], allowPaths: [], denyPaths: [], rememberApprovals: true },
+    } as any);
+
+    expect(risk.level).toBe('high');
+    expect(risk.reason).toContain('unknown');
+  });
+
+  it('flags permission change commands as high risk', () => {
+    const command = process.platform === 'win32' ? 'icacls C:\\Windows' : 'chmod 777 /etc';
+    const risk = assessRisk('shell_execute', { command }, mcp, {
+      mcpServers: {},
+      safety: { userDataDirs: [], systemDirs: [], allowPaths: [], denyPaths: [], rememberApprovals: true },
+    } as any);
+
+    expect(risk.level).toBe('high');
+  });
 });

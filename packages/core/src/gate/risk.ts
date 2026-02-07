@@ -80,6 +80,22 @@ function isDestructiveShellCommand(command: string): boolean {
   );
 }
 
+function isPermissionChangeCommand(command: string): boolean {
+  const cmd = command.toLowerCase();
+  return (
+    /\b(chmod|chown|chgrp)\b/.test(cmd) ||
+    /\b(icacls|takeown)\b/.test(cmd)
+  );
+}
+
+function hasRelativePathTraversal(input: string): boolean {
+  return /(^|[\\\/])\.\.([\\\/]|$)/.test(input);
+}
+
+function isRelativePath(input: string): boolean {
+  return !path.isAbsolute(input);
+}
+
 export function assessRisk(
   toolName: string,
   args: Record<string, unknown> | undefined,
@@ -100,6 +116,14 @@ export function assessRisk(
   if (toolName === 'fs_write_file') {
     const targetPath = typeof args?.path === 'string' ? args.path : '';
     if (targetPath) {
+      if (isRelativePath(targetPath) && hasRelativePathTraversal(targetPath)) {
+        return {
+          level: 'high',
+          reason: 'File write with relative path traversal',
+          signature: `fs_write_rel:${normalizePath(path.resolve(targetPath))}`,
+          details: targetPath,
+        };
+      }
       if (isInProtectedDir(targetPath, protectedDirs.denyPaths)) {
         return {
           level: 'high',
@@ -127,8 +151,17 @@ export function assessRisk(
 
   if (toolName === 'shell_execute') {
     const command = typeof args?.command === 'string' ? args.command : '';
-    if (command && isDestructiveShellCommand(command)) {
+    if (command && (isDestructiveShellCommand(command) || isPermissionChangeCommand(command))) {
       const targets = extractPathsFromCommand(command);
+      const hasTraversal = hasRelativePathTraversal(command);
+      if (targets.length === 0 || hasTraversal) {
+        return {
+          level: 'high',
+          reason: 'Destructive shell command with unknown or relative target',
+          signature: `shell_unknown:${command.toLowerCase().slice(0, 80)}`,
+          details: command,
+        };
+      }
       const denyHit = targets.find(p => isInProtectedDir(p, protectedDirs.denyPaths));
       if (denyHit) {
         return {
