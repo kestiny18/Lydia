@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
-import { MemoryManager } from '@lydia/core';
+import { MemoryManager, ConfigLoader } from '@lydia/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFile } from 'node:fs/promises';
@@ -83,6 +83,40 @@ export function createServer(port: number = 3000) {
     const limit = Number(c.req.query('limit')) || 50;
     const proposals = memoryManager.listStrategyProposals(limit);
     return c.json(proposals);
+  });
+
+  app.post('/api/strategy/proposals/:id/approve', async (c) => {
+    const id = Number(c.req.param('id'));
+    if (Number.isNaN(id)) return c.json({ error: 'Invalid id' }, 400);
+    const proposal = memoryManager.getStrategyProposal(id);
+    if (!proposal) return c.json({ error: 'Proposal not found' }, 404);
+    if (proposal.status !== 'pending_human') {
+      return c.json({ error: `Proposal is ${proposal.status}` }, 400);
+    }
+
+    const loader = new ConfigLoader();
+    await loader.update({ strategy: { activePath: proposal.strategy_path } } as any);
+    memoryManager.updateStrategyProposal(id, 'approved');
+    return c.json({ ok: true });
+  });
+
+  app.post('/api/strategy/proposals/:id/reject', async (c) => {
+    const id = Number(c.req.param('id'));
+    if (Number.isNaN(id)) return c.json({ error: 'Invalid id' }, 400);
+    const proposal = memoryManager.getStrategyProposal(id);
+    if (!proposal) return c.json({ error: 'Proposal not found' }, 404);
+    if (proposal.status !== 'pending_human') {
+      return c.json({ error: `Proposal is ${proposal.status}` }, 400);
+    }
+
+    let reason = '';
+    try {
+      const body = await c.req.json();
+      reason = body?.reason || '';
+    } catch {}
+
+    memoryManager.updateStrategyProposal(id, 'rejected', reason);
+    return c.json({ ok: true });
   });
 
   // Get Replay Traces (Episodes)

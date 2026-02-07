@@ -388,7 +388,7 @@ function ApprovalsView() {
 }
 
 function StrategyView() {
-  const { data: proposals } = useQuery({
+  const { data: proposals, refetch } = useQuery({
     queryKey: ['strategy-proposals'],
     queryFn: () => fetch('/api/strategy/proposals?limit=50').then(res => res.json())
   });
@@ -473,6 +473,32 @@ function StrategyView() {
                 >
                   Download Evaluation JSON
                 </button>
+              )}
+              {selected.status === 'pending_human' && (
+                <div className="flex gap-2">
+                  <button
+                    onClick={async () => {
+                      await fetch(`/api/strategy/proposals/${selected.id}/approve`, { method: 'POST' });
+                      await refetch();
+                    }}
+                    className="px-3 py-2 text-xs rounded bg-green-600 text-white"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={async () => {
+                      await fetch(`/api/strategy/proposals/${selected.id}/reject`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ reason: 'Rejected from dashboard' })
+                      });
+                      await refetch();
+                    }}
+                    className="px-3 py-2 text-xs rounded bg-red-600 text-white"
+                  >
+                    Reject
+                  </button>
+                </div>
               )}
             </div>
           )}
