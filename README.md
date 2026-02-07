@@ -125,6 +125,7 @@ Lydia automatically learns this on the next run!
 ```
 
 **Full Architecture**: [docs/architecture/overview.md](docs/architecture/overview.md)
+**Safety and Risk Controls**: [docs/safety.md](docs/safety.md)
 
 ---
 
