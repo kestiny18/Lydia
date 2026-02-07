@@ -43,6 +43,21 @@ export function createServer(port: number = 3000) {
     return c.json(facts);
   });
 
+  app.delete('/api/memory/approvals/:id', (c) => {
+    const id = Number(c.req.param('id'));
+    if (Number.isNaN(id)) return c.json({ error: 'Invalid id' }, 400);
+    const ok = memoryManager.deleteFactById(id);
+    return c.json({ ok });
+  });
+
+  app.delete('/api/memory/approvals', (c) => {
+    const signature = c.req.query('signature');
+    if (!signature) return c.json({ error: 'signature is required' }, 400);
+    const key = `risk_approval:${signature}`;
+    const ok = memoryManager.deleteFactByKey(key);
+    return c.json({ ok });
+  });
+
   // List Episodes
   app.get('/api/replay', (c) => {
     const limit = Number(c.req.query('limit')) || 50;

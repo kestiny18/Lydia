@@ -201,6 +201,18 @@ export class MemoryManager extends EventEmitter {
       return { ...row, tags: JSON.parse(row.tags || '[]') };
   }
 
+  public deleteFactById(id: number): boolean {
+      const stmt = this.db.prepare('DELETE FROM facts WHERE id = ?');
+      const info = stmt.run(id);
+      return info.changes > 0;
+  }
+
+  public deleteFactByKey(key: string): boolean {
+      const stmt = this.db.prepare('DELETE FROM facts WHERE key = ?');
+      const info = stmt.run(key);
+      return info.changes > 0;
+  }
+
   /**
    * Record a completed task execution and return its ID
    */
