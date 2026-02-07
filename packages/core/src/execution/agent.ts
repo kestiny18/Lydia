@@ -32,6 +32,7 @@ export class Agent extends EventEmitter {
   private config?: LydiaConfig;
   private isInitialized = false;
   private traces: Trace[] = [];
+  private taskApprovals: Set<string> = new Set();
 
   constructor(llm: ILLMProvider) {
     super();
@@ -135,6 +136,7 @@ export class Agent extends EventEmitter {
 
   async run(userInput: string): Promise<Task> {
     await this.init();
+    this.taskApprovals = new Set();
 
     // 1. Initialize Task
     const task: Task = {
@@ -232,21 +234,27 @@ export class Agent extends EventEmitter {
     return this.memoryManager.getFactByKey(key);
   }
 
-  private recordApproval(signature: string, content: string, tags: string[]) {
+  private recordApprovalPersistent(signature: string, content: string, tags: string[]) {
     if (!this.config?.safety?.rememberApprovals) return;
     const key = this.buildApprovalKey(signature);
     this.memoryManager.rememberFact(content, key, tags);
   }
 
+  private recordApprovalHistory(content: string, tags: string[]) {
+    if (!this.config?.safety?.rememberApprovals) return;
+    this.memoryManager.rememberFact(content, undefined, tags);
+  }
+
   private async confirmRisk(risk: RiskAssessment, toolName: string): Promise<boolean> {
     if (!risk.signature) return true;
+    if (this.taskApprovals.has(risk.signature)) return true;
     const existing = this.getApprovalRecord(risk.signature);
     if (existing) return true;
     if (!this.mcpClientManager.getToolInfo('ask_user')) return true;
 
     const reason = risk.reason || 'High risk action';
     const details = risk.details ? `\nDetails: ${risk.details}` : '';
-    const prompt = `${reason}.\nTool: ${toolName}${details}\n\nDo you want to proceed? (yes/no)`;
+    const prompt = `${reason}.\nTool: ${toolName}${details}\n\nOptions: yes, no, always.\n- yes: allow this action for the current task only\n- always: remember and allow in future\n\nYour choice:`;
 
     const result = await this.mcpClientManager.callTool('ask_user', { prompt });
     const textContent = result.content
@@ -256,15 +264,24 @@ export class Agent extends EventEmitter {
       .trim()
       .toLowerCase();
 
-    const approved = textContent === 'yes' || textContent === 'y';
+    const approved = textContent === 'yes' || textContent === 'y' || textContent === 'always' || textContent === 'a';
 
     if (approved) {
       const safeReason = reason.replace(/\s+/g, '_').toLowerCase();
-      this.recordApproval(
-        risk.signature,
-        `Approved: ${reason} (tool: ${toolName})`,
-        ['risk_approval', `tool:${toolName}`, `reason:${safeReason}`]
-      );
+      const content = `Approved: ${reason} (tool: ${toolName})`;
+      const tags = [
+        'risk_approval',
+        `tool:${toolName}`,
+        `reason:${safeReason}`,
+        `signature:${risk.signature}`,
+      ];
+
+      if (textContent === 'always' || textContent === 'a') {
+        this.recordApprovalPersistent(risk.signature, content, [...tags, 'scope:persistent']);
+      } else {
+        this.taskApprovals.add(risk.signature);
+        this.recordApprovalHistory(content, [...tags, 'scope:task']);
+      }
     }
 
     return approved;
