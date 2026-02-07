@@ -429,6 +429,12 @@ function StrategyView() {
                             {' '}· delta avg ms: {evalData.delta.avg_duration_ms}
                           </span>
                         )}
+                        {evalData.replay && (
+                          <span>
+                            {' '}· replay drift episodes: {evalData.replay.drift_episodes}
+                            {' '}· drift steps: {evalData.replay.drift_steps}
+                          </span>
+                        )}
                       </div>
                     )}
                     {p.reason && (

@@ -41,6 +41,7 @@ When proposing a strategy, Lydia computes a minimal replay-based summary:
 - average tool call duration
 - total episodes and traces inspected
 - tool usage distribution
+- replay drift counts (episodes and steps)
 
 This summary is stored with the proposal for human review.
 

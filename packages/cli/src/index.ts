@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate } from '@lydia/core';
+import { Agent, AnthropicProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +13,7 @@ import open from 'open';
 import { createServer } from './server/index.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -311,7 +312,45 @@ async function main() {
                 avg_duration_ms: candidateMetrics.avg_duration_ms - baselineMetrics.avg_duration_ms
               }
             : null,
+          replay: {
+            episodes: 0,
+            drift_episodes: 0,
+            drift_steps: 0,
+          }
         };
+
+        const evalEpisodes = episodes.slice(0, 10);
+        for (const ep of evalEpisodes) {
+          if (!ep.id) continue;
+          const traces = memory.getTraces(ep.id);
+          const mockLLM = new ReplayLLMProvider(ep.plan);
+          const mockMcp = new ReplayMcpClientManager(traces);
+          const agent = new Agent(mockLLM);
+
+          const tempDb = path.join(os.tmpdir(), `lydia-replay-eval-${Date.now()}-${ep.id}.db`);
+          (agent as any).mcpClientManager = mockMcp;
+          (agent as any).isInitialized = true;
+          (agent as any).memoryManager = new MemoryManager(tempDb);
+          await (agent as any).skillLoader.loadAll();
+
+          try {
+            await agent.run(ep.input);
+          } catch {
+            // ignore replay execution errors for evaluation summary
+          }
+
+          evaluation.replay.episodes += 1;
+          evaluation.replay.drift_steps += mockMcp.drifts.length;
+          if (mockMcp.drifts.length > 0) {
+            evaluation.replay.drift_episodes += 1;
+          }
+
+          try {
+            fs.rmSync(tempDb, { force: true });
+          } catch {
+            // ignore cleanup errors
+          }
+        }
 
         const id = memory.recordStrategyProposal({
           strategy_path: absPath,
