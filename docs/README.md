@@ -1,6 +1,6 @@
 # Lydia Documentation Index
 
-## 📚 Documentation Structure
+## Documentation Structure
 
 ### Layer 1: Strategic (Why)
 - [Product Vision](./vision.md) - Long-term goals and value proposition
@@ -11,10 +11,6 @@
 - Product Requirements (PRD) (planned)
 - [Technical Roadmap](./roadmap.md) - Phased development plan
 - [Architecture Design (ADD)](./architecture/) - System architecture
-  - [Overview](./architecture/overview.md)
-  - Module Design (planned)
-  - Data Model (planned)
-  - API Design (planned)
 - [Safety and Risk Controls](./safety.md)
 - [North Star](./north-star.md) - Strategy evolution roadmap
 - [Strategy Schema](./strategy-schema.md)
@@ -24,37 +20,39 @@
 - API Reference (planned)
 - Implementation Details (planned)
 - [Getting Started](./getting-started.md)
-
+- [Release Guide](./release.md)
+- [MVP Checklist](./mvp-checklist.md)
+- [Demo Script](./demo.md)\r\n- [Strategy Examples](./strategy-examples.md)\r\n
 ### Layer 4: Reference (Lookup)
 - [Decision Records (ADR)](./adr/) - Records of important design decisions
 - FAQ (planned)
 - Glossary (planned)
-- Changelog (planned)
+- [Changelog](../CHANGELOG.md)
 
 ---
 
-## 🎯 Documentation Guide
+## Documentation Guide
 
 ### Required Reading Before Dev
-1. [Product Vision](./vision.md) - Understand direction
-2. [Core Philosophy](./philosophy.md) - Understand principles
-3. [Architecture Overview](./architecture/overview.md) - Understand structure
+1. [Product Vision](./vision.md)
+2. [Core Philosophy](./philosophy.md)
+3. [Architecture Overview](./architecture/overview.md)
 
 ### When Developing New Features
-1. Write design doc first (in `./architecture/` or `./implementation/`)
-2. Review design (discuss with team)
-3. Update Roadmap (adjust priority)
-4. Start coding
-5. Update API docs (if public interface changed)
+1. Write a design doc first (in `./architecture/` or `./implementation/`)
+2. Review the design with the team
+3. Update the roadmap
+4. Implement
+5. Update API docs if public interfaces changed
 
 ### When Making Design Decisions
-1. Create new record in `./adr/`
+1. Create a new record in `./adr/`
 2. Record problem, options, decision, and rationale
-3. Keep for future reference
+3. Keep it for future reference
 
 ---
 
-## 📖 Documentation Standards
+## Documentation Standards
 
 ### Document Template
 Each design document should include:
@@ -92,13 +90,13 @@ Phased delivery plan
 ```
 
 ### Update Principles
-- ✅ Design changes must update docs first
-- ✅ If implementation differs from design, update docs and explain why
-- ✅ Check documentation consistency before every release
+- Design changes must update docs first
+- If implementation differs from design, update docs and explain why
+- Check documentation consistency before every release
 
 ---
 
-## 🚀 Current Priorities
+## Current Priorities
 
 **Phase 1 (This Month)**: Basic Documentation
 - [x] Product Vision
@@ -107,9 +105,9 @@ Phased delivery plan
 - [ ] Setup task tracking
 
 **Phase 2 (Next Month)**: Core Feature Development
-- Implement strategy system according to design docs
+- Implement the strategy system according to design docs
 - Continuously update API docs
 
 ---
 
-**Last Updated**: 2026-02-05
+**Last Updated**: 2026-02-07

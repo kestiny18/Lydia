@@ -32,7 +32,7 @@ Most current AI agents are either rigid tools (don't learn) or black boxes (lear
 - **Strategic Planning**: Breaks down complex requests into executed steps.
 - **Full Toolset**: Built-in support for Shell, FileSystem, Git, and extensible via MCP.
 - **Skill System**: Teach Lydia new capabilities via simple Markdown files.
-- **Safety Gates**: (Coming Soon) Validates strategy updates before they are applied.
+- **Safety Gates**: Validates strategy updates before they are applied.
 - **Risk Controls**: High-risk actions require confirmation with optional persistent approvals.
 
 ---
@@ -59,7 +59,7 @@ pnpm install
 # Build
 pnpm build
 ```
-
+\r\n### Initialize\r\n```bash\r\npnpm tsx packages/cli/src/index.ts init\r\n```\r\n
 ### Run Your Assistant
 ```bash
 # Example: Git status checker
@@ -130,13 +130,7 @@ Lydia automatically learns this on the next run!
 
 ---
 
-## Roadmap and Progress
-
-This README is the product entry point. Detailed progress tracking lives in:
-- [docs/north-star.md](docs/north-star.md) (strategic evolution roadmap)
-- [docs/roadmap.md](docs/roadmap.md) (engineering roadmap)
-
----
+## Roadmap and Progress\r\n\r\nThis README is the product entry point. Detailed progress tracking lives in:\r\n- [docs/north-star.md](docs/north-star.md) (strategic evolution roadmap)\r\n- [docs/roadmap.md](docs/roadmap.md) (engineering roadmap)\r\n\r\n## MVP Release\r\n\r\n- Release and installer notes: [docs/release.md](docs/release.md)\r\n- MVP checklist and success criteria: [docs/mvp-checklist.md](docs/mvp-checklist.md)\r\n- Demo script: [docs/demo.md](docs/demo.md)\r\n\r\n---
 
 ## Why "Lydia"?
 
