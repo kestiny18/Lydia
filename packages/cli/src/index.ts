@@ -364,7 +364,8 @@ async function main() {
         return;
       }
       proposals.forEach((p) => {
-        console.log(`${p.id} | ${p.status} | ${p.strategy_path}`);
+        const summary = p.evaluation_json ? 'has_eval' : 'no_eval';
+        console.log(`${p.id} | ${p.status} | ${summary} | ${p.strategy_path}`);
       });
     });
 

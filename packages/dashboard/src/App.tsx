@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Database, History, Activity, Terminal, ShieldCheck } from 'lucide-react';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay' | 'strategy'>('overview');
 
   const { data: status } = useQuery({
     queryKey: ['status'],
@@ -49,6 +49,12 @@ function App() {
             active={activeTab === 'approvals'}
             onClick={() => setActiveTab('approvals')}
           />
+          <NavItem
+            icon={<Database size={18} />}
+            label="Strategy"
+            active={activeTab === 'strategy'}
+            onClick={() => setActiveTab('strategy')}
+          />
         </nav>
 
         <div className="p-4 border-t border-gray-100 text-xs text-gray-400">
@@ -62,6 +68,7 @@ function App() {
         {activeTab === 'memory' && <MemoryView />}
         {activeTab === 'approvals' && <ApprovalsView />}
         {activeTab === 'replay' && <ReplayView />}
+        {activeTab === 'strategy' && <StrategyView />}
       </main>
     </div>
   );
@@ -360,6 +367,71 @@ function ApprovalsView() {
               <tr>
                 <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
                   No approvals recorded yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function StrategyView() {
+  const { data: proposals } = useQuery({
+    queryKey: ['strategy-proposals'],
+    queryFn: () => fetch('/api/strategy/proposals?limit=50').then(res => res.json())
+  });
+
+  const parseEval = (json?: string) => {
+    if (!json) return null;
+    try {
+      return JSON.parse(json);
+    } catch {
+      return null;
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <h2 className="text-2xl font-bold mb-6">Strategy Proposals</h2>
+
+      <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <table className="w-full text-left">
+          <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-medium">
+            <tr>
+              <th className="px-6 py-3">Proposal</th>
+              <th className="px-6 py-3 w-32">Status</th>
+              <th className="px-6 py-3 w-40">Created</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {proposals?.map((p: any) => {
+              const evalData = parseEval(p.evaluation_json);
+              return (
+                <tr key={p.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4">
+                    <div className="font-medium">#{p.id} {p.strategy_path}</div>
+                    {evalData && (
+                      <div className="text-xs text-gray-500 mt-1">
+                        episodes: {evalData.episodes} · traces: {evalData.traces} · confirm_required: {evalData.confirm_required}
+                      </div>
+                    )}
+                    {p.reason && (
+                      <div className="text-xs text-red-500 mt-1">reason: {p.reason}</div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 text-sm">{p.status}</td>
+                  <td className="px-6 py-4 text-sm text-gray-500">
+                    {new Date(p.created_at).toLocaleDateString()}
+                  </td>
+                </tr>
+              );
+            })}
+            {!proposals?.length && (
+              <tr>
+                <td colSpan={3} className="px-6 py-8 text-center text-gray-500">
+                  No strategy proposals found.
                 </td>
               </tr>
             )}

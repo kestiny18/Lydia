@@ -65,6 +65,13 @@ export function createServer(port: number = 3000) {
     return c.json(episodes);
   });
 
+  // List Strategy Proposals
+  app.get('/api/strategy/proposals', (c) => {
+    const limit = Number(c.req.query('limit')) || 50;
+    const proposals = memoryManager.listStrategyProposals(limit);
+    return c.json(proposals);
+  });
+
   // Get Replay Traces (Episodes)
   app.get('/api/replay/:id', (c) => {
     const id = Number(c.req.param('id'));
