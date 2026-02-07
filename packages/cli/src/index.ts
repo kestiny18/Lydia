@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, MockProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
+import { Agent, AnthropicProvider, OpenAIProvider, MockProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,7 +41,7 @@ async function main() {
     .description('Execute a task')
     .argument('<task>', 'The task description')
     .option('-m, --model <model>', 'Override default model')
-    .option('-p, --provider <provider>', 'LLM provider (anthropic|mock)')
+    .option('-p, --provider <provider>', 'LLM provider (anthropic|openai|mock)')
     .action(async (taskDescription, options) => {
       const config = await new ConfigLoader().load();
       const provider = options.provider || config.llm?.provider || 'anthropic';
@@ -54,6 +54,15 @@ async function main() {
         let llm;
         if (provider === 'mock') {
           llm = new MockProvider();
+        } else if (provider === 'openai') {
+          if (!process.env.OPENAI_API_KEY) {
+            console.error(chalk.red('Error: OPENAI_API_KEY is not set.'));
+            console.error('Please set it in your .env file or environment variables.');
+            process.exit(1);
+          }
+          llm = new OpenAIProvider({
+            defaultModel: options.model || config.llm?.defaultModel || undefined
+          });
         } else {
           if (!process.env.ANTHROPIC_API_KEY) {
             console.error(chalk.red('Error: ANTHROPIC_API_KEY is not set.'));

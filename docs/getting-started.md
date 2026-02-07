@@ -46,6 +46,12 @@ Use `mock` for offline testing:
 lydia run --provider mock "test task"
 ```
 
+To use OpenAI:
+```bash
+export OPENAI_API_KEY="..."
+lydia run --provider openai "test task"
+```
+
 ## Launch Dashboard
 ```bash
 lydia dashboard

@@ -18,6 +18,7 @@
     "@lydia/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^0.6.0",
     "better-sqlite3": "^9.4.0",
+    "openai": "^4.0.0",
     "simple-git": "^3.30.0",
     "yaml": "^2.3.4",
     "zod": "^3.22.4"

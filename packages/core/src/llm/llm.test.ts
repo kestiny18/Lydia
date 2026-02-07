@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { MockProvider } from './providers/mock.js';
 import { AnthropicProvider } from './providers/anthropic.js';
+import { OpenAIProvider } from './providers/openai.js';
 import type { LLMRequest } from './types.js';
 
 describe('LLM Core', () => {
@@ -67,6 +68,13 @@ describe('LLM Core', () => {
     it('should instantiate without error', () => {
       const provider = new AnthropicProvider({ apiKey: 'sk-dummy' });
       expect(provider.id).toBe('anthropic');
+    });
+  });
+
+  describe('OpenAIProvider', () => {
+    it('should instantiate without error', () => {
+      const provider = new OpenAIProvider({ apiKey: 'sk-dummy' });
+      expect(provider.id).toBe('openai');
     });
   });
 });
