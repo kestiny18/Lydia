@@ -36,6 +36,13 @@ You can disable approval memory in config:
 }
 ```
 
+## Approval Revocation (API-only)
+You can revoke approvals without a dashboard UI:
+- Delete by id: `DELETE /api/memory/approvals/:id`
+- Delete by signature: `DELETE /api/memory/approvals?signature=...`
+
+Signatures are recorded in approval tags as `signature:<value>`.
+
 ## Protected Paths
 Lydia treats the following as protected by default:
 
