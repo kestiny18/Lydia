@@ -76,6 +76,47 @@ lydia/
 â””â”€â”€ README.md           # Quick Start Guide
 ```
 
+## Gap Analysis (Vision vs. Reality)
+
+### Pillar A: Trusted Agent (Safety & Control)
+- Strategy externalization is in progress; still partly code-bound.
+- Update gate is minimal; formal 4-layer gate not implemented.
+- Replay exists but is manual; no automated scenario testing for proposals.
+
+### Pillar B: Evolutionary Intelligence (Learning)
+- Skill loader exists; automated skill generation is missing.
+- Proposal table exists; delta generation and branching are missing.
+- Memory is log-heavy; insight/summarization layer is weak.
+
+### Pillar C: Capable Hands (Tools & MCP)
+- Core MCP tools exist; ecosystem-specific MCPs are missing.
+- Extensibility is good but installation UX is still basic.
+
+### Pillar D: Usability (Deployment & UX)
+- CLI works; dashboard is basic.
+- No installer/binary yet.
+
+---
+
+## Immediate Focus: Close the Evolution Loop
+We will pause on adding new tools and prioritize the closed-loop system.
+
+### Phase 1: Strategy Externalization (Week 1)
+Goal: Move strategy from code to data (YAML/JSON).
+- Define strategy schema (prompts, parameters, constraints).
+- Refactor agent/planner to use loaded strategy.
+- Implement strategy versioning in memory.
+
+### Phase 2: The Evaluator (Week 2)
+Goal: Lydia must know "How did I do?".
+- Implement reviewer module to analyze recent episodes.
+- Connect replay manager to strategy overrides.
+- Add benchmark episode tagging.
+
+### Phase 3: The Gatekeeper (Week 3)
+Goal: Safe evolution.
+- Implement 4-layer gate (syntax ¡ú tests ¡ú safety ¡ú human).
+- Build CLI/Dashboard review UI for proposals.
 ---
 
 ## Phase 2: Core Refinement (Week 3-4)

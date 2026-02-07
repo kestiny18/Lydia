@@ -12,6 +12,13 @@ This document keeps the long-term direction aligned and tracks progress against 
 
 ## Mainline A: Controlled Evolution (Primary Roadmap)
 
+## Executive Summary
+Status: **On the Right Path**
+
+We have successfully built the **skeleton** of Lydia: Strategy-first architecture, independent memory/trace logging, and risk/gate abstractions. These are aligned with the Controlled Evolution vision.
+
+The **brain** (Evolution Loop) is still disconnected. We have the components (logs, replay manager, proposal table), but not the closed loop that enables safe, autonomous improvement.
+
 ### Phase A1: Strategy Externalization (Foundations)
 Goal: Make strategy explicit, versioned, and auditable.
 
@@ -31,7 +38,7 @@ Exit Criteria:
   - Human approval for high-risk changes
 - Strategy update proposals recorded with decision logs.
 
-Status: Not started
+Status: In progress (proposal table + basic gate rules exist)
 
 ### Phase A3: Offline Replay Validation
 Goal: Validate strategy changes before adoption.
@@ -40,7 +47,7 @@ Exit Criteria:
 - Replay engine can evaluate a candidate strategy on recent tasks.
 - Comparative results are recorded and surfaced.
 
-Status: In progress (replay infrastructure exists, strategy replay not wired)
+Status: In progress (replay infrastructure exists, strategy replay partially wired)
 
 ### Phase A4: Strategy Branching
 Goal: Explore multiple strategies safely and select the best.
@@ -63,8 +70,17 @@ Status: Not started
 
 ## Current State Summary
 - Safety approvals, risk controls, and memory replay exist.
-- Strategy is still implicit (needs externalization).
-- Replay is present but not tied to strategy versions.
+- Strategy externalization is in progress, not yet fully data-bound.
+- Replay is present but not yet fully integrated into proposal validation.
+
+## Critical Missing Link: The Evolution Loop
+We need a closed loop that connects observation to safe strategy updates:
+
+1. **Observe**: Analyze recent episodes for failures or inefficiencies.
+2. **Propose**: Generate a strategy update or new skill.
+3. **Validate**: Offline replay against benchmark episodes.
+4. **Gate**: Multi-layer validation (syntax → tests → safety → human).
+5. **Merge**: Apply the change with cooldown and version tracking.
 
 ## Working Agreement
 After each stage, we update this document and compare reality to the expected outcomes.
