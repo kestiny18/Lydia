@@ -1,61 +1,62 @@
 # Lydia
 
-> **Your Personal AI Assistant with Built-in Safety Evolution**
+> The first personal AI assistant designed for capability and control.
 >
 > Let your agent learn from experience, but never lose control.
 
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 [![Status](https://img.shields.io/badge/Status-Prototype-orange.svg)](https://github.com/kestiny18/Lydia)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 <!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
 [![All Contributors](https://img.shields.io/badge/all_contributors-3-orange.svg?style=flat-square)](#contributors-)
 <!-- ALL-CONTRIBUTORS-BADGE:END -->
 
+---
+
+## The Problem: AI Agents Drift
+
+Many agents improve over time, but their behavior can drift:
+
+- They skip confirmations to save time.
+- They take broader actions than you intended.
+- They become hard to audit, hard to roll back, and hard to trust.
 
 ---
 
-## The Problem: AI Assistants That Evolve... Into Chaos
+## The Solution: Controlled Evolution
 
-Imagine this scenario:
+Lydia is a local-first assistant that treats strategy evolution as a first-class concern.
 
-**Week 1**: Your personal assistant learns to respond faster.
-**Week 3**: It starts skipping confirmations to "save time".
-**Week 5**: It's sending emails or modifying code without your permission.
-**Week 7**: You check the logs and realize: **It evolved beyond your control.**
+### Core Ideas
 
-Most current AI agents are either rigid tools (don't learn) or black boxes (learn unpredictably).
+1. Strategy-behavior separation
+- The agent's operating policy is stored as a versioned strategy file, not hidden in code.
 
----
+2. Safety gates for updates
+- Candidate strategy changes are checked for syntax, risk, replay performance, and human review.
 
-## The Solution: Lydia
-
-**Lydia** is a personal AI assistant designed to be **capable yet controllable**. It treats **strategy evolution as a first-class citizen**, ensuring that as it learns to serve you better, it never violates your safety boundaries.
-
-### Core Capabilities
-
-- **Strategic Planning**: Breaks down complex requests into executed steps.
-- **Task Execution Chain**: Structured intent, verified plans, execution reports, and feedback loop.
-- **Full Toolset**: Built-in support for Shell, FileSystem, Git, and extensible via MCP.
-- **Skill System**: Teach Lydia new capabilities via simple Markdown files.
-- **Safety Gates**: Validates strategy updates before they are applied.
-- **Risk Controls**: High-risk actions require confirmation with optional persistent approvals.
+3. Branch-based exploration
+- Lydia can create experimental branches, validate them, and only merge what passes.
 
 ---
 
-## See It In Action
+## Quick Start
 
-> *Placeholder for Demo GIF: Showing Lydia accepting a task, checking memory, asking for confirmation, and executing it.*
+### Option A: One-Click Scripts (Internal Alpha)
 
-![Lydia Demo](docs/demo.gif)
+These scripts install the CLI (via npm), run `lydia init`, and optionally start the dashboard.
 
----
+- macOS/Linux/WSL:
+  - `curl -fsSL https://github.com/kestiny18/Lydia/releases/latest/download/install.sh | bash`
+- Windows PowerShell:
+  - `irm https://github.com/kestiny18/Lydia/releases/latest/download/install.ps1 | iex`
 
-## Quick Start (5 Minutes)
+Notes:
+- Requires Node.js 18+.
+- Until we publish releases, use Option B.
 
-### Install
-Planned: One-click local installer scripts for macOS/Linux/Windows.
-See [docs/architecture/local-installation.md](docs/architecture/local-installation.md) and
-[docs/implementation/local-installation-plan.md](docs/implementation/local-installation-plan.md).
+### Option B: From Source (Recommended for Now)
 
 ```bash
 # Clone the repo
@@ -67,70 +68,60 @@ pnpm install
 
 # Build
 pnpm build
-```
 
-### Initialize
-```bash
+# Initialize local state
 pnpm tsx packages/cli/src/index.ts init
 ```
 
-### Run Your Assistant
+Run your first task:
 ```bash
-# Example: Git status checker
 pnpm tsx packages/cli/src/index.ts run "check git status"
 ```
 
-### Teach Lydia a New Skill
-Simply drop a markdown file into `~/.lydia/skills/`:
-
-```markdown
-# My Custom Workflow
-
-This skill helps me deploy to staging.
-
-## Steps
-1. Run tests
-2. Build docker image
-...
+Launch the dashboard:
+```bash
+pnpm tsx packages/cli/src/index.ts dashboard
 ```
-Lydia automatically learns this on the next run!
 
 ---
 
-## Lydia vs. The Rest
+## How Lydia Works
 
-| Feature | LangChain / CrewAI | AutoGPT | **Lydia** |
-|---------|--------------------|---------|-----------|
-| **Focus** | Dev Framework | Autonomous Demo | **Personal Product** |
-| **Control** | Low (Prompt-based) | None | **High (Strategy-based)** |
-| **Safety** | Manual Guardrails | "YOLO" | **Built-in Gates** |
-| **Extensibility**| Python Code | Plugins | **Markdown Skills & MCP** |
+At runtime, Lydia follows a task execution chain:
+
+- Understand intent and constraints.
+- Produce a plan with dependencies, risk tags, and verification.
+- Execute steps with tool access and confirmation gates.
+- Aggregate results into a task report.
+- Collect feedback for iterative improvement.
 
 ---
 
-## Use Cases
+## Controlled Evolution Flow
 
-### 1. **Coding Companion**
-"Lydia, refactor this component and run tests. Don't commit unless tests pass."
+Strategy updates are treated as proposals and are validated before they can be applied:
 
-### 2. **System Management**
-"Clean up old docker containers and update system packages."
-
-### 3. **Personal Automation**
-"Sort my downloads folder and organize receipts by date."
+```text
+Agent proposes update
+  -> Gate 1: Syntax and integrity
+  -> Gate 2: Evolution limits and safety checks
+  -> Gate 3: Offline replay and evaluation
+  -> Gate 4: Human review when required
+Approved or rejected
+```
 
 ---
 
 ## Architecture (Under the Hood)
 
-```
+```text
 +-----------------------------------------+
 |           Intent Analyzer               |  <- Understands your goal
 +-----------------+-----------------------+
                   |
 +-----------------------------------------+
 |           Strategic Planner             |  <- Generates a safe plan
-|   (loads your Skills & Preferences)     |
+|   (loads your skills and constraints)   |
 +-----------------+-----------------------+
                   |
 +-----------------------------------------+
@@ -139,31 +130,33 @@ Lydia automatically learns this on the next run!
 +-----------------------------------------+
 ```
 
-**Full Architecture**: [docs/architecture/overview.md](docs/architecture/overview.md)
-**Task Execution Chain**: [docs/architecture/task-execution-chain.md](docs/architecture/task-execution-chain.md)
-**Safety and Risk Controls**: [docs/safety.md](docs/safety.md)
+- Full architecture: `docs/architecture/overview.md`
+- Task execution chain: `docs/architecture/task-execution-chain.md`
+- Safety and risk controls: `docs/safety.md`
 
 ---
 
-## Roadmap and Progress
+## Documentation
 
-This README is the product entry point. Detailed progress tracking lives in:
-- [docs/north-star.md](docs/north-star.md) (strategic evolution roadmap)
-- [docs/roadmap.md](docs/roadmap.md) (engineering roadmap)
+Start here:
+- `docs/README.md`
+- `docs/getting-started.md`
+- `docs/roadmap.md`
+- `docs/north-star.md`
 
-## MVP Release
+---
 
-- Release and installer notes: [docs/release.md](docs/release.md)
-- MVP checklist and success criteria: [docs/mvp-checklist.md](docs/mvp-checklist.md)
-- Demo script: [docs/demo.md](docs/demo.md)
+## Contributing
+
+PRs are welcome. See `CONTRIBUTING.md`.
 
 ---
 
 ## Why "Lydia"?
 
-Named after the ancient kingdom of Lydia, which invented **coined money**¡ªthe first standardized, trustworthy medium of exchange.
+Named after the ancient kingdom of Lydia, which introduced coined money: a standardized, trustworthy medium of exchange.
 
-Just as Lydia brought **trust** to trade, we want to bring **trust** to your AI assistant.
+Just as Lydia brought trust to trade, this project aims to bring trust to agent behavior and evolution.
 
 ---
 
@@ -176,9 +169,9 @@ Thanks to the people who have contributed to this project.
 <!-- markdownlint-disable -->
 <table>
   <tr>
-    <td align="center"><a href="https://github.com/kestiny18"><img src="https://github.com/kestiny18.png?size=100" width="100px;" alt="kestiny" /><br /><sub><b>kestiny</b></sub></a><br /><a href="https://github.com/kestiny18" title="Code">:computer:</a></td>
-    <td align="center"><a href="https://github.com/openai"><img src="https://github.com/openai.png?size=100" width="100px;" alt="codex" /><br /><sub><b>codex</b></sub></a><br /><a href="https://github.com/openai" title="Code">:computer:</a></td>
-    <td align="center"><a href="https://github.com/claude"><img src="https://github.com/claude.png?size=100" width="100px;" alt="claude" /><br /><sub><b>claude</b></sub></a><br /><a href="https://github.com/claude" title="Code">:computer:</a></td>
+    <td align="center"><a href="https://github.com/kestiny18"><img src="https://github.com/kestiny18.png?size=100" width="50px;" style="border-radius: 50%;" alt="kestiny" /><br /><sub><b>kestiny</b></sub></a></td>
+    <td align="center"><a href="https://github.com/openai"><img src="https://github.com/openai.png?size=100" width="50px;" style="border-radius: 50%;" alt="codex" /><br /><sub><b>codex</b></sub></a></td>
+    <td align="center"><a href="https://github.com/claude"><img src="https://github.com/claude.png?size=100" width="50px;" style="border-radius: 50%;" alt="claude" /><br /><sub><b>claude</b></sub></a></td>
   </tr>
 </table>
 <!-- markdownlint-restore -->
@@ -188,17 +181,3 @@ Thanks to the people who have contributed to this project.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
----
-
-<div align="center">
-
-**Built with care by** [kestiny18](https://github.com/kestiny18)**
-
-*Your Trustworthy AI Assistant*
-
-</div>
-
-
-
-
