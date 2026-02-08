@@ -25,6 +25,7 @@
 - Implementation Details (planned)
 - [Task Execution Chain Plan](./implementation/task-execution-chain-plan.md)
 - [Local Installation Plan](./implementation/local-installation-plan.md)
+- [Pre-Release Plan](./implementation/pre-release-plan.md)
 - [Getting Started](./getting-started.md)
 - [Release Guide](./release.md)
 - [MVP Checklist](./mvp-checklist.md)

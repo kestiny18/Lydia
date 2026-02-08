@@ -37,7 +37,10 @@ This creates:
 3. `pnpm tsx packages/cli/src/index.ts init`
 4. `pnpm tsx packages/cli/src/index.ts run "check git status"`
 5. `pnpm tsx packages/cli/src/index.ts dashboard`
+6. Internal dogfooding complete (see pre-release plan)
+7. Alpha pre-release published on GitHub
 
 ## Notes
 - Script install uses npm global install and runs `lydia init` by default.
 - There is no standalone installer yet; this will be updated when we ship a native binary.
+- Pre-release process: [docs/implementation/pre-release-plan.md](./implementation/pre-release-plan.md)
