@@ -220,6 +220,20 @@ export class SimplePlanner {
         });
       }
 
+      const allStepsHaveVerification = steps.every(step =>
+        step.type !== 'action' || (Array.isArray(step.verification) && step.verification.length > 0)
+      );
+      if (!allStepsHaveVerification) {
+        throw new Error('Planner validation failed: every action step must include verification.');
+      }
+
+      const unresolved = steps.filter((step) =>
+        (step.dependsOn || []).some(dep => !steps.find(s => s.id === dep))
+      );
+      if (unresolved.length > 0) {
+        throw new Error(`Planner validation failed: unresolved dependencies (${unresolved.map(s => s.id).join(', ')})`);
+      }
+
       // Convert to full Step objects
       return steps;
 
