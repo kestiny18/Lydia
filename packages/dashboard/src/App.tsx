@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Database, History, Activity, Terminal, ShieldCheck } from 'lucide-react';
+import { StrategyReview } from './components/StrategyReview';
 
 function App() {
   const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay' | 'strategy'>('overview');
@@ -78,7 +79,7 @@ function App() {
         {activeTab === 'memory' && <MemoryView />}
         {activeTab === 'approvals' && <ApprovalsView />}
         {activeTab === 'replay' && <ReplayView />}
-        {activeTab === 'strategy' && <StrategyView />}
+        {activeTab === 'strategy' && <StrategyReview />}
       </main>
     </div>
   );
@@ -88,11 +89,10 @@ function NavItem({ icon, label, active, onClick }: any) {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-        active
-          ? 'bg-blue-50 text-blue-700'
-          : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-      }`}
+      className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${active
+        ? 'bg-blue-50 text-blue-700'
+        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+        }`}
     >
       {icon}
       {label}
@@ -219,9 +219,8 @@ function ReplayView() {
               <li key={e.id}>
                 <button
                   onClick={() => setSelectedId(e.id)}
-                  className={`w-full text-left px-6 py-4 hover:bg-gray-50 ${
-                    selectedId === e.id ? 'bg-blue-50' : ''
-                  }`}
+                  className={`w-full text-left px-6 py-4 hover:bg-gray-50 ${selectedId === e.id ? 'bg-blue-50' : ''
+                    }`}
                 >
                   <div className="text-sm font-medium">{e.input}</div>
                   <div className="text-xs text-gray-500">
@@ -285,9 +284,8 @@ function ReplayView() {
                   <div key={t.id || index} className="border border-gray-100 rounded-lg p-3 text-xs">
                     <div className="flex items-center justify-between">
                       <div className="font-semibold">Step {t.step_index + 1}</div>
-                      <div className={`px-2 py-0.5 rounded-full text-[10px] ${
-                        t.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                      }`}>
+                      <div className={`px-2 py-0.5 rounded-full text-[10px] ${t.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                        }`}>
                         {t.status}
                       </div>
                     </div>
@@ -387,125 +385,5 @@ function ApprovalsView() {
   );
 }
 
-function StrategyView() {
-  const { data: proposals, refetch } = useQuery({
-    queryKey: ['strategy-proposals'],
-    queryFn: () => fetch('/api/strategy/proposals?limit=50').then(res => res.json())
-  });
-
-  const [selected, setSelected] = useState<any>(null);
-
-  const parseEval = (json?: string) => {
-    if (!json) return null;
-    try {
-      return JSON.parse(json);
-    } catch {
-      return null;
-    }
-  };
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">Strategy Proposals</h2>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 font-semibold">Proposals</div>
-          <ul className="divide-y divide-gray-100">
-            {proposals?.map((p: any) => (
-              <li key={p.id}>
-                <button
-                  onClick={() => setSelected(p)}
-                  className={`w-full text-left px-6 py-4 hover:bg-gray-50 ${
-                    selected?.id === p.id ? 'bg-blue-50' : ''
-                  }`}
-                >
-                  <div className="text-sm font-medium">#{p.id} {p.strategy_path}</div>
-                  <div className="text-xs text-gray-500">{p.status}</div>
-                </button>
-              </li>
-            ))}
-            {!proposals?.length && (
-              <li className="px-6 py-6 text-center text-gray-500">No strategy proposals found.</li>
-            )}
-          </ul>
-        </div>
-
-        <div className="bg-white rounded-lg border border-gray-200 p-6">
-          <div className="font-semibold mb-3">Details</div>
-          {!selected && (
-            <div className="text-gray-500 text-sm">Select a proposal to view details.</div>
-          )}
-          {selected && (
-            <div className="space-y-4">
-              <div>
-                <div className="text-xs text-gray-500">Strategy Path</div>
-                <div className="text-sm font-medium">{selected.strategy_path}</div>
-              </div>
-              <div>
-                <div className="text-xs text-gray-500">Status</div>
-                <div className="text-sm">{selected.status}</div>
-              </div>
-              {selected.reason && (
-                <div>
-                  <div className="text-xs text-gray-500">Reason</div>
-                  <div className="text-sm text-red-500">{selected.reason}</div>
-                </div>
-              )}
-              {selected.evaluation_json && (
-                <div>
-                  <div className="text-xs text-gray-500">Evaluation</div>
-                  <pre className="bg-gray-50 p-3 rounded text-xs overflow-auto">{selected.evaluation_json}</pre>
-                </div>
-              )}
-              {selected.evaluation_json && (
-                <button
-                  onClick={() => {
-                    const blob = new Blob([selected.evaluation_json], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `proposal-${selected.id}-evaluation.json`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  className="px-3 py-2 text-xs rounded bg-gray-900 text-white"
-                >
-                  Download Evaluation JSON
-                </button>
-              )}
-              {selected.status === 'pending_human' && (
-                <div className="flex gap-2">
-                  <button
-                    onClick={async () => {
-                      await fetch(`/api/strategy/proposals/${selected.id}/approve`, { method: 'POST' });
-                      await refetch();
-                    }}
-                    className="px-3 py-2 text-xs rounded bg-green-600 text-white"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={async () => {
-                      await fetch(`/api/strategy/proposals/${selected.id}/reject`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ reason: 'Rejected from dashboard' })
-                      });
-                      await refetch();
-                    }}
-                    className="px-3 py-2 text-xs rounded bg-red-600 text-white"
-                  >
-                    Reject
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 export default App;

@@ -57,7 +57,10 @@ export class SimplePlanner {
     - git_*: Git operations (status, add, commit, etc)
     - remember: Store persistent info (args: { content: string, key?: string })
     - recall: Search memory (args: { query: string })
+    - recall: Search memory (args: { query: string })
     - ask_user: Ask user for confirmation or input (args: { prompt: string })
+    - analyze_performance: Check recent success rates (args: { limit?: number })
+    - propose_strategy_update: Propose strategy changes (args: { analysis: string, description: string, modifications: string })
     `;
 
     // Use prompt from strategy or fallback

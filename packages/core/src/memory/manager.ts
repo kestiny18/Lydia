@@ -214,56 +214,56 @@ export class MemoryManager extends EventEmitter {
     const ftsQuery = `"${query.replace(/"/g, '""')}"`;
 
     try {
-        const rows = stmt.all(ftsQuery, limit) as any[];
-        return rows.map(row => ({
-            ...row,
-            tags: JSON.parse(row.tags || '[]')
-        }));
+      const rows = stmt.all(ftsQuery, limit) as any[];
+      return rows.map(row => ({
+        ...row,
+        tags: JSON.parse(row.tags || '[]')
+      }));
     } catch (e) {
-        return [];
+      return [];
     }
   }
 
   public getAllFacts(limit: number = 100): Fact[] {
-      const stmt = this.db.prepare('SELECT * FROM facts ORDER BY created_at DESC LIMIT ?');
-      const rows = stmt.all(limit) as any[];
-      return rows.map(row => ({
-          ...row,
-          tags: JSON.parse(row.tags || '[]')
-      }));
+    const stmt = this.db.prepare('SELECT * FROM facts ORDER BY created_at DESC LIMIT ?');
+    const rows = stmt.all(limit) as any[];
+    return rows.map(row => ({
+      ...row,
+      tags: JSON.parse(row.tags || '[]')
+    }));
   }
 
   public getFactsByTag(tag: string, limit: number = 100): Fact[] {
-      const stmt = this.db.prepare(`
+    const stmt = this.db.prepare(`
         SELECT * FROM facts
         WHERE tags LIKE ?
         ORDER BY created_at DESC
         LIMIT ?
       `);
-      const rows = stmt.all(`%${tag}%`, limit) as any[];
-      return rows.map(row => ({
-          ...row,
-          tags: JSON.parse(row.tags || '[]')
-      }));
+    const rows = stmt.all(`%${tag}%`, limit) as any[];
+    return rows.map(row => ({
+      ...row,
+      tags: JSON.parse(row.tags || '[]')
+    }));
   }
 
   public getFactByKey(key: string): Fact | undefined {
-      const stmt = this.db.prepare('SELECT * FROM facts WHERE key = ?');
-      const row = stmt.get(key) as any;
-      if (!row) return undefined;
-      return { ...row, tags: JSON.parse(row.tags || '[]') };
+    const stmt = this.db.prepare('SELECT * FROM facts WHERE key = ?');
+    const row = stmt.get(key) as any;
+    if (!row) return undefined;
+    return { ...row, tags: JSON.parse(row.tags || '[]') };
   }
 
   public deleteFactById(id: number): boolean {
-      const stmt = this.db.prepare('DELETE FROM facts WHERE id = ?');
-      const info = stmt.run(id);
-      return info.changes > 0;
+    const stmt = this.db.prepare('DELETE FROM facts WHERE id = ?');
+    const info = stmt.run(id);
+    return info.changes > 0;
   }
 
   public deleteFactByKey(key: string): boolean {
-      const stmt = this.db.prepare('DELETE FROM facts WHERE key = ?');
-      const info = stmt.run(key);
-      return info.changes > 0;
+    const stmt = this.db.prepare('DELETE FROM facts WHERE key = ?');
+    const info = stmt.run(key);
+    return info.changes > 0;
   }
 
   /**
@@ -350,9 +350,9 @@ export class MemoryManager extends EventEmitter {
     const ftsQuery = `"${query.replace(/"/g, '""')}"`;
 
     try {
-        return stmt.all(ftsQuery, limit) as Episode[];
-    } catch(e) {
-        return [];
+      return stmt.all(ftsQuery, limit) as Episode[];
+    } catch (e) {
+      return [];
     }
   }
 
@@ -385,5 +385,30 @@ export class MemoryManager extends EventEmitter {
   public getTraces(episodeId: number): Trace[] {
     const stmt = this.db.prepare('SELECT * FROM traces WHERE episode_id = ? ORDER BY step_index ASC');
     return stmt.all(episodeId) as Trace[];
+  }
+
+  public getPerformanceMetrics(limit: number = 50): { total: number; success: number; failure: number } {
+    // We assume an episode is failed if ANY trace is failed, or if we can infer from other data.
+    // For simplicity, let's look at the traces.
+    // This query counts distinct episodes that have at least one failed trace.
+    const stmtFailed = this.db.prepare(`
+      SELECT COUNT(DISTINCT episode_id) as count
+      FROM traces
+      WHERE status = 'failed'
+      AND episode_id IN (SELECT id FROM episodes ORDER BY created_at DESC LIMIT ?)
+    `);
+
+    const stmtTotal = this.db.prepare(`
+      SELECT COUNT(*) as count FROM (SELECT id FROM episodes ORDER BY created_at DESC LIMIT ?)
+    `);
+
+    const failed = (stmtFailed.get(limit) as any).count;
+    const total = (stmtTotal.get(limit) as any).count;
+
+    return {
+      total,
+      success: total - failed,
+      failure: failed
+    };
   }
 }

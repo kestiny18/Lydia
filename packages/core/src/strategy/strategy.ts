@@ -37,12 +37,34 @@ export const StrategyExecutionSchema = z.object({
   maxRetries: z.number().default(3),
 });
 
+export const StrategyPreferencesSchema = z.object({
+  riskTolerance: z.number().min(0).max(1).default(0.1), // 0.0 = safe, 1.0 = risky
+  userConfirmation: z.number().min(0).max(1).default(0.8), // 0.0 = never ask, 1.0 = always ask
+  autonomyLevel: z.enum(['manual', 'assisted', 'autonomous']).default('assisted'),
+  responseSpeed: z.number().min(0).max(1).default(0.5),
+});
+
+export const StrategyConstraintsSchema = z.object({
+  mustConfirmBefore: z.array(z.string()).default([]), // Actions requiring explicit confirmation
+  neverSkipReviewFor: z.array(z.string()).default([]), // Contexts/tags requiring review
+  deniedTools: z.array(z.string()).default([]), // Tools that are completely disabled
+});
+
+export const StrategyEvolutionLimitsSchema = z.object({
+  maxAutonomyIncrease: z.number().default(0.1), // Max increase in autonomy per update
+  cooldownPeriod: z.string().default('7 days'), // Min time between updates
+});
+
 export const StrategySchema = z.object({
   metadata: StrategyMetadataSchema,
   system: StrategySystemSchema,
   prompts: StrategyPromptsSchema.optional(),
   planning: StrategyPlanningSchema.optional(),
   execution: StrategyExecutionSchema.optional(),
+  // New Controlled Evolution Fields
+  preferences: StrategyPreferencesSchema.optional(),
+  constraints: StrategyConstraintsSchema.optional(),
+  evolution_limits: StrategyEvolutionLimitsSchema.optional(),
 });
 
 export type Strategy = z.infer<typeof StrategySchema>;

@@ -15,7 +15,9 @@ import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServe
 import { ConfigLoader } from '../config/index.js';
 import { MemoryManager, type Trace } from '../memory/index.js';
 import { InteractionServer } from '../mcp/servers/interaction.js';
-import { assessRisk, type RiskAssessment } from '../gate/index.js';
+import { assessRisk, type RiskAssessment, StrategyUpdateGate, ReviewManager } from '../gate/index.js';
+import { StrategyBranchManager } from '../strategy/branch-manager.js';
+import { SelfEvolutionSkill } from '../skills/self-evolution.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { LydiaConfig } from '../config/index.js';
@@ -37,6 +39,11 @@ export class Agent extends EventEmitter {
   private traces: Trace[] = [];
   private taskApprovals: Set<string> = new Set();
 
+  // New components
+  private branchManager: StrategyBranchManager;
+  private reviewManager: ReviewManager;
+  private updateGate: StrategyUpdateGate;
+
   constructor(llm: ILLMProvider) {
     super();
     this.llm = llm;
@@ -47,10 +54,19 @@ export class Agent extends EventEmitter {
     this.skillLoader = new SkillLoader(this.skillRegistry);
     this.strategyRegistry = new StrategyRegistry();
     this.configLoader = new ConfigLoader();
+
+    // Initialize Controlled Evolution components
+    this.branchManager = new StrategyBranchManager();
+    this.reviewManager = new ReviewManager();
+    this.updateGate = new StrategyUpdateGate();
   }
 
   async init() {
     if (this.isInitialized) return;
+
+    // Initialize core structural components
+    await this.branchManager.init();
+    await this.reviewManager.init();
 
     // 0. Load Configuration
     const config = await this.configLoader.load();
@@ -62,6 +78,7 @@ export class Agent extends EventEmitter {
     // MemoryManager will create file, but better check parent dir in loader or here.
     // ConfigLoader already ensures .lydia exists.
     this.memoryManager = new MemoryManager(dbPath);
+
     const memoryServer = new MemoryServer(this.memoryManager);
 
     // Connect Memory Server
@@ -86,6 +103,16 @@ export class Agent extends EventEmitter {
 
     // 1. Load Skills
     await this.skillLoader.loadAll();
+
+    // 1.1 Register System Skills
+    const evolutionSkill = new SelfEvolutionSkill(
+      this.branchManager,
+      this.updateGate,
+      this.reviewManager,
+      this.strategyRegistry,
+      this.memoryManager
+    );
+    this.skillRegistry.register(evolutionSkill);
 
 
     // 1.5 Load Active Strategy

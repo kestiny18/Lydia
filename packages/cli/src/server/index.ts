@@ -113,7 +113,7 @@ export function createServer(port: number = 3000) {
     try {
       const body = await c.req.json();
       reason = body?.reason || '';
-    } catch {}
+    } catch { }
 
     memoryManager.updateStrategyProposal(id, 'rejected', reason);
     return c.json({ ok: true });
@@ -137,10 +137,10 @@ export function createServer(port: number = 3000) {
       let output: any = null;
       try {
         args = JSON.parse(t.tool_args);
-      } catch {}
+      } catch { }
       try {
         output = JSON.parse(t.tool_output);
-      } catch {}
+      } catch { }
       return {
         ...t,
         args,
@@ -148,6 +148,31 @@ export function createServer(port: number = 3000) {
       };
     });
     return c.json({ episode, traces: traceDetails, summary });
+  });
+
+  // Get Strategy Content
+  app.get('/api/strategy/content', async (c) => {
+    const filePath = c.req.query('path');
+    if (!filePath) return c.json({ error: 'path is required' }, 400);
+
+    // Security check: ensure path is within .lydia/strategies
+    const strategiesDir = join(homedir(), '.lydia', 'strategies');
+    const resolvedPath = join(dirname(filePath), '..', filePath); // Handle potential relative paths if any, but usually absolute
+    // Actually, let's just use the absolute path standard logic
+    // The path stored in DB is likely absolute.
+
+    // Simple check:
+    if (!filePath.includes('.lydia') || !filePath.includes('strategies')) {
+      return c.json({ error: 'Access denied: Path must be within .lydia/strategies' }, 403);
+    }
+
+    try {
+      if (!existsSync(filePath)) return c.json({ error: 'File not found' }, 404);
+      const content = await readFile(filePath, 'utf-8');
+      return c.json({ content });
+    } catch (e) {
+      return c.json({ error: 'Failed to read file' }, 500);
+    }
   });
 
   // --- Static Files ---
@@ -177,9 +202,9 @@ export function createServer(port: number = 3000) {
         // SPA Fallback
         const indexHtml = join(publicDir, 'index.html');
         if (existsSync(indexHtml)) {
-            const content = await readFile(indexHtml);
-            c.header('Content-Type', 'text/html');
-            return c.body(content);
+          const content = await readFile(indexHtml);
+          c.header('Content-Type', 'text/html');
+          return c.body(content);
         }
         return c.text('Dashboard not found. Please run "pnpm build:dashboard" first.', 404);
       }

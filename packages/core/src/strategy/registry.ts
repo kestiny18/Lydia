@@ -2,8 +2,9 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { parse as parseYaml } from 'yaml';
-import { StrategySchema, type Strategy } from './strategy.js';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { StrategySchema, type Strategy, type StrategyConfig } from './strategy.js';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,6 +64,11 @@ export class StrategyRegistry {
 
     this.strategies.set(strategy.metadata.id, strategy);
     return strategy;
+  }
+
+  public async saveToFile(strategy: Strategy, filePath: string): Promise<void> {
+    const content = stringifyYaml(strategy);
+    await fs.writeFile(filePath, content, 'utf-8');
   }
 
   public setActive(id: string) {

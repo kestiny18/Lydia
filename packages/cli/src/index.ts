@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, OpenAIProvider, OllamaProvider, MockProvider, FallbackProvider, ReplayManager, StrategyRegistry, ConfigLoader, MemoryManager, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
+import { Agent, AnthropicProvider, OpenAIProvider, OllamaProvider, MockProvider, FallbackProvider, ReplayManager, StrategyRegistry, StrategyReviewer, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +15,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
+import { reviewCommand } from './commands/review.js';
+
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -25,6 +27,15 @@ async function getVersion() {
   } catch (e) {
     return 'unknown';
   }
+}
+
+function bumpPatchVersion(version: string): string {
+  const parts = version.split('.').map((p) => parseInt(p, 10));
+  if (parts.length !== 3 || parts.some((p) => Number.isNaN(p))) {
+    return `${version}-next`;
+  }
+  parts[2] += 1;
+  return parts.join('.');
 }
 
 async function main() {
@@ -136,8 +147,8 @@ async function main() {
           spinner.succeed(chalk.blue('Plan Generated'));
           console.log(chalk.bold('\nExecution Plan:'));
           steps.forEach((s: any, i: number) => {
-             const icon = s.type === 'action' ? '*' : '-';
-             console.log(`   ${i+1}. ${icon} ${s.description}`);
+            const icon = s.type === 'action' ? '*' : '-';
+            console.log(`   ${i + 1}. ${icon} ${s.description}`);
           });
           console.log(''); // newline
           spinner.start('Executing...');
@@ -159,7 +170,7 @@ async function main() {
             const preview = resultLines.slice(0, 5).join('\n');
             console.log(chalk.dim(preview.replace(/^/gm, '      ')));
             if (resultLines.length > 5) {
-                console.log(chalk.dim(`      ... (${resultLines.length - 5} more lines)`));
+              console.log(chalk.dim(`      ... (${resultLines.length - 5} more lines)`));
             }
           }
           spinner.start('Thinking...');
@@ -237,6 +248,8 @@ async function main() {
         await open(url);
       }
     });
+
+  program.addCommand(reviewCommand());
 
   program
     .command('init')
@@ -422,11 +435,11 @@ async function main() {
           candidate: candidateMetrics,
           delta: baselineMetrics
             ? {
-                confirm_required: candidateMetrics.confirm_required - baselineMetrics.confirm_required,
-                traces: candidateMetrics.traces - baselineMetrics.traces,
-                success_rate: Number((candidateMetrics.success_rate - baselineMetrics.success_rate).toFixed(4)),
-                avg_duration_ms: candidateMetrics.avg_duration_ms - baselineMetrics.avg_duration_ms
-              }
+              confirm_required: candidateMetrics.confirm_required - baselineMetrics.confirm_required,
+              traces: candidateMetrics.traces - baselineMetrics.traces,
+              success_rate: Number((candidateMetrics.success_rate - baselineMetrics.success_rate).toFixed(4)),
+              avg_duration_ms: candidateMetrics.avg_duration_ms - baselineMetrics.avg_duration_ms
+            }
             : null,
           replay: {
             episodes: 0,
@@ -487,6 +500,84 @@ async function main() {
         });
         console.error(chalk.red(`Proposal invalid: ${id}`));
         console.error(chalk.red(error.message));
+      }
+    });
+
+  strategyCmd
+    .command('review')
+    .description('Review recent episodes and generate a strategy proposal')
+    .option('-n, --limit <limit>', 'Max episodes to review', '50')
+    .option('--min-failures <count>', 'Min failures per tool', '1')
+    .option('--min-failure-rate <rate>', 'Min failure rate per tool', '0.2')
+    .action(async (options) => {
+      const config = await new ConfigLoader().load();
+      const registry = new StrategyRegistry();
+      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+      const memory = new MemoryManager(dbPath);
+
+      try {
+        const activePath = config.strategy?.activePath;
+        const active = activePath
+          ? await registry.loadFromFile(activePath)
+          : await registry.loadDefault();
+
+        const reviewer = new StrategyReviewer(memory);
+        const summary = reviewer.review(active, {
+          episodeLimit: Number(options.limit) || 50,
+          minFailures: Number(options.minFailures) || 1,
+          minFailureRate: Number(options.minFailureRate) || 0.2
+        });
+
+        if (summary.findings.length === 0) {
+          console.log(chalk.yellow('No actionable findings.'));
+          return;
+        }
+
+        const proposed = JSON.parse(JSON.stringify(active));
+        proposed.metadata = {
+          ...active.metadata,
+          version: bumpPatchVersion(active.metadata.version),
+          inheritFrom: active.metadata.id,
+          description: `${active.metadata.description || 'Strategy'} (auto review)`
+        };
+
+        const existingConfirmations = new Set(active.execution?.requiresConfirmation || []);
+        for (const tool of summary.suggestedConfirmations) {
+          existingConfirmations.add(tool);
+        }
+        proposed.execution = {
+          ...(active.execution || {}),
+          requiresConfirmation: Array.from(existingConfirmations)
+        };
+
+        const proposalsDir = path.join(os.homedir(), '.lydia', 'strategies', 'proposals');
+        await fsPromises.mkdir(proposalsDir, { recursive: true });
+        const proposalPath = path.join(
+          proposalsDir,
+          `${proposed.metadata.id}-v${proposed.metadata.version}.yml`
+        );
+        await registry.saveToFile(proposed, proposalPath);
+
+        const gate = StrategyUpdateGate.validate(proposed);
+        const status = gate.ok ? 'pending_human' : 'invalid';
+        const id = memory.recordStrategyProposal({
+          strategy_path: proposalPath,
+          status,
+          reason: gate.reason,
+          evaluation_json: JSON.stringify({ review: summary }),
+          created_at: Date.now(),
+          decided_at: gate.ok ? undefined : Date.now()
+        });
+
+        if (gate.ok) {
+          console.log(chalk.green(`Review proposal created: ${id}`));
+          console.log(chalk.green(`Proposal file: ${proposalPath}`));
+        } else {
+          console.error(chalk.red(`Proposal rejected by gate: ${id}`));
+          console.error(chalk.red(gate.reason || 'Invalid strategy'));
+        }
+      } catch (error: any) {
+        console.error(chalk.red('Review failed:'), error.message);
       }
     });
 
@@ -596,7 +687,7 @@ async function main() {
             if (evalData?.delta?.confirm_required !== undefined) {
               delta = ` | delta_confirm: ${evalData.delta.confirm_required}`;
             }
-          } catch {}
+          } catch { }
         }
         const summary = p.evaluation_json ? 'has_eval' : 'no_eval';
         console.log(`${p.id} | ${p.status} | ${summary}${delta} | ${p.strategy_path}`);

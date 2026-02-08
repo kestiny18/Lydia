@@ -27,7 +27,12 @@ export class SkillRegistry {
     return this.list().filter(skill => {
       // Basic match: checking if skill name or description keywords appear in intent
       // This is a placeholder for a smarter matching logic
-      const keywords = [skill.name, ...skill.description.split(' ')];
+      // Basic match: checking if skill name or description keywords appear in intent
+      // This is a placeholder for a smarter matching logic
+      const content = (skill as any).content || '';
+      const textToSearch = `${skill.name} ${skill.description} ${content}`;
+      const keywords = textToSearch.split(/[\s,.]+/);
+
       return keywords.some(k => k.length > 3 && normalizedIntent.includes(k.toLowerCase()));
     });
   }

@@ -3,18 +3,22 @@ import { MemoryManager } from '../memory/index.js';
 import { ReplayLLMProvider } from './llm.js';
 import { SimplePlanner } from '../strategy/planner.js';
 import { ReplayMcpClientManager } from './mcp.js';
+import { Strategy } from '../strategy/strategy.js';
+import { StrategyEvaluator, EvaluationResult } from './evaluator.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
 export class ReplayManager {
   private memoryManager: MemoryManager;
+  private evaluator: StrategyEvaluator;
 
   constructor() {
     const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
     this.memoryManager = new MemoryManager(dbPath);
+    this.evaluator = new StrategyEvaluator();
   }
 
-  async replay(episodeId: number) {
+  async replay(episodeId: number, customStrategy?: Strategy): Promise<EvaluationResult> {
     // 1. Load Episode & Traces
     const episode = this.memoryManager.getEpisode(episodeId);
     if (!episode) {
@@ -22,7 +26,7 @@ export class ReplayManager {
     }
 
     const traces = this.memoryManager.getTraces(episodeId);
-    console.log(`Replaying Episode #${episodeId}: "${episode.input}" (${traces.length} steps)`);
+    // console.log(`Replaying Episode #${episodeId}: "${episode.input}" (${traces.length} steps)`);
 
     // 2. Setup Mocks
     const mockLLM = new ReplayLLMProvider(episode.plan);
@@ -48,10 +52,17 @@ export class ReplayManager {
       const config = await (agent as any).configLoader.load();
       (agent as any).config = config;
 
-      const strategyRegistry = (agent as any).strategyRegistry;
-      const activeStrategy = await strategyRegistry.loadDefault();
-      (agent as any).activeStrategy = activeStrategy;
-      (agent as any).planner = new SimplePlanner(mockLLM, activeStrategy);
+      // Use custom strategy if provided, otherwise default
+      if (customStrategy) {
+        (agent as any).activeStrategy = customStrategy;
+      } else {
+        const strategyRegistry = (agent as any).strategyRegistry;
+        const activeStrategy = await strategyRegistry.loadDefault();
+        (agent as any).activeStrategy = activeStrategy;
+      }
+
+      // Initialize Planner
+      (agent as any).planner = new SimplePlanner(mockLLM, (agent as any).activeStrategy);
     } catch (error) {
       console.warn('Replay init warning:', error);
     }
@@ -59,24 +70,39 @@ export class ReplayManager {
     await (agent as any).skillLoader.loadAll();
 
     // 4. Run Execution
-    console.log('--- Replay Start ---');
+    const start = Date.now();
+    let resultTask;
     try {
-      const resultTask = await agent.run(episode.input);
-      console.log('--- Replay Complete ---');
-      console.log(`Original Result: ${episode.result?.substring(0, 50)}...`);
-      console.log(`Replay Result:   ${resultTask.result?.substring(0, 50)}...`);
-
-      if (mockMcp.drifts.length > 0) {
-        console.log(`Replay Drift Detected: ${mockMcp.drifts.length} issue(s)`);
-      }
-
-      if (resultTask.status === 'completed') {
-        console.log('✅ Replay Successful');
-      } else {
-        console.log('❌ Replay Failed');
-      }
+      resultTask = await agent.run(episode.input);
     } catch (error) {
-      console.error('❌ Replay Error:', error);
+      resultTask = {
+        id: `failed-${Date.now()}`,
+        description: episode.input,
+        status: 'failed' as const,
+        result: String(error),
+        createdAt: Date.now()
+      };
     }
+    const duration = Date.now() - start;
+
+    // 5. Evaluate
+    const evaluation = this.evaluator.evaluateTask(resultTask, episode.result);
+    evaluation.metrics.duration = duration;
+    evaluation.metrics.driftDetected = mockMcp.drifts.length > 0;
+
+    return evaluation;
+  }
+
+  async replayBatch(episodeIds: number[], strategy?: Strategy): Promise<EvaluationResult[]> {
+    const results: EvaluationResult[] = [];
+    for (const id of episodeIds) {
+      try {
+        const res = await this.replay(id, strategy);
+        results.push(res);
+      } catch (e) {
+        console.error(`Failed to replay episode ${id}:`, e);
+      }
+    }
+    return results;
   }
 }

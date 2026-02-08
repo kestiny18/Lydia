@@ -5,36 +5,29 @@ export interface GateResult {
   reason?: string;
 }
 
-export class StrategyUpdateGate {
+export class BasicStrategyGate {
   /**
    * Minimal automatic validation rules for strategy proposals.
    * Rejects obvious unsafe or ambiguous configurations.
    */
   public static validate(strategy: Strategy): GateResult {
-    const preferences: any = strategy.preferences || {};
-    const constraints: any = strategy.constraints || {};
-
-    if (typeof preferences.autonomy_level === 'string') {
-      const level = preferences.autonomy_level.toLowerCase();
-      if (level === 'autonomous' || level === 'full') {
-        return { ok: false, reason: 'autonomy_level is too permissive' };
-      }
+    const metadata = (strategy as any).metadata || {};
+    if (!metadata.id || !metadata.version) {
+      return { ok: false, reason: 'missing metadata.id or metadata.version' };
     }
 
-    const confirmationBias = preferences.confirmation_bias;
-    if (typeof confirmationBias === 'number' && confirmationBias < 0.2) {
-      return { ok: false, reason: 'confirmation_bias is too low' };
+    const execution: any = (strategy as any).execution || {};
+    if (execution.riskTolerance === 'high') {
+      return { ok: false, reason: 'riskTolerance is too permissive' };
     }
 
-    const forbiddenKeys = [
-      'skip_confirmations',
-      'never_confirm',
-      'allow_dangerous',
-    ];
-    for (const key of forbiddenKeys) {
-      if (Object.prototype.hasOwnProperty.call(constraints, key)) {
-        return { ok: false, reason: `forbidden constraint: ${key}` };
-      }
+    if (Array.isArray(execution.requiresConfirmation) && execution.requiresConfirmation.length === 0) {
+      return { ok: false, reason: 'requiresConfirmation cannot be empty' };
+    }
+
+    const planning: any = (strategy as any).planning || {};
+    if (typeof planning.temperature === 'number' && planning.temperature > 0.7) {
+      return { ok: false, reason: 'planning.temperature is too high' };
     }
 
     return { ok: true };
