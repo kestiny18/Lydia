@@ -25,12 +25,13 @@ export class StrategyUpdateGate {
     async process(
         candidate: Strategy,
         branch: StrategyBranch,
-        evaluations?: EvaluationResult[]
+        evaluations?: EvaluationResult[],
+        baseline?: Strategy
     ): Promise<ValidationResult> {
 
         for (const validator of this.validators) {
             try {
-                const result = await validator.validate(candidate, branch, evaluations);
+                const result = await validator.validate(candidate, branch, evaluations, baseline);
 
                 if (result.status === 'REJECT') {
                     console.log(`Gate REJECT [${validator.name}]: ${result.reason}`);

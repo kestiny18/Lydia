@@ -98,7 +98,7 @@ export class SelfEvolutionSkill implements DynamicSkill {
             if (!branchInfo) return 'Error: Failed to create strategy branch.';
 
             // 3. Run Gate
-            const validation = await this.gate.process(newStrategy, branchInfo, []);
+            const validation = await this.gate.process(newStrategy, branchInfo, [], currentStrategy);
 
             // 4. Act on Result
             const reqDetails = {

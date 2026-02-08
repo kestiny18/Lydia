@@ -54,7 +54,7 @@ describe('Controlled Evolution Integration', () => {
         expect(branchInfo?.path).toContain(newBranchName);
 
         // 5. Run Update Gate
-        const gateResult = await gate.process(newStrategy, branchInfo!, []);
+        const gateResult = await gate.process(newStrategy, branchInfo!, [], defaultStrategy);
 
         // Expect PASS or NEEDS_HUMAN (depending on risk) but not crash
         expect(['PASS', 'NEEDS_HUMAN', 'REJECT']).toContain(gateResult.status);
