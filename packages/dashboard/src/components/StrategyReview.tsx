@@ -10,6 +10,15 @@ export function StrategyReview() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const parseEvaluation = (raw?: string | null) => {
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch {
+            return null;
+        }
+    };
+
     useEffect(() => {
         loadProposals();
     }, []);
@@ -109,6 +118,11 @@ export function StrategyReview() {
             <div className="w-2/3 p-4 overflow-y-auto bg-gray-50">
                 {selectedId ? (
                     <div>
+                        {(() => {
+                            const proposal = proposals.find(p => p.id === selectedId);
+                            const evaluation = parseEvaluation(proposal?.evaluation_json);
+                            return (
+                                <>
                         <div className="flex justify-between items-center mb-4">
                             <h2 className="text-lg font-bold">Proposal Details</h2>
                             <div className="space-x-2">
@@ -136,14 +150,67 @@ export function StrategyReview() {
                             </pre>
                         </div>
 
-                        {/* Placeholder for Diff/Evaluation metrics */}
-                        <div className="mt-4 bg-white p-4 rounded shadow text-gray-500">
+                        <div className="mt-4 bg-white p-4 rounded shadow">
                             <h3 className="font-semibold mb-2 flex items-center gap-2">
                                 <AlertTriangle size={16} /> Evaluation Metrics
                             </h3>
-                            <p>Metrics visualization coming soon...</p>
+                            {!proposal && (
+                                <p className="text-gray-500">No proposal selected.</p>
+                            )}
+                            {proposal && !evaluation && (
+                                <p className="text-gray-500">No evaluation data available.</p>
+                            )}
+                            {proposal && evaluation && (
+                                <div className="text-sm text-gray-700 space-y-2">
+                                    {evaluation.validation && (
+                                        <div>
+                                            <div className="font-semibold">Validation</div>
+                                            <div>Status: {evaluation.validation.status}</div>
+                                            {evaluation.validation.reason && <div>Reason: {evaluation.validation.reason}</div>}
+                                        </div>
+                                    )}
+                                    {evaluation.analysis && (
+                                        <div>
+                                            <div className="font-semibold">Analysis</div>
+                                            <div>{evaluation.analysis}</div>
+                                        </div>
+                                    )}
+                                    {evaluation.description && (
+                                        <div>
+                                            <div className="font-semibold">Change</div>
+                                            <div>{evaluation.description}</div>
+                                        </div>
+                                    )}
+                                    {evaluation.review?.findings && (
+                                        <div>
+                                            <div className="font-semibold">Review Findings</div>
+                                            <div>Findings: {evaluation.review.findings.length}</div>
+                                            <div>Suggested confirmations: {(evaluation.review.suggestedConfirmations || []).join(', ') || 'None'}</div>
+                                        </div>
+                                    )}
+                                    {evaluation.replay && (
+                                        <div>
+                                            <div className="font-semibold">Replay</div>
+                                            <div>Episodes: {evaluation.replay.episodes}</div>
+                                            <div>Drift episodes: {evaluation.replay.drift_episodes}</div>
+                                            <div>Drift steps: {evaluation.replay.drift_steps}</div>
+                                        </div>
+                                    )}
+                                    {evaluation.delta && (
+                                        <div>
+                                            <div className="font-semibold">Delta</div>
+                                            <div>Success rate: {evaluation.delta.success_rate}</div>
+                                            <div>Confirm required: {evaluation.delta.confirm_required}</div>
+                                            <div>Avg duration ms: {evaluation.delta.avg_duration_ms}</div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
 
+                                </>
+                            );
+                        })()}
                     </div>
                 ) : (
                     <div className="flex items-center justify-center h-full text-gray-400">
