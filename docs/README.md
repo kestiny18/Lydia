@@ -12,6 +12,7 @@
 - [Technical Roadmap](./roadmap.md) - Phased development plan
 - [Architecture Design (ADD)](./architecture/) - System architecture
 - [Task Execution Chain](./architecture/task-execution-chain.md) - End-to-end task flow design
+- [Task Results Presentation](./architecture/task-results-presentation.md) - User-facing results UI
 - [Safety and Risk Controls](./safety.md)
 - [North Star](./north-star.md) - Strategy evolution roadmap
 - [Strategy Schema](./strategy-schema.md)

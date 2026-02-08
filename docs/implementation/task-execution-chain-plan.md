@@ -36,12 +36,12 @@ Deliverables:
 ## Phase 4: Feedback and UX (Week 4)
 1. Implement FeedbackCollector and CLI prompt flow.
 2. Store TaskFeedback in MemoryManager.
-3. Add minimal Dashboard surfaces for reports.
+3. Add results presentation UI for TaskReports (summary + steps).
 
 Deliverables:
 - FeedbackCollector module
 - TaskFeedback storage
-- Dashboard summary widget
+- Task results presentation UI
 
 ## Phase 5: Hardening (Week 5)
 1. Failure-aware replan for downstream steps.
@@ -63,4 +63,3 @@ Deliverables:
   - Execution traces with outcomes
   - Task report stored in memory
   - Feedback prompt for high impact tasks
-
