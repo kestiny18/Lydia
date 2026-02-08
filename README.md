@@ -68,7 +68,12 @@ pnpm install
 # Build
 pnpm build
 ```
-\r\n### Initialize\r\n```bash\r\npnpm tsx packages/cli/src/index.ts init\r\n```\r\n
+
+### Initialize
+```bash
+pnpm tsx packages/cli/src/index.ts init
+```
+
 ### Run Your Assistant
 ```bash
 # Example: Git status checker
@@ -119,19 +124,19 @@ Lydia automatically learns this on the next run!
 ## Architecture (Under the Hood)
 
 ```
-©°©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©´
-©¦           Intent Analyzer              ©¦  ¡û Understands your goal
-©¸©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ð©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¼
-                ¡ý
-©°©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©´
-©¦         Strategic Planner              ©¦  ¡û Generates a safe plan
-©¦  (loads your Skills & Preferences)     ©¦
-©¸©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ð©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¼
-                ¡ý
-©°©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©´
-©¦          Execution Engine              ©¦  ¡û Do the work
-©¦   (Shell, FileSystem, Git, Custom...)  ©¦
-©¸©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©Ð©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¼
++-----------------------------------------+
+|           Intent Analyzer               |  <- Understands your goal
++-----------------+-----------------------+
+                  |
++-----------------------------------------+
+|           Strategic Planner             |  <- Generates a safe plan
+|   (loads your Skills & Preferences)     |
++-----------------+-----------------------+
+                  |
++-----------------------------------------+
+|           Execution Engine              |  <- Do the work
+|   (Shell, FileSystem, Git, Custom...)   |
++-----------------------------------------+
 ```
 
 **Full Architecture**: [docs/architecture/overview.md](docs/architecture/overview.md)
@@ -140,7 +145,19 @@ Lydia automatically learns this on the next run!
 
 ---
 
-## Roadmap and Progress\r\n\r\nThis README is the product entry point. Detailed progress tracking lives in:\r\n- [docs/north-star.md](docs/north-star.md) (strategic evolution roadmap)\r\n- [docs/roadmap.md](docs/roadmap.md) (engineering roadmap)\r\n\r\n## MVP Release\r\n\r\n- Release and installer notes: [docs/release.md](docs/release.md)\r\n- MVP checklist and success criteria: [docs/mvp-checklist.md](docs/mvp-checklist.md)\r\n- Demo script: [docs/demo.md](docs/demo.md)\r\n\r\n---
+## Roadmap and Progress
+
+This README is the product entry point. Detailed progress tracking lives in:
+- [docs/north-star.md](docs/north-star.md) (strategic evolution roadmap)
+- [docs/roadmap.md](docs/roadmap.md) (engineering roadmap)
+
+## MVP Release
+
+- Release and installer notes: [docs/release.md](docs/release.md)
+- MVP checklist and success criteria: [docs/mvp-checklist.md](docs/mvp-checklist.md)
+- Demo script: [docs/demo.md](docs/demo.md)
+
+---
 
 ## Why "Lydia"?
 
