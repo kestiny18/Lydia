@@ -101,10 +101,6 @@ export class SelfEvolutionSkill implements DynamicSkill {
             const validation = await this.gate.process(newStrategy, branchInfo, []);
 
             // 4. Act on Result
-            if (validation.status === 'REJECT') {
-                return `Strategy update rejected by safety gate: ${validation.reason}`;
-            }
-
             const reqDetails = {
                 source: 'self_evolution',
                 branchName: branchName,
@@ -113,9 +109,36 @@ export class SelfEvolutionSkill implements DynamicSkill {
                 validationResult: validation
             };
 
+            // Record proposal in Memory DB for dashboard visibility
+            const proposalStatus = validation.status === 'REJECT' ? 'invalid' : 'pending_human';
+            const evaluation = {
+                source: 'self_evolution',
+                analysis,
+                description,
+                validation,
+                branch: {
+                    name: branchInfo.name,
+                    version: branchInfo.version,
+                    parent: branchInfo.parent,
+                    path: branchInfo.path
+                }
+            };
+            const proposalId = this.memoryManager.recordStrategyProposal({
+                strategy_path: branchInfo.path,
+                status: proposalStatus,
+                reason: validation.reason,
+                evaluation_json: JSON.stringify(evaluation),
+                created_at: Date.now(),
+                decided_at: proposalStatus === 'invalid' ? Date.now() : undefined
+            });
+
+            if (validation.status === 'REJECT') {
+                return `Strategy update rejected by safety gate: ${validation.reason}. Proposal ID: ${proposalId}`;
+            }
+
             if (validation.status === 'NEEDS_HUMAN' || validation.status === 'PASS') {
                 const reqId = await this.reviewManager.addRequest(reqDetails);
-                return `Strategy update proposed and queued for review. Request ID: ${reqId}. \nValidation: ${validation.reason || 'Passed auto-checks'}`;
+                return `Strategy update proposed and queued for review. Request ID: ${reqId}. Proposal ID: ${proposalId}.\nValidation: ${validation.reason || 'Passed auto-checks'}`;
             }
 
             return 'Unknown state';
