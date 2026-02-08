@@ -40,6 +40,13 @@ export interface StrategyProposal {
   decided_at?: number;
 }
 
+export interface TaskReportRecord {
+  id?: number;
+  task_id: string;
+  report_json: string;
+  created_at: number;
+}
+
 export class MemoryManager extends EventEmitter {
   private db: Database.Database;
 
@@ -156,6 +163,16 @@ export class MemoryManager extends EventEmitter {
         evaluation_json TEXT,
         created_at INTEGER NOT NULL,
         decided_at INTEGER
+      );
+    `);
+
+    // 7. Task Reports Table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS task_reports (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        report_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
       );
     `);
 
@@ -333,6 +350,28 @@ export class MemoryManager extends EventEmitter {
       LIMIT ?
     `);
     return stmt.all(limit) as StrategyProposal[];
+  }
+
+  public recordTaskReport(taskId: string, report: unknown): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO task_reports (task_id, report_json, created_at)
+      VALUES (?, ?, ?)
+    `);
+    const info = stmt.run(
+      taskId,
+      JSON.stringify(report),
+      Date.now()
+    );
+    return info.lastInsertRowid as number;
+  }
+
+  public listTaskReports(limit: number = 50): TaskReportRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM task_reports
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(limit) as TaskReportRecord[];
   }
 
   /**
