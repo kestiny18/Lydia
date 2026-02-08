@@ -27,6 +27,7 @@ export interface TaskReport {
   summary: string;
   outputs: string[];
   followUps: string[];
+  steps: StepResult[];
   verificationNotes?: string[];
   createdAt: number;
 }
@@ -83,9 +84,9 @@ export class TaskReporter {
       summary: summaryText,
       outputs: summary.outputs,
       followUps,
+      steps: results,
       verificationNotes: summary.failures.map(f => `Failure at ${f.stepId}: ${f.reason}`),
       createdAt: Date.now()
     };
   }
 }
-
