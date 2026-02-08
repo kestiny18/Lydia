@@ -14,6 +14,14 @@ export interface EvaluationResult {
     details?: string;
 }
 
+export interface EvaluationSummary {
+    tasks: number;
+    successRate: number;
+    averageScore: number;
+    averageDuration: number;
+    driftRate: number;
+}
+
 export interface StrategyComparison {
     baselineId: string;
     candidateId: string;
@@ -22,6 +30,14 @@ export interface StrategyComparison {
     candidateScore: number;
     improvement: number; // Percentage
     details: EvaluationResult[];
+    baselineSummary: EvaluationSummary;
+    candidateSummary: EvaluationSummary;
+    delta: {
+        successRate: number;
+        averageScore: number;
+        averageDuration: number;
+        driftRate: number;
+    };
 }
 
 export class StrategyEvaluator {
@@ -53,6 +69,8 @@ export class StrategyEvaluator {
     compareResults(baseline: EvaluationResult[], candidate: EvaluationResult[]): StrategyComparison {
         const baselineScore = this.calculateAverageScore(baseline);
         const candidateScore = this.calculateAverageScore(candidate);
+        const baselineSummary = this.summarize(baseline);
+        const candidateSummary = this.summarize(candidate);
 
         return {
             baselineId: 'baseline',
@@ -61,7 +79,15 @@ export class StrategyEvaluator {
             baselineScore,
             candidateScore,
             improvement: (candidateScore - baselineScore) / (baselineScore || 1), // Avoid div by zero
-            details: candidate
+            details: candidate,
+            baselineSummary,
+            candidateSummary,
+            delta: {
+                successRate: candidateSummary.successRate - baselineSummary.successRate,
+                averageScore: candidateSummary.averageScore - baselineSummary.averageScore,
+                averageDuration: candidateSummary.averageDuration - baselineSummary.averageDuration,
+                driftRate: candidateSummary.driftRate - baselineSummary.driftRate
+            }
         };
     }
 
@@ -69,5 +95,24 @@ export class StrategyEvaluator {
         if (results.length === 0) return 0;
         const sum = results.reduce((acc, r) => acc + r.score, 0);
         return sum / results.length;
+    }
+
+    summarize(results: EvaluationResult[]): EvaluationSummary {
+        if (results.length === 0) {
+            return { tasks: 0, successRate: 0, averageScore: 0, averageDuration: 0, driftRate: 0 };
+        }
+        const tasks = results.length;
+        const successCount = results.filter(r => r.success).length;
+        const avgScore = this.calculateAverageScore(results);
+        const avgDuration = results.reduce((acc, r) => acc + (r.metrics?.duration || 0), 0) / tasks;
+        const driftCount = results.filter(r => r.metrics?.driftDetected).length;
+
+        return {
+            tasks,
+            successRate: successCount / tasks,
+            averageScore: avgScore,
+            averageDuration: avgDuration,
+            driftRate: driftCount / tasks
+        };
     }
 }

@@ -4,7 +4,7 @@ import { ReplayLLMProvider } from './llm.js';
 import { SimplePlanner } from '../strategy/planner.js';
 import { ReplayMcpClientManager } from './mcp.js';
 import { Strategy } from '../strategy/strategy.js';
-import { StrategyEvaluator, EvaluationResult } from './evaluator.js';
+import { StrategyEvaluator, EvaluationResult, StrategyComparison } from './evaluator.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -88,6 +88,7 @@ export class ReplayManager {
     // 5. Evaluate
     const evaluation = this.evaluator.evaluateTask(resultTask, episode.result);
     evaluation.metrics.duration = duration;
+    evaluation.metrics.steps = traces.length;
     evaluation.metrics.driftDetected = mockMcp.drifts.length > 0;
 
     return evaluation;
@@ -104,5 +105,15 @@ export class ReplayManager {
       }
     }
     return results;
+  }
+
+  async replayCompare(
+    episodeIds: number[],
+    baseline: Strategy,
+    candidate: Strategy
+  ): Promise<StrategyComparison> {
+    const baselineResults = await this.replayBatch(episodeIds, baseline);
+    const candidateResults = await this.replayBatch(episodeIds, candidate);
+    return this.evaluator.compareResults(baselineResults, candidateResults);
   }
 }
