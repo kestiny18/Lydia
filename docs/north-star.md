@@ -12,6 +12,25 @@ This document keeps the long-term direction aligned and tracks progress against 
 
 ## Mainline A: Controlled Evolution (Primary Roadmap)
 
+## Mainline B: Task Execution Excellence
+
+Goal: Make Lydia reliably complete user tasks end-to-end with clear outputs and feedback.
+
+### Phase B1: Intent and Context
+Exit Criteria:
+- IntentProfile includes deliverables, constraints, success criteria.
+- TaskContext assembled for each run (memory + tools + strategy).
+
+### Phase B2: Planning and Verification
+Exit Criteria:
+- Plans include dependencies, risk tags, and verification steps.
+- Execution enforces confirmations for high-risk steps.
+
+### Phase B3: Reporting and Feedback
+Exit Criteria:
+- TaskReport generated for each task.
+- Feedback captured and stored for learning.
+
 ## Executive Summary
 Status: **On the Right Path**
 

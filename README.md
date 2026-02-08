@@ -30,6 +30,7 @@ Most current AI agents are either rigid tools (don't learn) or black boxes (lear
 ### Core Capabilities
 
 - **Strategic Planning**: Breaks down complex requests into executed steps.
+- **Task Execution Chain**: Structured intent, verified plans, execution reports, and feedback loop.
 - **Full Toolset**: Built-in support for Shell, FileSystem, Git, and extensible via MCP.
 - **Skill System**: Teach Lydia new capabilities via simple Markdown files.
 - **Safety Gates**: Validates strategy updates before they are applied.
@@ -126,6 +127,7 @@ Lydia automatically learns this on the next run!
 ```
 
 **Full Architecture**: [docs/architecture/overview.md](docs/architecture/overview.md)
+**Task Execution Chain**: [docs/architecture/task-execution-chain.md](docs/architecture/task-execution-chain.md)
 **Safety and Risk Controls**: [docs/safety.md](docs/safety.md)
 
 ---

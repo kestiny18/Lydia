@@ -11,6 +11,7 @@
 - Product Requirements (PRD) (planned)
 - [Technical Roadmap](./roadmap.md) - Phased development plan
 - [Architecture Design (ADD)](./architecture/) - System architecture
+- [Task Execution Chain](./architecture/task-execution-chain.md) - End-to-end task flow design
 - [Safety and Risk Controls](./safety.md)
 - [North Star](./north-star.md) - Strategy evolution roadmap
 - [Strategy Schema](./strategy-schema.md)
@@ -19,6 +20,7 @@
 - Development Guide (planned)
 - API Reference (planned)
 - Implementation Details (planned)
+- [Task Execution Chain Plan](./implementation/task-execution-chain-plan.md)
 - [Getting Started](./getting-started.md)
 - [Release Guide](./release.md)
 - [MVP Checklist](./mvp-checklist.md)
@@ -110,4 +112,4 @@ Phased delivery plan
 
 ---
 
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-02-08

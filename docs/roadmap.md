@@ -198,4 +198,28 @@ Implement the simplest version of each feature first, run through the complete f
 
 ---
 
-**Last Updated**: 2026-02-07
+**Last Updated**: 2026-02-08
+
+
+## Immediate Focus: Task Execution Chain
+We will prioritize end-to-end task completion reliability before deep evolution work.
+
+### Phase T1: Intent and Context
+Goal: Structured intent + task context for every request.
+- Extend Intent to IntentProfile (deliverables, constraints, success criteria).
+- Build TaskContext from memory + strategy constraints + tool availability.
+
+### Phase T2: Planning and Verification
+Goal: Plans must include dependencies and verification.
+- Planner outputs dependencies and verification steps.
+- Risk tags and confirmation requirements per step.
+
+### Phase T3: Reporting and Feedback
+Goal: Produce task reports and capture feedback.
+- Reporter generates TaskReport.
+- FeedbackCollector stores user feedback.
+
+Exit Criteria:
+- Each task produces a report and optional feedback record.
+- Failures include root cause and recovery hints.
+
