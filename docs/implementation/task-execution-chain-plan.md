@@ -43,6 +43,11 @@ Deliverables:
 - TaskFeedback storage
 - Task results presentation UI
 
+## Phase 4b: Task Input UI (Week 4)
+1. Add task input UI in dashboard.
+2. Add API endpoint to run tasks.
+3. Refresh reports on completion.
+
 ## Phase 5: Hardening (Week 5)
 1. Failure-aware replan for downstream steps.
 2. Update risk gating to include verification failures.

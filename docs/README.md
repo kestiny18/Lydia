@@ -13,6 +13,7 @@
 - [Architecture Design (ADD)](./architecture/) - System architecture
 - [Task Execution Chain](./architecture/task-execution-chain.md) - End-to-end task flow design
 - [Task Results Presentation](./architecture/task-results-presentation.md) - User-facing results UI
+- [Task Input UI](./architecture/task-input-ui.md) - Web task submission flow
 - [Safety and Risk Controls](./safety.md)
 - [North Star](./north-star.md) - Strategy evolution roadmap
 - [Strategy Schema](./strategy-schema.md)
