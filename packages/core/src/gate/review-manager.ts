@@ -1,77 +1,124 @@
-import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { Strategy } from '../strategy/strategy.js';
-import { ValidationResult } from './validators.js';
+import type { StrategyProposal } from '../memory/manager.js';
+import { MemoryManager } from '../memory/manager.js';
+import type { ValidationResult } from './validators.js';
 
 export interface ReviewRequest {
-    id: string;
+    id: number;
     source: string; // e.g. 'self_evolution', 'foundry'
     timestamp: number;
     branchName: string; // The branch waiting for approval
     strategyId: string;
+    strategyPath: string;
     diffSummary: string;
     validationResult: ValidationResult;
+    analysis?: string;
+    description?: string;
     status: 'pending' | 'approved' | 'rejected';
 }
 
 export class ReviewManager {
-    private storagePath: string;
+    private memory: MemoryManager;
 
-    constructor(storageDir?: string) {
-        this.storagePath = path.join(storageDir || path.join(os.homedir(), '.lydia'), 'reviews.json');
+    constructor(memoryManager?: MemoryManager) {
+        if (memoryManager) {
+            this.memory = memoryManager;
+            return;
+        }
+        const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+        this.memory = new MemoryManager(dbPath);
     }
 
     async init() {
-        try {
-            await fs.access(this.storagePath);
-        } catch {
-            await fs.writeFile(this.storagePath, JSON.stringify([]), 'utf-8');
-        }
+        // No-op: MemoryManager handles DB initialization.
     }
 
-    async addRequest(request: Omit<ReviewRequest, 'id' | 'timestamp' | 'status'>): Promise<string> {
-        const requests = await this.loadRequests();
-        const newRequest: ReviewRequest = {
-            ...request,
-            id: `req-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-            timestamp: Date.now(),
-            status: 'pending'
+    async addRequest(request: Omit<ReviewRequest, 'id' | 'timestamp' | 'status'>): Promise<number> {
+        const evaluation = {
+            type: 'review_request',
+            source: request.source,
+            analysis: request.analysis,
+            description: request.description,
+            diffSummary: request.diffSummary,
+            validation: request.validationResult,
+            strategyId: request.strategyId,
+            branch: {
+                name: request.branchName,
+                path: request.strategyPath
+            }
         };
-        requests.push(newRequest);
-        await this.saveRequests(requests);
-        return newRequest.id;
+
+        const proposalStatus = request.validationResult.status === 'REJECT' ? 'invalid' : 'pending_human';
+        const id = this.memory.recordStrategyProposal({
+            strategy_path: request.strategyPath,
+            status: proposalStatus,
+            reason: request.validationResult.reason,
+            evaluation_json: JSON.stringify(evaluation),
+            created_at: Date.now(),
+            decided_at: proposalStatus === 'invalid' ? Date.now() : undefined
+        });
+
+        return id;
     }
 
     async listPending(): Promise<ReviewRequest[]> {
-        const requests = await this.loadRequests();
-        return requests.filter(r => r.status === 'pending');
+        const proposals = this.memory.listStrategyProposals(200);
+        const pending = proposals.filter((p) => p.status === 'pending_human');
+        return pending
+            .map((proposal) => this.toReviewRequest(proposal))
+            .filter((req): req is ReviewRequest => req !== undefined);
     }
 
-    async getRequest(id: string): Promise<ReviewRequest | undefined> {
-        const requests = await this.loadRequests();
-        return requests.find(r => r.id === id);
+    async getRequest(id: number): Promise<ReviewRequest | undefined> {
+        const proposal = this.memory.getStrategyProposal(id);
+        if (!proposal) return undefined;
+        return this.toReviewRequest(proposal);
     }
 
-    async updateStatus(id: string, status: 'approved' | 'rejected'): Promise<void> {
-        const requests = await this.loadRequests();
-        const idx = requests.findIndex(r => r.id === id);
-        if (idx === -1) throw new Error(`Request ${id} not found`);
-
-        requests[idx].status = status;
-        await this.saveRequests(requests);
+    async updateStatus(id: number, status: 'approved' | 'rejected'): Promise<void> {
+        const ok = this.memory.updateStrategyProposal(id, status);
+        if (!ok) throw new Error(`Request ${id} not found`);
     }
 
-    private async loadRequests(): Promise<ReviewRequest[]> {
+    private parseEvaluation(raw?: string | null): any | null {
+        if (!raw) return null;
         try {
-            const content = await fs.readFile(this.storagePath, 'utf-8');
-            return JSON.parse(content);
+            return JSON.parse(raw);
         } catch {
-            return [];
+            return null;
         }
     }
 
-    private async saveRequests(requests: ReviewRequest[]): Promise<void> {
-        await fs.writeFile(this.storagePath, JSON.stringify(requests, null, 2), 'utf-8');
+    private mapStatus(status: StrategyProposal['status']): ReviewRequest['status'] {
+        if (status === 'approved') return 'approved';
+        if (status === 'rejected') return 'rejected';
+        return 'pending';
+    }
+
+    private toReviewRequest(proposal: StrategyProposal): ReviewRequest | undefined {
+        if (!proposal.id) return undefined;
+        const evaluation = this.parseEvaluation(proposal.evaluation_json);
+        if (!evaluation) return undefined;
+        const isReviewRequest = evaluation.type === 'review_request' || typeof evaluation.source === 'string';
+        if (!isReviewRequest) return undefined;
+
+        const branchName = evaluation.branch?.name || '';
+        const strategyPath = evaluation.branch?.path || proposal.strategy_path || '';
+        const validationResult = evaluation.validation || evaluation.validationResult || { status: 'NEEDS_HUMAN' };
+
+        return {
+            id: proposal.id,
+            source: evaluation.source || 'unknown',
+            timestamp: proposal.created_at,
+            branchName,
+            strategyId: evaluation.strategyId || '',
+            strategyPath,
+            diffSummary: evaluation.diffSummary || '',
+            validationResult,
+            analysis: evaluation.analysis,
+            description: evaluation.description,
+            status: this.mapStatus(proposal.status)
+        };
     }
 }

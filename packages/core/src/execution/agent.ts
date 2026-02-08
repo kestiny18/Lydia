@@ -78,6 +78,8 @@ export class Agent extends EventEmitter {
     // MemoryManager will create file, but better check parent dir in loader or here.
     // ConfigLoader already ensures .lydia exists.
     this.memoryManager = new MemoryManager(dbPath);
+    // Rebind review manager to the active memory manager
+    this.reviewManager = new ReviewManager(this.memoryManager);
 
     const memoryServer = new MemoryServer(this.memoryManager);
 
