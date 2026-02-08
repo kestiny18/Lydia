@@ -19,6 +19,7 @@ import { InteractionServer } from '../mcp/servers/interaction.js';
 import { assessRisk, type RiskAssessment, StrategyUpdateGate, ReviewManager } from '../gate/index.js';
 import { StrategyBranchManager } from '../strategy/branch-manager.js';
 import { SelfEvolutionSkill } from '../skills/self-evolution.js';
+import { TaskReporter, type StepResult } from '../reporting/index.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { LydiaConfig } from '../config/index.js';
@@ -38,12 +39,14 @@ export class Agent extends EventEmitter {
   private config?: LydiaConfig;
   private isInitialized = false;
   private traces: Trace[] = [];
+  private stepResults: StepResult[] = [];
   private taskApprovals: Set<string> = new Set();
 
   // New components
   private branchManager: StrategyBranchManager;
   private reviewManager: ReviewManager;
   private updateGate: StrategyUpdateGate;
+  private reporter: TaskReporter;
 
   constructor(llm: ILLMProvider) {
     super();
@@ -60,6 +63,7 @@ export class Agent extends EventEmitter {
     this.branchManager = new StrategyBranchManager();
     this.reviewManager = new ReviewManager();
     this.updateGate = new StrategyUpdateGate();
+    this.reporter = new TaskReporter();
   }
 
   async init() {
@@ -193,6 +197,8 @@ export class Agent extends EventEmitter {
   async run(userInput: string): Promise<Task> {
     await this.init();
     this.taskApprovals = new Set();
+    this.stepResults = [];
+    let intentProfile: Awaited<ReturnType<IntentAnalyzer['analyze']>> | null = null;
 
     // 1. Initialize Task
     const task: Task = {
@@ -218,6 +224,7 @@ export class Agent extends EventEmitter {
       // 2. Analyze Intent
       this.emit('phase:start', 'intent');
       const intent = await this.intentAnalyzer.analyze(userInput);
+      intentProfile = intent;
       this.emit('intent', intent);
       this.emit('phase:end', 'intent');
 
@@ -275,6 +282,11 @@ export class Agent extends EventEmitter {
       task.status = 'failed';
       task.result = error instanceof Error ? error.message : String(error);
       this.emit('task:error', error);
+    }
+
+    if (intentProfile) {
+      const report = this.reporter.generateReport(task, intentProfile, this.stepResults);
+      this.memoryManager.recordTaskReport(task.id, report);
     }
 
     return task;
@@ -455,6 +467,20 @@ export class Agent extends EventEmitter {
     } finally {
       step.completedAt = Date.now();
       this.emit('step:complete', step);
+
+      const durationMs = step.startedAt && step.completedAt ? step.completedAt - step.startedAt : undefined;
+      const status = step.status === 'completed'
+        ? 'completed'
+        : step.status === 'failed'
+          ? 'failed'
+          : 'skipped';
+      this.stepResults.push({
+        stepId: step.id,
+        status,
+        output: step.result,
+        error: step.error,
+        durationMs
+      });
     }
   }
 
