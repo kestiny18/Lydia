@@ -7,6 +7,10 @@
 [![MIT License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 [![Status](https://img.shields.io/badge/Status-Prototype-orange.svg)](https://github.com/kestiny18/Lydia)
+<!-- ALL-CONTRIBUTORS-BADGE:START - Do not remove or modify this section -->
+[![All Contributors](https://img.shields.io/badge/all_contributors-3-orange.svg?style=flat-square)](#contributors-)
+<!-- ALL-CONTRIBUTORS-BADGE:END -->
+
 
 ---
 
@@ -148,9 +152,21 @@ Just as Lydia brought **trust** to trade, we want to bring **trust** to your AI 
 
 ## Contributors
 
-- [kestiny](https://github.com/kestiny18)
-- [codex](https://github.com/openai)
-- [claude](https://github.com/claude)
+Thanks to the people who have contributed to this project.
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+<table>
+  <tr>
+    <td align="center"><a href="https://github.com/kestiny18"><img src="https://github.com/kestiny18.png?size=100" width="100px;" alt="kestiny" /><br /><sub><b>kestiny</b></sub></a><br /><a href="https://github.com/kestiny18" title="Code">:computer:</a></td>
+    <td align="center"><a href="https://github.com/openai"><img src="https://github.com/openai.png?size=100" width="100px;" alt="codex" /><br /><sub><b>codex</b></sub></a><br /><a href="https://github.com/openai" title="Code">:computer:</a></td>
+    <td align="center"><a href="https://github.com/claude"><img src="https://github.com/claude.png?size=100" width="100px;" alt="claude" /><br /><sub><b>claude</b></sub></a><br /><a href="https://github.com/claude" title="Code">:computer:</a></td>
+  </tr>
+</table>
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+<!-- ALL-CONTRIBUTORS-LIST:END -->
 
 ## License
 

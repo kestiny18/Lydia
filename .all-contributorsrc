@@ -1,0 +1,42 @@
+{
+  "projectName": "Lydia",
+  "projectOwner": "kestiny18",
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": [
+    "README.md"
+  ],
+  "imageSize": 100,
+  "contributorsPerLine": 7,
+  "skipCi": true,
+  "commit": false,
+  "contributors": [
+    {
+      "login": "kestiny18",
+      "name": "kestiny",
+      "avatar_url": "https://github.com/kestiny18.png?size=100",
+      "profile": "https://github.com/kestiny18",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "openai",
+      "name": "codex",
+      "avatar_url": "https://github.com/openai.png?size=100",
+      "profile": "https://github.com/openai",
+      "contributions": [
+        "code"
+      ]
+    },
+    {
+      "login": "claude",
+      "name": "claude",
+      "avatar_url": "https://github.com/claude.png?size=100",
+      "profile": "https://github.com/claude",
+      "contributions": [
+        "code"
+      ]
+    }
+  ]
+}
