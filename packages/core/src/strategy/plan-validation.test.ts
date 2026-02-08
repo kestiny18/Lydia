@@ -18,6 +18,12 @@ const mockLLM = {
               description: 'List files',
               tool: 'fs_list_directory',
               args: { path: '.' }
+            },
+            {
+              type: 'action',
+              description: 'Read file',
+              tool: 'fs_read_file',
+              args: { path: './README.md' }
             }
           ]
         })
@@ -47,9 +53,13 @@ describe('Planner validation', () => {
     );
 
     expect(steps.length).toBeGreaterThan(0);
-    const actionStep = steps.find(step => step.type === 'action');
-    expect(actionStep).toBeTruthy();
-    expect(actionStep?.verification && actionStep.verification.length > 0).toBe(true);
-    expect(actionStep?.dependsOn && actionStep.dependsOn.length > 0).toBe(true);
+    const actionSteps = steps.filter(step => step.type === 'action');
+    expect(actionSteps.length).toBeGreaterThan(0);
+    for (const actionStep of actionSteps) {
+      expect(actionStep.verification && actionStep.verification.length > 0).toBe(true);
+    }
+    if (actionSteps.length > 1) {
+      expect(actionSteps[1].dependsOn && actionSteps[1].dependsOn.length > 0).toBe(true);
+    }
   });
 });
