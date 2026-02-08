@@ -5,6 +5,7 @@ import {
   type Task,
   type Step,
   type AgentContext,
+  type TaskContext,
   TaskStatusSchema,
   IntentAnalyzer,
   SimplePlanner
@@ -13,7 +14,7 @@ import { SkillRegistry, SkillLoader } from '../skills/index.js';
 import { StrategyRegistry, type Strategy } from '../strategy/index.js';
 import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServer } from '../mcp/index.js';
 import { ConfigLoader } from '../config/index.js';
-import { MemoryManager, type Trace } from '../memory/index.js';
+import { MemoryManager, type Trace, type Fact, type Episode } from '../memory/index.js';
 import { InteractionServer } from '../mcp/servers/interaction.js';
 import { assessRisk, type RiskAssessment, StrategyUpdateGate, ReviewManager } from '../gate/index.js';
 import { StrategyBranchManager } from '../strategy/branch-manager.js';
@@ -231,6 +232,8 @@ export class Agent extends EventEmitter {
       this.emit('phase:start', 'memory');
       const facts = this.memoryManager.searchFacts(userInput);
       const episodes = this.memoryManager.recallEpisodes(userInput);
+      const taskContext = this.buildTaskContext(facts, episodes, context);
+      context.taskContext = taskContext;
       this.emit('phase:end', 'memory');
 
       // 3. Generate Plan
@@ -453,5 +456,29 @@ export class Agent extends EventEmitter {
       step.completedAt = Date.now();
       this.emit('step:complete', step);
     }
+  }
+
+  private buildTaskContext(facts: Fact[], episodes: Episode[], context: AgentContext): TaskContext {
+    const tools = this.mcpClientManager.getTools().map(t => t.name);
+    const strategyId = this.activeStrategy?.metadata.id || 'unknown';
+    const strategyVersion = this.activeStrategy?.metadata.version || 'unknown';
+    const requiresConfirmation = new Set<string>([
+      ...(this.activeStrategy?.execution?.requiresConfirmation || []),
+      ...(this.activeStrategy?.constraints?.mustConfirmBefore || [])
+    ]);
+    const deniedTools = this.activeStrategy?.constraints?.deniedTools || [];
+
+    return {
+      cwd: typeof context.state.cwd === 'string' ? context.state.cwd : process.cwd(),
+      tools,
+      strategyId,
+      strategyVersion,
+      facts,
+      episodes,
+      riskPolicy: {
+        requiresConfirmation: Array.from(requiresConfirmation),
+        deniedTools
+      }
+    };
   }
 }
