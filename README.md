@@ -49,6 +49,10 @@ Most current AI agents are either rigid tools (don't learn) or black boxes (lear
 ## Quick Start (5 Minutes)
 
 ### Install
+Planned: One-click local installer scripts for macOS/Linux/Windows.
+See [docs/architecture/local-installation.md](docs/architecture/local-installation.md) and
+[docs/implementation/local-installation-plan.md](docs/implementation/local-installation-plan.md).
+
 ```bash
 # Clone the repo
 git clone https://github.com/kestiny18/Lydia.git
@@ -155,3 +159,7 @@ MIT License - see [LICENSE](LICENSE) for details.
 *Your Trustworthy AI Assistant*
 
 </div>
+
+
+
+

@@ -219,7 +219,14 @@ Goal: Produce task reports and capture feedback.
 - Reporter generates TaskReport.
 - FeedbackCollector stores user feedback.
 
+### Phase T4: Local Installation UX
+Goal: One-command local installation for normal users.
+- Script installer for macOS/Linux/WSL + Windows PowerShell.
+- Publish CLI package with prebuilt dist for npm install.
+- Run onboarding automatically after install.
+
 Exit Criteria:
 - Each task produces a report and optional feedback record.
 - Failures include root cause and recovery hints.
+- One-command local install completes without repo setup.
 

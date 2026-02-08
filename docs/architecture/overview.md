@@ -183,3 +183,5 @@ Detailed design documents:
 **Last Updated**: 2026-02-07
 
 - [Task Execution Chain](./task-execution-chain.md) - End-to-end task flow design
+
+- [Local Installation](./local-installation.md) - One-click local installer design

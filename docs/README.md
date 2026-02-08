@@ -14,6 +14,7 @@
 - [Task Execution Chain](./architecture/task-execution-chain.md) - End-to-end task flow design
 - [Task Results Presentation](./architecture/task-results-presentation.md) - User-facing results UI
 - [Task Input UI](./architecture/task-input-ui.md) - Web task submission flow
+- [Local Installation](./architecture/local-installation.md) - One-click local installer design
 - [Safety and Risk Controls](./safety.md)
 - [North Star](./north-star.md) - Strategy evolution roadmap
 - [Strategy Schema](./strategy-schema.md)
@@ -23,6 +24,7 @@
 - API Reference (planned)
 - Implementation Details (planned)
 - [Task Execution Chain Plan](./implementation/task-execution-chain-plan.md)
+- [Local Installation Plan](./implementation/local-installation-plan.md)
 - [Getting Started](./getting-started.md)
 - [Release Guide](./release.md)
 - [MVP Checklist](./mvp-checklist.md)
