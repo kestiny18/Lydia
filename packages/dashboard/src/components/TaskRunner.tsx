@@ -75,9 +75,13 @@ export function TaskRunner() {
 
     const applyStructuredPrompt = () => {
         const structured = buildStructuredPrompt();
-        if (structured) {
-            setInput(structured);
-        }
+        if (!structured) return;
+        setInput((current) => {
+            const trimmed = current.trim();
+            if (!trimmed) return structured;
+            const separator = current.endsWith('\n') ? '\n' : '\n\n';
+            return `${current}${separator}${structured}`;
+        });
     };
 
     const clearStructuredPrompt = () => {
