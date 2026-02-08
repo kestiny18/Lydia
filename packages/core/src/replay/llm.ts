@@ -31,6 +31,7 @@ export class ReplayLLMProvider implements ILLMProvider {
     }
 
     if (isIntent) {
+      const summary = request.messages?.[0]?.content?.toString?.() || 'replay intent';
       return {
         id: `replay-${this.callCount}`,
         role: 'assistant',
@@ -42,9 +43,15 @@ export class ReplayLLMProvider implements ILLMProvider {
             type: 'text',
             text: JSON.stringify({
               category: 'action',
-              summary: request.messages?.[0]?.content?.toString?.() || 'replay intent',
+              summary,
               entities: [],
-              complexity: 'simple'
+              complexity: 'simple',
+              goal: summary,
+              deliverables: [],
+              constraints: [],
+              successCriteria: [],
+              assumptions: [],
+              requiredTools: []
             })
           }
         ]

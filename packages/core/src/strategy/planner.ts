@@ -1,7 +1,7 @@
 
 import { z } from 'zod';
 import type { ILLMProvider, LLMRequest } from '../llm/index.js';
-import type { Task, Step, Intent, AgentContext } from './index.js';
+import type { Task, Step, IntentProfile, AgentContext } from './index.js';
 import type { Skill } from '../skills/types.js';
 import type { Fact, Episode } from '../memory/index.js';
 import type { StrategyConfig } from './strategy.js';
@@ -31,7 +31,7 @@ export class SimplePlanner {
     });
   }
 
-  async createPlan(task: Task, intent: Intent, context: AgentContext, skills: Skill[] = [], memories: { facts: Fact[], episodes: Episode[] } = { facts: [], episodes: [] }): Promise<Step[]> {
+  async createPlan(task: Task, intent: IntentProfile, context: AgentContext, skills: Skill[] = [], memories: { facts: Fact[], episodes: Episode[] } = { facts: [], episodes: [] }): Promise<Step[]> {
     let skillContext = '';
     if (skills.length > 0) {
       skillContext = `\nRELEVANT SKILLS (Follow these instructions):\n${skills.map(s => `--- SKILL: ${s.name} ---\n${s.content}\n--- END SKILL ---`).join('\n')}\n`;
@@ -63,6 +63,15 @@ export class SimplePlanner {
     - propose_strategy_update: Propose strategy changes (args: { analysis: string, description: string, modifications: string })
     `;
 
+    const toolList = context.taskContext?.tools?.length
+      ? context.taskContext.tools.map((tool) => `- ${tool}`).join('\n')
+      : predefinedTools;
+
+    const taskContextJson = context.taskContext ? JSON.stringify(context.taskContext, null, 2) : '';
+    const taskContextSection = taskContextJson
+      ? `\nTASK CONTEXT (use for constraints, tools, and environment):\n${taskContextJson}\n`
+      : '';
+
     // Use prompt from strategy or fallback
     const template = this.config.prompts?.planning || `
     You are a strategic planner.
@@ -72,6 +81,7 @@ export class SimplePlanner {
     {{memoryContext}}
     Available Tools:
     {{tools}}
+    {{taskContext}}
     Create a JSON plan.
     `;
 
@@ -80,14 +90,19 @@ export class SimplePlanner {
       'intent': JSON.stringify(intent),
       'skillContext': skillContext,
       'memoryContext': memoryContext,
-      'tools': predefinedTools,
+      'tools': toolList,
+      'taskContext': taskContextSection,
       'cwd': 'Current Working Directory', // Placeholder
       'lastResult': 'Output of previous step' // Placeholder
     });
 
+    const finalSystemPrompt = template.includes('{{taskContext}}') || !taskContextSection
+      ? systemPrompt
+      : `${systemPrompt}\n${taskContextSection}`;
+
 
     const request: LLMRequest = {
-      system: systemPrompt,
+      system: finalSystemPrompt,
       messages: [{ role: 'user', content: "Create a plan for this task." }],
       temperature: this.config.planning?.temperature ?? 0.2
     };

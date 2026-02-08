@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { Message } from '../llm/types.js';
+import type { Fact, Episode } from '../memory/index.js';
 
 // --- Task Definitions ---
 
@@ -53,7 +54,21 @@ export interface AgentContext {
   taskId: string;
   history: Message[]; // Chat history for LLM context
   state: Record<string, unknown>; // Shared state between steps
+  taskContext?: TaskContext;
   // We'll add tools and other resources here later
+}
+
+export interface TaskContext {
+  cwd: string;
+  tools: string[];
+  strategyId: string;
+  strategyVersion: string;
+  facts: Fact[];
+  episodes: Episode[];
+  riskPolicy: {
+    requiresConfirmation: string[];
+    deniedTools: string[];
+  };
 }
 
 // --- Strategy Interface ---

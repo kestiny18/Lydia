@@ -10,6 +10,17 @@ export const IntentSchema = z.object({
 
 export type Intent = z.infer<typeof IntentSchema>;
 
+export const IntentProfileSchema = IntentSchema.extend({
+  goal: z.string().default(''),
+  deliverables: z.array(z.string()).default([]),
+  constraints: z.array(z.string()).default([]),
+  successCriteria: z.array(z.string()).default([]),
+  assumptions: z.array(z.string()).default([]),
+  requiredTools: z.array(z.string()).default([]),
+});
+
+export type IntentProfile = z.infer<typeof IntentProfileSchema>;
+
 export class IntentAnalyzer {
   private llm: ILLMProvider;
 
@@ -17,7 +28,7 @@ export class IntentAnalyzer {
     this.llm = llm;
   }
 
-  async analyze(userInput: string): Promise<Intent> {
+  async analyze(userInput: string): Promise<IntentProfile> {
     const systemPrompt = `
 You are an intent analysis engine for an AI Agent named Lydia.
 Your job is to analyze user input and extract structured intent information.
@@ -27,7 +38,13 @@ Output MUST be a valid JSON object matching this schema:
   "category": "query" | "action" | "script" | "unknown",
   "summary": "concise summary",
   "entities": ["entity1", "entity2"],
-  "complexity": "simple" | "medium" | "complex"
+  "complexity": "simple" | "medium" | "complex",
+  "goal": "single sentence goal statement",
+  "deliverables": ["what the user expects to receive"],
+  "constraints": ["requirements or restrictions"],
+  "successCriteria": ["how to judge success"],
+  "assumptions": ["assumptions if needed"],
+  "requiredTools": ["tools or systems implied by the request"]
 }
 
 Definitions:
@@ -42,7 +59,13 @@ Example Output:
   "category": "action",
   "summary": "Create a React login form component",
   "entities": ["React", "login form"],
-  "complexity": "medium"
+  "complexity": "medium",
+  "goal": "Provide a reusable login form UI component",
+  "deliverables": ["React component code"],
+  "constraints": [],
+  "successCriteria": ["Component renders a login form with email and password fields"],
+  "assumptions": ["Use functional components"],
+  "requiredTools": []
 }
 `;
 
@@ -66,7 +89,7 @@ Example Output:
       // Basic JSON extraction (handling potential markdown code blocks)
       const jsonStr = content.text.replace(/```json\n?|\n?```/g, '').trim();
       const parsed = JSON.parse(jsonStr);
-      return IntentSchema.parse(parsed);
+      return IntentProfileSchema.parse(parsed);
     } catch (error) {
       console.error('Failed to parse intent JSON:', content.text);
       // Fallback intent
@@ -74,6 +97,12 @@ Example Output:
         category: 'unknown',
         summary: userInput,
         complexity: 'medium',
+        goal: userInput,
+        deliverables: [],
+        constraints: [],
+        successCriteria: [],
+        assumptions: [],
+        requiredTools: [],
       };
     }
   }
