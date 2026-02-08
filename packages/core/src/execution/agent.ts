@@ -20,6 +20,7 @@ import { assessRisk, type RiskAssessment, StrategyUpdateGate, ReviewManager } fr
 import { StrategyBranchManager } from '../strategy/branch-manager.js';
 import { SelfEvolutionSkill } from '../skills/self-evolution.js';
 import { TaskReporter, type StepResult } from '../reporting/index.js';
+import { FeedbackCollector } from '../feedback/index.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { LydiaConfig } from '../config/index.js';
@@ -47,6 +48,7 @@ export class Agent extends EventEmitter {
   private reviewManager: ReviewManager;
   private updateGate: StrategyUpdateGate;
   private reporter: TaskReporter;
+  private feedbackCollector: FeedbackCollector;
 
   constructor(llm: ILLMProvider) {
     super();
@@ -64,6 +66,7 @@ export class Agent extends EventEmitter {
     this.reviewManager = new ReviewManager();
     this.updateGate = new StrategyUpdateGate();
     this.reporter = new TaskReporter();
+    this.feedbackCollector = new FeedbackCollector();
   }
 
   async init() {
@@ -287,6 +290,23 @@ export class Agent extends EventEmitter {
     if (intentProfile) {
       const report = this.reporter.generateReport(task, intentProfile, this.stepResults);
       this.memoryManager.recordTaskReport(task.id, report);
+
+      const shouldRequestFeedback = task.status === 'failed' || (this.activeStrategy?.preferences?.userConfirmation ?? 0.8) >= 0.8;
+      if (shouldRequestFeedback && this.mcpClientManager.getToolInfo('ask_user')) {
+        const feedback = await this.feedbackCollector.collect(task, report, async (prompt) => {
+          const result = await this.mcpClientManager.callTool('ask_user', { prompt });
+          const textContent = (result.content as any[])
+            .filter((c: any) => c.type === 'text')
+            .map((c: any) => c.text)
+            .join('\n')
+            .trim();
+          return textContent;
+        });
+
+        if (feedback) {
+          this.memoryManager.recordTaskFeedback(task.id, feedback);
+        }
+      }
     }
 
     return task;
