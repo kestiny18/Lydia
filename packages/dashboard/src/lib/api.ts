@@ -58,7 +58,7 @@ export const api = {
         return res.json();
     },
 
-    async runTask(input: string): Promise<{ task: any; warning?: string }> {
+    async runTask(input: string): Promise<{ runId: string }> {
         const res = await fetch(`${API_BASE}/api/tasks/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -69,5 +69,26 @@ export const api = {
             throw new Error(err.error || 'Failed to run task');
         }
         return res.json();
+    },
+
+    async getTaskStatus(runId: string): Promise<any> {
+        const res = await fetch(`${API_BASE}/api/tasks/${runId}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to fetch task status');
+        }
+        return res.json();
+    },
+
+    async respondToTask(runId: string, response: string): Promise<void> {
+        const res = await fetch(`${API_BASE}/api/tasks/${runId}/respond`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ response })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to send response');
+        }
     }
 };

@@ -10,9 +10,20 @@ import { dirname } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+interface RunState {
+  runId: string;
+  status: 'running' | 'completed' | 'failed';
+  taskId?: string;
+  result?: string;
+  error?: string;
+  pendingPrompt?: { id: string; prompt: string };
+}
+
 export function createServer(port: number = 3000) {
   const app = new Hono();
   let isRunning = false;
+  let currentRun: RunState | null = null;
+  let currentAgent: Agent | null = null;
 
   // Initialize MemoryManager
   const dbPath = join(homedir(), '.lydia', 'memory.db');
@@ -155,24 +166,91 @@ export function createServer(port: number = 3000) {
     }
 
     isRunning = true;
-    let warning: string | undefined;
+    const runId = `run-${Date.now()}`;
+    currentRun = { runId, status: 'running' };
+
     try {
       const agent = new Agent(llm);
-      let hadInteraction = false;
-      agent.on('interaction_request', (req) => {
-        hadInteraction = true;
-        agent.resolveInteraction(req.id, 'no');
+      currentAgent = agent;
+
+      agent.on('task:start', (task) => {
+        if (currentRun) currentRun.taskId = task.id;
       });
-      const task = await agent.run(inputText);
-      if (hadInteraction) {
-        warning = 'Task required confirmation and was auto-denied in web UI.';
-      }
-      return c.json({ task, warning });
+
+      agent.on('interaction_request', (req) => {
+        if (!currentRun) return;
+        currentRun.pendingPrompt = { id: req.id, prompt: req.prompt };
+      });
+
+      agent.run(inputText)
+        .then((task) => {
+          if (!currentRun) return;
+          currentRun.taskId = task.id;
+          currentRun.status = task.status === 'completed' ? 'completed' : 'failed';
+          currentRun.result = task.result;
+          currentRun.pendingPrompt = undefined;
+        })
+        .catch((error: any) => {
+          if (!currentRun) return;
+          currentRun.status = 'failed';
+          currentRun.error = error?.message || 'Task failed.';
+          currentRun.pendingPrompt = undefined;
+        })
+        .finally(() => {
+          isRunning = false;
+        });
+
+      return c.json({ runId });
     } catch (error: any) {
-      return c.json({ error: error.message || 'Task failed.' }, 500);
-    } finally {
       isRunning = false;
+      return c.json({ error: error.message || 'Task failed.' }, 500);
     }
+  });
+
+  app.get('/api/tasks/:id', (c) => {
+    const runId = c.req.param('id');
+    if (!currentRun || currentRun.runId !== runId) {
+      return c.json({ error: 'Task not found' }, 404);
+    }
+    return c.json({
+      runId: currentRun.runId,
+      status: currentRun.status,
+      taskId: currentRun.taskId,
+      result: currentRun.result,
+      error: currentRun.error,
+      pendingPrompt: currentRun.pendingPrompt
+    });
+  });
+
+  app.post('/api/tasks/:id/respond', async (c) => {
+    const runId = c.req.param('id');
+    if (!currentRun || currentRun.runId !== runId) {
+      return c.json({ error: 'Task not found' }, 404);
+    }
+    if (!currentRun.pendingPrompt) {
+      return c.json({ error: 'No pending prompt' }, 409);
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+    const response = typeof body?.response === 'string' ? body.response.trim() : '';
+    if (!response) {
+      return c.json({ error: 'response is required' }, 400);
+    }
+
+    if (!currentAgent) {
+      return c.json({ error: 'Agent not available' }, 500);
+    }
+
+    const promptId = currentRun.pendingPrompt.id;
+    currentRun.pendingPrompt = undefined;
+    currentAgent.resolveInteraction(promptId, response);
+
+    return c.json({ ok: true });
   });
 
   // Get Active Strategy Content

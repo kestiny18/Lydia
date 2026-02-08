@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { TaskReports } from './TaskReports';
@@ -9,6 +9,9 @@ export function TaskRunner() {
     const [error, setError] = useState<string | null>(null);
     const [warning, setWarning] = useState<string | null>(null);
     const [lastResult, setLastResult] = useState<string | null>(null);
+    const [runId, setRunId] = useState<string | null>(null);
+    const [pendingPrompt, setPendingPrompt] = useState<{ id: string; prompt: string } | null>(null);
+    const [promptResponse, setPromptResponse] = useState('');
     const queryClient = useQueryClient();
 
     const handleRun = async () => {
@@ -18,17 +21,65 @@ export function TaskRunner() {
         setError(null);
         setWarning(null);
         setLastResult(null);
+        setRunId(null);
+        setPendingPrompt(null);
+        setPromptResponse('');
         try {
             const result = await api.runTask(trimmed);
-            setLastResult(result.task?.result || 'Task completed.');
-            if (result.warning) setWarning(result.warning);
-            await queryClient.invalidateQueries({ queryKey: ['task-reports'] });
+            setRunId(result.runId);
         } catch (err: any) {
             setError(err.message || 'Failed to run task.');
-        } finally {
             setIsRunning(false);
+        } finally {
+            // keep running state until task finishes
         }
     };
+
+    const handlePromptSubmit = async () => {
+        if (!runId || !pendingPrompt) return;
+        try {
+            await api.respondToTask(runId, promptResponse || 'yes');
+            setPendingPrompt(null);
+            setPromptResponse('');
+        } catch (err: any) {
+            setError(err.message || 'Failed to send response.');
+        }
+    };
+
+    useEffect(() => {
+        if (!runId) return;
+        let cancelled = false;
+        const poll = async () => {
+            try {
+                const status = await api.getTaskStatus(runId);
+                if (cancelled) return;
+                if (status.pendingPrompt) {
+                    setPendingPrompt(status.pendingPrompt);
+                }
+                if (status.status === 'completed') {
+                    setLastResult(status.result || 'Task completed.');
+                    setIsRunning(false);
+                    await queryClient.invalidateQueries({ queryKey: ['task-reports'] });
+                    return;
+                }
+                if (status.status === 'failed') {
+                    setError(status.error || status.result || 'Task failed.');
+                    setIsRunning(false);
+                    await queryClient.invalidateQueries({ queryKey: ['task-reports'] });
+                    return;
+                }
+                setTimeout(poll, 1500);
+            } catch (err: any) {
+                if (cancelled) return;
+                setError(err.message || 'Failed to fetch task status.');
+                setIsRunning(false);
+            }
+        };
+        poll();
+        return () => {
+            cancelled = true;
+        };
+    }, [runId, queryClient]);
 
     return (
         <div className="max-w-5xl mx-auto space-y-6">
@@ -55,8 +106,28 @@ export function TaskRunner() {
                 {error && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
             </div>
 
+            {pendingPrompt && (
+                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                    <div className="text-sm text-gray-500 mb-2">Confirmation Required</div>
+                    <div className="text-sm text-gray-800 whitespace-pre-wrap">{pendingPrompt.prompt}</div>
+                    <div className="flex items-center gap-3 mt-3">
+                        <input
+                            value={promptResponse}
+                            onChange={(e) => setPromptResponse(e.target.value)}
+                            className="flex-1 border border-gray-200 rounded-md p-2 text-sm"
+                            placeholder="Type your response (yes/no/always)..."
+                        />
+                        <button
+                            onClick={handlePromptSubmit}
+                            className="px-3 py-2 rounded text-white text-sm bg-blue-600 hover:bg-blue-700"
+                        >
+                            Send
+                        </button>
+                    </div>
+                </div>
+            )}
+
             <TaskReports />
         </div>
     );
 }
-
