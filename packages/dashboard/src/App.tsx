@@ -3,10 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { Database, History, Activity, Terminal, ShieldCheck, GitBranch, ClipboardList } from 'lucide-react';
 import { StrategyReview } from './components/StrategyReview';
 import { EvolutionHistory } from './components/EvolutionHistory';
-import { TaskReports } from './components/TaskReports';
+import { TaskRunner } from './components/TaskRunner';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay' | 'strategy' | 'evolution' | 'reports'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay' | 'strategy' | 'evolution' | 'tasks'>('overview');
 
   const { data: status } = useQuery({
     queryKey: ['status'],
@@ -70,9 +70,9 @@ function App() {
           />
           <NavItem
             icon={<ClipboardList size={18} />}
-            label="Reports"
-            active={activeTab === 'reports'}
-            onClick={() => setActiveTab('reports')}
+            label="Tasks"
+            active={activeTab === 'tasks'}
+            onClick={() => setActiveTab('tasks')}
           />
           <NavItem
             icon={<GitBranch size={18} />}
@@ -94,7 +94,7 @@ function App() {
         {activeTab === 'approvals' && <ApprovalsView />}
         {activeTab === 'replay' && <ReplayView />}
         {activeTab === 'strategy' && <StrategyReview />}
-        {activeTab === 'reports' && <TaskReports />}
+        {activeTab === 'tasks' && <TaskRunner />}
         {activeTab === 'evolution' && <EvolutionHistory />}
       </main>
     </div>

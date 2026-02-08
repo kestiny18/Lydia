@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
-import { MemoryManager, ConfigLoader } from '@lydia/core';
+import { MemoryManager, ConfigLoader, Agent, AnthropicProvider, OpenAIProvider, OllamaProvider, MockProvider, FallbackProvider } from '@lydia/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFile } from 'node:fs/promises';
@@ -12,6 +12,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export function createServer(port: number = 3000) {
   const app = new Hono();
+  let isRunning = false;
 
   // Initialize MemoryManager
   const dbPath = join(homedir(), '.lydia', 'memory.db');
@@ -90,6 +91,88 @@ export function createServer(port: number = 3000) {
     const limit = Number(c.req.query('limit')) || 50;
     const reports = memoryManager.listTaskReports(limit);
     return c.json(reports);
+  });
+
+  app.post('/api/tasks/run', async (c) => {
+    if (isRunning) {
+      return c.json({ error: 'A task is already running. Please wait.' }, 409);
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    const inputText = typeof body?.input === 'string' ? body.input.trim() : '';
+    if (!inputText) {
+      return c.json({ error: 'input is required' }, 400);
+    }
+
+    const config = await new ConfigLoader().load();
+    const providerChoice = config.llm?.provider || 'auto';
+    const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0
+      ? config.llm.fallbackOrder
+      : ['ollama', 'openai', 'anthropic'];
+
+    const createProvider = (name: string, strict: boolean) => {
+      if (name === 'mock') return new MockProvider();
+      if (name === 'ollama') {
+        return new OllamaProvider({ defaultModel: config.llm?.defaultModel || undefined });
+      }
+      if (name === 'openai') {
+        if (!process.env.OPENAI_API_KEY) {
+          if (strict) throw new Error('OPENAI_API_KEY is not set.');
+          return null;
+        }
+        return new OpenAIProvider({ defaultModel: config.llm?.defaultModel || undefined });
+      }
+      if (name === 'anthropic') {
+        if (!process.env.ANTHROPIC_API_KEY) {
+          if (strict) throw new Error('ANTHROPIC_API_KEY is not set.');
+          return null;
+        }
+        return new AnthropicProvider({ defaultModel: config.llm?.defaultModel || undefined });
+      }
+      if (strict) throw new Error(`Unknown provider ${name}.`);
+      return null;
+    };
+
+    let llm: any;
+    try {
+      if (providerChoice === 'auto') {
+        const providers = fallbackOrder.map((name) => createProvider(name, false)).filter(Boolean);
+        if (providers.length === 0) {
+          return c.json({ error: 'No available providers configured.' }, 500);
+        }
+        llm = providers.length === 1 ? providers[0] : new FallbackProvider(providers as any);
+      } else {
+        llm = createProvider(providerChoice, true);
+      }
+    } catch (error: any) {
+      return c.json({ error: error.message || 'Failed to initialize provider.' }, 500);
+    }
+
+    isRunning = true;
+    let warning: string | undefined;
+    try {
+      const agent = new Agent(llm);
+      let hadInteraction = false;
+      agent.on('interaction_request', (req) => {
+        hadInteraction = true;
+        agent.resolveInteraction(req.id, 'no');
+      });
+      const task = await agent.run(inputText);
+      if (hadInteraction) {
+        warning = 'Task required confirmation and was auto-denied in web UI.';
+      }
+      return c.json({ task, warning });
+    } catch (error: any) {
+      return c.json({ error: error.message || 'Task failed.' }, 500);
+    } finally {
+      isRunning = false;
+    }
   });
 
   // Get Active Strategy Content

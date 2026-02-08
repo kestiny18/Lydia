@@ -56,5 +56,18 @@ export const api = {
         const res = await fetch(`${API_BASE}/api/reports?limit=${limit}`);
         if (!res.ok) throw new Error('Failed to fetch task reports');
         return res.json();
+    },
+
+    async runTask(input: string): Promise<{ task: any; warning?: string }> {
+        const res = await fetch(`${API_BASE}/api/tasks/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to run task');
+        }
+        return res.json();
     }
 };
