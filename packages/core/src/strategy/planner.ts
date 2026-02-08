@@ -11,9 +11,25 @@ const PlanSchema = z.object({
     type: z.enum(['thought', 'action', 'system']),
     description: z.string(),
     tool: z.string().optional(),
-    args: z.record(z.unknown()).optional()
+    args: z.record(z.unknown()).optional(),
+    dependsOn: z.array(z.union([z.string(), z.number()])).optional(),
+    riskLevel: z.enum(['low', 'medium', 'high']).optional(),
+    requiresConfirmation: z.boolean().optional(),
+    verification: z.array(z.string()).optional(),
   }))
 });
+
+const HIGH_RISK_TOOLS = new Set([
+  'shell_execute',
+  'fs_write_file',
+  'fs_delete_file',
+  'fs_delete_directory',
+  'fs_move',
+  'fs_copy',
+  'git_push'
+]);
+
+const MEDIUM_RISK_PREFIXES = ['fs_', 'git_'];
 
 export class SimplePlanner {
   private llm: ILLMProvider;
@@ -82,6 +98,11 @@ export class SimplePlanner {
     Available Tools:
     {{tools}}
     {{taskContext}}
+    Requirements:
+    - Every step should include dependsOn (use step numbers, e.g. 1, 2).
+    - Each action step must include verification (how to confirm success).
+    - Provide riskLevel: low | medium | high.
+    - Set requiresConfirmation for high-risk actions.
     Create a JSON plan.
     `;
 
@@ -96,9 +117,15 @@ export class SimplePlanner {
       'lastResult': 'Output of previous step' // Placeholder
     });
 
-    const finalSystemPrompt = template.includes('{{taskContext}}') || !taskContextSection
-      ? systemPrompt
-      : `${systemPrompt}\n${taskContextSection}`;
+    const requirements = `
+    Requirements:
+    - Every step should include dependsOn (use step numbers, e.g. 1, 2).
+    - Each action step must include verification (how to confirm success).
+    - Provide riskLevel: low | medium | high.
+    - Set requiresConfirmation for high-risk actions.
+    `;
+
+    const finalSystemPrompt = `${systemPrompt}\n${requirements}\n${taskContextSection}`;
 
 
     const request: LLMRequest = {
@@ -119,26 +146,96 @@ export class SimplePlanner {
       const parsed = JSON.parse(jsonStr);
       const plan = PlanSchema.parse(parsed);
 
+      const stepIds = plan.steps.map((_, index) => `step-${task.id}-${index + 1}`);
+
+      const resolveDependsOn = (entry: string | number): string | null => {
+        if (typeof entry === 'number') {
+          const idx = Math.floor(entry) - 1;
+          if (idx >= 0 && idx < stepIds.length) return stepIds[idx];
+          return null;
+        }
+        const trimmed = entry.trim().toLowerCase();
+        if (trimmed === 'prev' || trimmed === 'previous') {
+          return null;
+        }
+        const numeric = Number(trimmed.replace(/^step-/, ''));
+        if (!Number.isNaN(numeric) && Number.isFinite(numeric)) {
+          const idx = Math.floor(numeric) - 1;
+          if (idx >= 0 && idx < stepIds.length) return stepIds[idx];
+        }
+        return entry;
+      };
+
+      const inferRisk = (tool?: string): 'low' | 'medium' | 'high' => {
+        if (!tool) return 'low';
+        if (HIGH_RISK_TOOLS.has(tool)) return 'high';
+        if (MEDIUM_RISK_PREFIXES.some(prefix => tool.startsWith(prefix))) return 'medium';
+        return 'low';
+      };
+
+      const steps = plan.steps.map((s, index) => {
+        const rawDependsOn = Array.isArray(s.dependsOn) ? s.dependsOn : [];
+        const resolvedDependsOn = rawDependsOn
+          .map(entry => resolveDependsOn(entry))
+          .filter((value): value is string => Boolean(value));
+
+        const dependsOn = resolvedDependsOn.length > 0
+          ? resolvedDependsOn
+          : (index > 0 ? [stepIds[index - 1]] : []);
+
+        const riskLevel = s.riskLevel ?? inferRisk(s.tool);
+        const requiresConfirmation = s.requiresConfirmation ?? (riskLevel === 'high');
+        const verification = s.verification && s.verification.length > 0
+          ? s.verification
+          : (s.type === 'action' ? ['Validate tool output for this step.'] : []);
+
+        return {
+          id: stepIds[index],
+          taskId: task.id,
+          status: 'pending' as const,
+          type: s.type,
+          description: s.description,
+          tool: s.tool,
+          args: s.args,
+          dependsOn,
+          riskLevel,
+          requiresConfirmation,
+          verification,
+        };
+      });
+
+      const hasVerification = steps.some(step => Array.isArray(step.verification) && step.verification.length > 0);
+      if (!hasVerification) {
+        const verifyStepId = `step-${task.id}-${steps.length + 1}`;
+        steps.push({
+          id: verifyStepId,
+          taskId: task.id,
+          status: 'pending' as const,
+          type: 'system',
+          description: 'Verify outputs and confirm task success.',
+          dependsOn: steps.length > 0 ? [steps[steps.length - 1].id] : [],
+          riskLevel: 'low',
+          requiresConfirmation: false,
+          verification: ['Review outputs for correctness.']
+        });
+      }
+
       // Convert to full Step objects
-      return plan.steps.map((s, index) => ({
-        id: `step-${Date.now()}-${index}`,
-        taskId: task.id,
-        status: 'pending',
-        type: s.type,
-        description: s.description,
-        tool: s.tool,
-        args: s.args,
-      }));
+      return steps;
 
     } catch (error) {
       console.error('Failed to parse plan:', content.text);
       // Fallback: Single generic thought step
       return [{
-        id: `step-${Date.now()}-fallback`,
+        id: `step-${task.id}-fallback`,
         taskId: task.id,
         type: 'thought',
         status: 'pending',
         description: 'Analyze the request manually (Planning failed)',
+        dependsOn: [],
+        riskLevel: 'low',
+        requiresConfirmation: false,
+        verification: [],
       }];
     }
   }

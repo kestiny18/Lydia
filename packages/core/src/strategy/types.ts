@@ -44,6 +44,12 @@ export const StepSchema = z.object({
   startedAt: z.number().optional(),
   completedAt: z.number().optional(),
 
+  // Planning metadata
+  dependsOn: z.array(z.string()).optional(),
+  riskLevel: z.enum(['low', 'medium', 'high']).optional(),
+  requiresConfirmation: z.boolean().optional(),
+  verification: z.array(z.string()).optional(),
+
   metadata: z.record(z.unknown()).optional(),
 });
 export type Step = z.infer<typeof StepSchema>;
