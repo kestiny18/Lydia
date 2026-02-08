@@ -9,3 +9,4 @@ export * from './mcp/index.js';
 export * from './config/index.js';
 export * from './memory/index.js';
 export * from './reporting/index.js';
+export * from './feedback/index.js';

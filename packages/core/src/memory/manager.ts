@@ -47,6 +47,13 @@ export interface TaskReportRecord {
   created_at: number;
 }
 
+export interface TaskFeedbackRecord {
+  id?: number;
+  task_id: string;
+  feedback_json: string;
+  created_at: number;
+}
+
 export class MemoryManager extends EventEmitter {
   private db: Database.Database;
 
@@ -172,6 +179,16 @@ export class MemoryManager extends EventEmitter {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT NOT NULL,
         report_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `);
+
+    // 8. Task Feedback Table
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS task_feedback (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        feedback_json TEXT NOT NULL,
         created_at INTEGER NOT NULL
       );
     `);
@@ -372,6 +389,28 @@ export class MemoryManager extends EventEmitter {
       LIMIT ?
     `);
     return stmt.all(limit) as TaskReportRecord[];
+  }
+
+  public recordTaskFeedback(taskId: string, feedback: unknown): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO task_feedback (task_id, feedback_json, created_at)
+      VALUES (?, ?, ?)
+    `);
+    const info = stmt.run(
+      taskId,
+      JSON.stringify(feedback),
+      Date.now()
+    );
+    return info.lastInsertRowid as number;
+  }
+
+  public listTaskFeedback(limit: number = 50): TaskFeedbackRecord[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM task_feedback
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(limit) as TaskFeedbackRecord[];
   }
 
   /**
