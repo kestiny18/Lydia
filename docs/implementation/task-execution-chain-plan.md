@@ -47,6 +47,7 @@ Deliverables:
 1. Add task input UI in dashboard.
 2. Add API endpoint to run tasks.
 3. Refresh reports on completion.
+4. Add structured prompt assistant (goal/constraints/success criteria).
 
 ## Phase 5: Hardening (Week 5)
 1. Failure-aware replan for downstream steps.

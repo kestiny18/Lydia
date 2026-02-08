@@ -43,8 +43,15 @@ Response:
 - Status/Warning message
 - Embedded TaskReports list for results
 
+### Structured Prompt Assistant
+Add a simple builder to help users describe tasks:
+- Goal
+- Constraints
+- Success Criteria
+
+The builder composes a task prompt and inserts it into the input box.
+
 ## Testing Plan
 - Manual run with low-risk task.
 - Verify TaskReports updates after run.
 - Validate warning appears for high-risk tasks.
-
