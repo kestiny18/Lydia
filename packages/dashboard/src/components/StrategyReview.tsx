@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { StrategyProposal } from '../types';
 import { Check, X, FileText, AlertTriangle } from 'lucide-react';
@@ -7,8 +7,54 @@ export function StrategyReview() {
     const [proposals, setProposals] = useState<StrategyProposal[]>([]);
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [content, setContent] = useState<string | null>(null);
+    const [activeContent, setActiveContent] = useState<string | null>(null);
+    const [activePath, setActivePath] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    const buildDiff = (left: string, right: string) => {
+        const leftLines = left.split('\n');
+        const rightLines = right.split('\n');
+        const rows = leftLines.length + 1;
+        const cols = rightLines.length + 1;
+        const dp = Array.from({ length: rows }, () => Array(cols).fill(0));
+
+        for (let i = rows - 2; i >= 0; i--) {
+            for (let j = cols - 2; j >= 0; j--) {
+                if (leftLines[i] === rightLines[j]) {
+                    dp[i][j] = dp[i + 1][j + 1] + 1;
+                } else {
+                    dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1]);
+                }
+            }
+        }
+
+        const diff: Array<{ type: 'same' | 'add' | 'del'; text: string }> = [];
+        let i = 0;
+        let j = 0;
+        while (i < leftLines.length && j < rightLines.length) {
+            if (leftLines[i] === rightLines[j]) {
+                diff.push({ type: 'same', text: leftLines[i] });
+                i += 1;
+                j += 1;
+            } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+                diff.push({ type: 'del', text: leftLines[i] });
+                i += 1;
+            } else {
+                diff.push({ type: 'add', text: rightLines[j] });
+                j += 1;
+            }
+        }
+        while (i < leftLines.length) {
+            diff.push({ type: 'del', text: leftLines[i] });
+            i += 1;
+        }
+        while (j < rightLines.length) {
+            diff.push({ type: 'add', text: rightLines[j] });
+            j += 1;
+        }
+        return diff;
+    };
 
     const parseEvaluation = (raw?: string | null) => {
         if (!raw) return null;
@@ -26,8 +72,11 @@ export function StrategyReview() {
     useEffect(() => {
         if (selectedId) {
             loadContent(selectedId);
+            loadActive();
         } else {
             setContent(null);
+            setActiveContent(null);
+            setActivePath(null);
         }
     }, [selectedId]);
 
@@ -54,6 +103,23 @@ export function StrategyReview() {
             setContent('Failed to load content: ' + err.message);
         }
     };
+
+    const loadActive = async () => {
+        try {
+            const active = await api.getActiveStrategy();
+            setActiveContent(active.content);
+            setActivePath(active.path);
+        } catch (err: any) {
+            console.error(err);
+            setActiveContent(null);
+            setActivePath(null);
+        }
+    };
+
+    const diffLines = useMemo(() => {
+        if (!activeContent || !content) return null;
+        return buildDiff(activeContent, content);
+    }, [activeContent, content]);
 
     const handleApprove = async (id: number) => {
         if (!confirm('Are you sure you want to approve this strategy?')) return;
@@ -148,6 +214,39 @@ export function StrategyReview() {
                             <pre className="bg-gray-900 text-gray-100 p-4 rounded overflow-x-auto text-sm font-mono">
                                 {content || 'Loading content...'}
                             </pre>
+                        </div>
+
+                        <div className="mt-4 bg-white p-4 rounded shadow">
+                            <h3 className="font-semibold mb-2 flex items-center gap-2">
+                                <FileText size={16} /> Diff (Active vs Proposal)
+                            </h3>
+                            {activePath && (
+                                <div className="text-xs text-gray-500 mb-2">
+                                    Active: {activePath.split(/[\\/]/).pop()}
+                                </div>
+                            )}
+                            {!diffLines && (
+                                <p className="text-gray-500">Select a proposal to compare with the active strategy.</p>
+                            )}
+                            {diffLines && (
+                                <pre className="bg-gray-900 text-gray-100 p-4 rounded overflow-x-auto text-xs font-mono space-y-1">
+                                    {diffLines.map((line, index) => (
+                                        <div
+                                            key={`${line.type}-${index}`}
+                                            className={
+                                                line.type === 'add'
+                                                    ? 'text-green-400'
+                                                    : line.type === 'del'
+                                                        ? 'text-red-400'
+                                                        : 'text-gray-300'
+                                            }
+                                        >
+                                            {line.type === 'add' ? '+ ' : line.type === 'del' ? '- ' : '  '}
+                                            {line.text}
+                                        </div>
+                                    ))}
+                                </pre>
+                            )}
                         </div>
 
                         <div className="mt-4 bg-white p-4 rounded shadow">

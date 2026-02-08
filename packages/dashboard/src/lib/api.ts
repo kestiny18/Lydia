@@ -41,5 +41,14 @@ export const api = {
         if (!res.ok) throw new Error('Failed to fetch strategy content');
         const data = await res.json();
         return data.content;
+    },
+
+    async getActiveStrategy(): Promise<{ path: string; content: string }> {
+        const res = await fetch(`${API_BASE}/api/strategy/active`);
+        if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Failed to fetch active strategy');
+        }
+        return res.json();
     }
 };

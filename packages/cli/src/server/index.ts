@@ -85,6 +85,24 @@ export function createServer(port: number = 3000) {
     return c.json(proposals);
   });
 
+  // Get Active Strategy Content
+  app.get('/api/strategy/active', async (c) => {
+    const loader = new ConfigLoader();
+    const config = await loader.load();
+    const fallbackPath = join(homedir(), '.lydia', 'strategies', 'default.yml');
+    const activePath = config.strategy?.activePath || fallbackPath;
+
+    try {
+      if (!existsSync(activePath)) {
+        return c.json({ error: 'Active strategy not found', path: activePath }, 404);
+      }
+      const content = await readFile(activePath, 'utf-8');
+      return c.json({ path: activePath, content });
+    } catch {
+      return c.json({ error: 'Failed to read active strategy' }, 500);
+    }
+  });
+
   app.post('/api/strategy/proposals/:id/approve', async (c) => {
     const id = Number(c.req.param('id'));
     if (Number.isNaN(id)) return c.json({ error: 'Invalid id' }, 400);

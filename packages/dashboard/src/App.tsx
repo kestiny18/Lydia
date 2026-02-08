@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Database, History, Activity, Terminal, ShieldCheck } from 'lucide-react';
+import { Database, History, Activity, Terminal, ShieldCheck, GitBranch } from 'lucide-react';
 import { StrategyReview } from './components/StrategyReview';
+import { EvolutionHistory } from './components/EvolutionHistory';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay' | 'strategy'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay' | 'strategy' | 'evolution'>('overview');
 
   const { data: status } = useQuery({
     queryKey: ['status'],
@@ -66,6 +67,12 @@ function App() {
             active={activeTab === 'strategy'}
             onClick={() => setActiveTab('strategy')}
           />
+          <NavItem
+            icon={<GitBranch size={18} />}
+            label="Evolution"
+            active={activeTab === 'evolution'}
+            onClick={() => setActiveTab('evolution')}
+          />
         </nav>
 
         <div className="p-4 border-t border-gray-100 text-xs text-gray-400">
@@ -80,6 +87,7 @@ function App() {
         {activeTab === 'approvals' && <ApprovalsView />}
         {activeTab === 'replay' && <ReplayView />}
         {activeTab === 'strategy' && <StrategyReview />}
+        {activeTab === 'evolution' && <EvolutionHistory />}
       </main>
     </div>
   );
