@@ -85,6 +85,13 @@ export function createServer(port: number = 3000) {
     return c.json(proposals);
   });
 
+  // List Task Reports
+  app.get('/api/reports', (c) => {
+    const limit = Number(c.req.query('limit')) || 50;
+    const reports = memoryManager.listTaskReports(limit);
+    return c.json(reports);
+  });
+
   // Get Active Strategy Content
   app.get('/api/strategy/active', async (c) => {
     const loader = new ConfigLoader();

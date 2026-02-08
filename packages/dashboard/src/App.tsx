@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Database, History, Activity, Terminal, ShieldCheck, GitBranch } from 'lucide-react';
+import { Database, History, Activity, Terminal, ShieldCheck, GitBranch, ClipboardList } from 'lucide-react';
 import { StrategyReview } from './components/StrategyReview';
 import { EvolutionHistory } from './components/EvolutionHistory';
+import { TaskReports } from './components/TaskReports';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay' | 'strategy' | 'evolution'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'memory' | 'approvals' | 'replay' | 'strategy' | 'evolution' | 'reports'>('overview');
 
   const { data: status } = useQuery({
     queryKey: ['status'],
@@ -68,6 +69,12 @@ function App() {
             onClick={() => setActiveTab('strategy')}
           />
           <NavItem
+            icon={<ClipboardList size={18} />}
+            label="Reports"
+            active={activeTab === 'reports'}
+            onClick={() => setActiveTab('reports')}
+          />
+          <NavItem
             icon={<GitBranch size={18} />}
             label="Evolution"
             active={activeTab === 'evolution'}
@@ -87,6 +94,7 @@ function App() {
         {activeTab === 'approvals' && <ApprovalsView />}
         {activeTab === 'replay' && <ReplayView />}
         {activeTab === 'strategy' && <StrategyReview />}
+        {activeTab === 'reports' && <TaskReports />}
         {activeTab === 'evolution' && <EvolutionHistory />}
       </main>
     </div>

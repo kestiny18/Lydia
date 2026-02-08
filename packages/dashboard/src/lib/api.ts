@@ -50,5 +50,11 @@ export const api = {
             throw new Error(err.error || 'Failed to fetch active strategy');
         }
         return res.json();
+    },
+
+    async getTaskReports(limit = 50): Promise<any[]> {
+        const res = await fetch(`${API_BASE}/api/reports?limit=${limit}`);
+        if (!res.ok) throw new Error('Failed to fetch task reports');
+        return res.json();
     }
 };
