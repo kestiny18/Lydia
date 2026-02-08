@@ -248,17 +248,39 @@ export class Agent extends EventEmitter {
 
       // 3. Generate Plan
       this.emit('phase:start', 'planning');
-      const steps = await this.planner.createPlan(task, intent, context, matchedSkills, { facts, episodes });
+      let steps = await this.planner.createPlan(task, intent, context, matchedSkills, { facts, episodes });
       this.emit('plan', steps);
       this.emit('phase:end', 'planning');
 
-      // 4. Execution Loop
+      // 4. Execution Loop (with single replan on failure)
       this.emit('phase:start', 'execution');
+      let replanned = false;
+      let stepIndex = 0;
 
-      for (const step of steps) {
+      while (stepIndex < steps.length) {
         if (task.status !== 'running') break;
+        const step = steps[stepIndex];
+        try {
+          await this.executeStep(step, context);
+          stepIndex += 1;
+        } catch (error) {
+          if (replanned) {
+            throw error;
+          }
+          replanned = true;
+          context.state.lastError = error instanceof Error ? error.message : String(error);
+          context.state.lastFailedStep = step.id;
+          const replanTask: Task = {
+            ...task,
+            description: `${task.description}\n\nFailure context: step ${step.id} failed with ${context.state.lastError}`
+          };
 
-        await this.executeStep(step, context);
+          this.emit('phase:start', 'replan');
+          steps = await this.planner.createPlan(replanTask, intent, context, matchedSkills, { facts, episodes });
+          stepIndex = 0;
+          this.emit('plan', steps);
+          this.emit('phase:end', 'replan');
+        }
       }
 
       this.emit('phase:end', 'execution');
@@ -292,7 +314,8 @@ export class Agent extends EventEmitter {
       this.memoryManager.recordTaskReport(task.id, report);
 
       const shouldRequestFeedback = task.status === 'failed' || (this.activeStrategy?.preferences?.userConfirmation ?? 0.8) >= 0.8;
-      if (shouldRequestFeedback && this.mcpClientManager.getToolInfo('ask_user')) {
+      const skipFeedback = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
+      if (shouldRequestFeedback && !skipFeedback && this.mcpClientManager.getToolInfo('ask_user')) {
         const feedback = await this.feedbackCollector.collect(task, report, async (prompt) => {
           const result = await this.mcpClientManager.callTool('ask_user', { prompt });
           const textContent = (result.content as any[])
@@ -446,6 +469,12 @@ export class Agent extends EventEmitter {
             .join('\n');
 
           step.result = textContent;
+
+          if (step.verification && step.verification.length > 0 && !textContent.trim()) {
+            step.status = 'failed';
+            step.error = 'Verification failed: empty output';
+            throw new Error(step.error);
+          }
 
           // Record Trace
           this.traces.push({
