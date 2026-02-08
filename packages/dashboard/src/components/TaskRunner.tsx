@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { TaskReports } from './TaskReports';
@@ -12,7 +12,41 @@ export function TaskRunner() {
     const [runId, setRunId] = useState<string | null>(null);
     const [pendingPrompt, setPendingPrompt] = useState<{ id: string; prompt: string } | null>(null);
     const [promptResponse, setPromptResponse] = useState('');
+    const [history, setHistory] = useState<Array<{ input: string; timestamp: number }>>([]);
     const queryClient = useQueryClient();
+
+    const templates = useMemo(() => ([
+        { label: 'Summarize Repo', text: 'Summarize the current repository structure and key files.' },
+        { label: 'Run Tests', text: 'Run the test suite and report any failures.' },
+        { label: 'Explain Changes', text: 'Explain the recent changes in this repo.' },
+        { label: 'Plan Tasks', text: 'Create a step-by-step plan to complete this task.' }
+    ]), []);
+
+    const loadHistory = () => {
+        try {
+            const raw = localStorage.getItem('lydia.taskHistory');
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) {
+                setHistory(parsed.slice(0, 10));
+            }
+        } catch {
+            // ignore storage errors
+        }
+    };
+
+    const saveHistory = (entry: string) => {
+        const trimmed = entry.trim();
+        if (!trimmed) return;
+        const existing = history.filter(item => item.input !== trimmed);
+        const updated = [{ input: trimmed, timestamp: Date.now() }, ...existing].slice(0, 10);
+        setHistory(updated);
+        try {
+            localStorage.setItem('lydia.taskHistory', JSON.stringify(updated));
+        } catch {
+            // ignore storage errors
+        }
+    };
 
     const handleRun = async () => {
         const trimmed = input.trim();
@@ -24,6 +58,7 @@ export function TaskRunner() {
         setRunId(null);
         setPendingPrompt(null);
         setPromptResponse('');
+        saveHistory(trimmed);
         try {
             const result = await api.runTask(trimmed);
             setRunId(result.runId);
@@ -45,6 +80,10 @@ export function TaskRunner() {
             setError(err.message || 'Failed to send response.');
         }
     };
+
+    useEffect(() => {
+        loadHistory();
+    }, []);
 
     useEffect(() => {
         if (!runId) return;
@@ -85,6 +124,18 @@ export function TaskRunner() {
         <div className="max-w-5xl mx-auto space-y-6">
             <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
                 <div className="text-lg font-semibold mb-2">Run a Task</div>
+                <div className="text-xs text-gray-500 mb-3">Pick a template or write your own task.</div>
+                <div className="flex flex-wrap gap-2 mb-3">
+                    {templates.map(template => (
+                        <button
+                            key={template.label}
+                            onClick={() => setInput(template.text)}
+                            className="px-3 py-1 rounded-full text-xs border border-gray-200 bg-gray-50 hover:bg-gray-100 text-gray-700"
+                        >
+                            {template.label}
+                        </button>
+                    ))}
+                </div>
                 <textarea
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
@@ -105,6 +156,23 @@ export function TaskRunner() {
                 {warning && <div className="mt-3 text-sm text-yellow-700 bg-yellow-50 border border-yellow-200 rounded p-2">{warning}</div>}
                 {error && <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">{error}</div>}
             </div>
+
+            {history.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                    <div className="text-sm font-semibold mb-2">Recent Tasks</div>
+                    <div className="space-y-2">
+                        {history.map((item) => (
+                            <button
+                                key={`${item.input}-${item.timestamp}`}
+                                onClick={() => setInput(item.input)}
+                                className="w-full text-left text-sm text-gray-700 hover:text-gray-900"
+                            >
+                                {item.input}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {pendingPrompt && (
                 <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
