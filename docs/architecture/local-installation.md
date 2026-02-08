@@ -22,9 +22,9 @@ initializes the local config, and launches the dashboard without requiring a sou
 ## Design
 
 ### Distribution Endpoints
-Provide stable URLs for scripts:
-- `https://install.lydia.ai/install.sh`
-- `https://install.lydia.ai/install.ps1`
+Provide stable URLs via GitHub Releases:
+- `https://github.com/kestiny18/Lydia/releases/latest/download/install.sh`
+- `https://github.com/kestiny18/Lydia/releases/latest/download/install.ps1`
 
 These are generated from the repo `scripts/` sources and published as part of release.
 

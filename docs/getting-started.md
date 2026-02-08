@@ -7,7 +7,16 @@ This guide helps you initialize Lydia on a new machine.
 lydia init
 ```
 
-## Install Script (Optional)
+## Install Script (One-Click)
+```bash
+curl -fsSL https://github.com/kestiny18/Lydia/releases/latest/download/install.sh | bash
+```
+
+```powershell
+irm https://github.com/kestiny18/Lydia/releases/latest/download/install.ps1 | iex
+```
+
+For local development from source:
 ```bash
 ./scripts/install.sh
 ```

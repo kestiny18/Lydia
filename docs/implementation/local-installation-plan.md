@@ -27,7 +27,7 @@ Exit Criteria:
 
 ## Phase L3: Hosting and Distribution (Week 2)
 Deliverables:
-1. Publish scripts to stable URLs (e.g., `install.lydia.ai` or GitHub Releases).
+1. Publish scripts to GitHub Releases (`releases/latest/download`).
 2. Update docs with copy/paste install commands.
 3. Add checksum or signature guidance for scripts.
 

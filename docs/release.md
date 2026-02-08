@@ -14,11 +14,11 @@ pnpm build
 
 ### Option 2: Install Script
 ```bash
-./scripts/install.sh
+curl -fsSL https://github.com/kestiny18/Lydia/releases/latest/download/install.sh | bash
 ```
 
 ```powershell
-.\scripts\install.ps1
+irm https://github.com/kestiny18/Lydia/releases/latest/download/install.ps1 | iex
 ```
 
 ## One-Click Init
@@ -39,5 +39,5 @@ This creates:
 5. `pnpm tsx packages/cli/src/index.ts dashboard`
 
 ## Notes
-- There is no standalone installer yet.
-- When we add a packaged installer, this document will be updated.
+- Script install uses npm global install and runs `lydia init` by default.
+- There is no standalone installer yet; this will be updated when we ship a native binary.
