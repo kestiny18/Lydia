@@ -358,7 +358,7 @@ async function main() {
 
       try {
         const strategy = await registry.loadFromFile(absPath);
-        const gate = StrategyUpdateGate.validate(strategy);
+        const gate = BasicStrategyGate.validate(strategy);
         if (!gate.ok) {
           const id = memory.recordStrategyProposal({
             strategy_path: absPath,
@@ -558,7 +558,7 @@ async function main() {
         );
         await registry.saveToFile(proposed, proposalPath);
 
-        const gate = StrategyUpdateGate.validate(proposed);
+        const gate = BasicStrategyGate.validate(proposed);
         const status = gate.ok ? 'pending_human' : 'invalid';
         const id = memory.recordStrategyProposal({
           strategy_path: proposalPath,
