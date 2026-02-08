@@ -146,6 +146,12 @@ Just as Lydia brought **trust** to trade, we want to bring **trust** to your AI 
 
 ---
 
+## Contributors
+
+- [kestiny](https://github.com/kestiny18)
+- [codex](https://github.com/openai)
+- [claude](https://github.com/claude)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
