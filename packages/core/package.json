@@ -7,8 +7,8 @@
   "types": "./dist/index.d.ts",
   "type": "module",
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --tsconfig tsconfig.json",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --tsconfig tsconfig.json",
+    "build": "tsup src/index.ts --format cjs,esm --dts --tsconfig tsconfig.json --shims",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --tsconfig tsconfig.json --shims",
     "test": "vitest run --passWithNoTests",
     "lint": "biome check .",
     "clean": "rm -rf dist node_modules"

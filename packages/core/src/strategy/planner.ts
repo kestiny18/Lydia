@@ -173,7 +173,7 @@ export class SimplePlanner {
         return 'low';
       };
 
-      const steps = plan.steps.map((s, index) => {
+      const steps: Step[] = plan.steps.map((s, index) => {
         const rawDependsOn = Array.isArray(s.dependsOn) ? s.dependsOn : [];
         const resolvedDependsOn = rawDependsOn
           .map(entry => resolveDependsOn(entry))
