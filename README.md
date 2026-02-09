@@ -48,13 +48,13 @@ Lydia is a local-first assistant that treats strategy evolution as a first-class
 These scripts install the CLI (via npm), run `lydia init`, and optionally start the dashboard.
 
 - macOS/Linux/WSL:
-  - `curl -fsSL https://github.com/kestiny18/Lydia/releases/latest/download/install.sh | bash`
+  - `curl -fsSL https://raw.githubusercontent.com/kestiny18/Lydia/main/scripts/install.sh | bash`
 - Windows PowerShell:
-  - `irm https://github.com/kestiny18/Lydia/releases/latest/download/install.ps1 | iex`
+  - `irm https://raw.githubusercontent.com/kestiny18/Lydia/main/scripts/install.ps1 | iex`
 
 Notes:
 - Requires Node.js 18+.
-- Until we publish releases, use Option B.
+- If `@lydia/cli` is not yet published, the scripts fall back to building/installing from source (slower).
 
 ### Option B: From Source (Recommended for Now)
 

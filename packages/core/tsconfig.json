@@ -3,6 +3,8 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
+    "composite": false,
+    "incremental": false,
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",

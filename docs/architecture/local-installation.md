@@ -28,6 +28,11 @@ Provide stable URLs via GitHub Releases:
 
 These are generated from the repo `scripts/` sources and published as part of release.
 
+During pre-release development (before the first published release), you can also fetch the scripts
+directly from the repo:
+- `https://raw.githubusercontent.com/kestiny18/Lydia/main/scripts/install.sh`
+- `https://raw.githubusercontent.com/kestiny18/Lydia/main/scripts/install.ps1`
+
 ### Install Strategy (Phase A)
 Default installation is a global npm install of the published CLI package:
 - `npm install -g @lydia/cli@<version>`

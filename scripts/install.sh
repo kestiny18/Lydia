@@ -6,6 +6,7 @@ NO_INIT=0
 NO_START=0
 REGISTRY=""
 PREFIX=""
+REPO="kestiny18/Lydia"
 
 LOG_DIR="${HOME}/.lydia"
 LOG_FILE="${LOG_DIR}/install.log"
@@ -25,6 +26,7 @@ Usage: install.sh [options]
   --no-start              Skip lydia dashboard
   --registry <url>        Override npm registry
   --prefix <path>         Install using a custom npm prefix
+  --repo <owner/name>     Install from a GitHub repo when not published (default: kestiny18/Lydia)
   -h, --help              Show help
 EOF
 }
@@ -49,6 +51,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --prefix)
       PREFIX="${2:-}"
+      shift 2
+      ;;
+    --repo)
+      REPO="${2:-}"
       shift 2
       ;;
     -h|--help)
@@ -84,15 +90,99 @@ if [[ -n "${VERSION}" ]]; then
   PKG="${PKG}@${VERSION}"
 fi
 
-log "Installing ${PKG}..."
-INSTALL_CMD=(npm install -g "${PKG}")
-if [[ -n "${REGISTRY}" ]]; then
-  INSTALL_CMD+=(--registry "${REGISTRY}")
+install_from_registry() {
+  local view_args=(npm view "@lydia/cli" version)
+  if [[ -n "${REGISTRY}" ]]; then
+    view_args+=(--registry "${REGISTRY}")
+  fi
+
+  if ! "${view_args[@]}" >/dev/null 2>&1; then
+    return 1
+  fi
+
+  log "Installing ${PKG} from npm registry..."
+  local install_cmd=(npm install -g "${PKG}")
+  if [[ -n "${REGISTRY}" ]]; then
+    install_cmd+=(--registry "${REGISTRY}")
+  fi
+  if [[ -n "${PREFIX}" ]]; then
+    install_cmd+=(--prefix "${PREFIX}")
+  fi
+  "${install_cmd[@]}"
+}
+
+install_from_source_dir() {
+  local source_dir="$1"
+  log "Building and installing from source: ${source_dir}"
+
+  if ! command -v corepack >/dev/null 2>&1; then
+    log "corepack is required for source install (Node 18+)."
+    exit 1
+  fi
+
+  (
+    cd "${source_dir}"
+    corepack enable >/dev/null 2>&1 || true
+    corepack prepare pnpm@latest --activate >/dev/null
+    pnpm install --frozen-lockfile
+    pnpm build
+
+    local install_cmd=(npm install -g "./packages/cli")
+    if [[ -n "${REGISTRY}" ]]; then
+      install_cmd+=(--registry "${REGISTRY}")
+    fi
+    if [[ -n "${PREFIX}" ]]; then
+      install_cmd+=(--prefix "${PREFIX}")
+    fi
+    "${install_cmd[@]}"
+  )
+}
+
+install_from_github() {
+  local ref="${VERSION:-main}"
+  local url="https://github.com/${REPO}/archive/refs/heads/${ref}.tar.gz"
+
+  if ! command -v tar >/dev/null 2>&1; then
+    log "tar is required for source install."
+    exit 1
+  fi
+
+  local tmp_root=""
+  tmp_root="$(mktemp -d 2>/dev/null || mktemp -d -t lydia)"
+  local archive="${tmp_root}/lydia.tgz"
+
+  if command -v curl >/dev/null 2>&1; then
+    log "Downloading source from ${REPO}@${ref}..."
+    curl -fsSL "${url}" -o "${archive}"
+  elif command -v wget >/dev/null 2>&1; then
+    log "Downloading source from ${REPO}@${ref}..."
+    wget -qO "${archive}" "${url}"
+  else
+    log "curl or wget is required for source install."
+    exit 1
+  fi
+
+  tar -xzf "${archive}" -C "${tmp_root}"
+  local extracted=""
+  extracted="$(find "${tmp_root}" -maxdepth 1 -type d ! -path "${tmp_root}" | head -n 1 || true)"
+  if [[ -z "${extracted}" ]]; then
+    log "Failed to extract source archive."
+    exit 1
+  fi
+
+  install_from_source_dir "${extracted}"
+  rm -rf "${tmp_root}"
+}
+
+if ! install_from_registry; then
+  if [[ -f "./packages/cli/package.json" && -f "./pnpm-workspace.yaml" ]]; then
+    log "Package @lydia/cli is not published; installing from local source checkout..."
+    install_from_source_dir "$(pwd)"
+  else
+    log "Package @lydia/cli is not published; installing from GitHub source..."
+    install_from_github
+  fi
 fi
-if [[ -n "${PREFIX}" ]]; then
-  INSTALL_CMD+=(--prefix "${PREFIX}")
-fi
-"${INSTALL_CMD[@]}"
 
 BIN_DIR=""
 if [[ -n "${PREFIX}" ]]; then
