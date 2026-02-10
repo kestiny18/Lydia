@@ -4,6 +4,7 @@ import {
   type LLMResponse,
   type ContentBlock,
   type Message,
+  type StreamChunk,
   type TextContent,
   type ToolUseContent
 } from '../index.js';
@@ -55,6 +56,16 @@ export class OllamaProvider implements ILLMProvider {
     const model = request.model || this.defaultModel;
     const messages = this.convertMessages(request.messages, request.system);
 
+    // Map ToolDefinition[] to Ollama/OpenAI function calling format
+    const tools = request.tools?.map(t => ({
+      type: 'function' as const,
+      function: {
+        name: t.name,
+        description: t.description || '',
+        parameters: t.inputSchema,
+      },
+    }));
+
     const response = await fetch(`${this.baseURL}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -62,7 +73,7 @@ export class OllamaProvider implements ILLMProvider {
         model,
         messages,
         stream: false,
-        tools: request.tools,
+        tools,
         options: this.mapOptions(request),
       }),
     });
@@ -74,6 +85,140 @@ export class OllamaProvider implements ILLMProvider {
 
     const payload = (await response.json()) as OllamaChatResponse;
     return this.convertResponse(payload, model);
+  }
+
+  async *generateStream(request: LLMRequest): AsyncGenerator<StreamChunk, void, unknown> {
+    const model = request.model || this.defaultModel;
+    const messages = this.convertMessages(request.messages, request.system);
+
+    const tools = request.tools?.map(t => ({
+      type: 'function' as const,
+      function: {
+        name: t.name,
+        description: t.description || '',
+        parameters: t.inputSchema,
+      },
+    }));
+
+    try {
+      const response = await fetch(`${this.baseURL}/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          messages,
+          stream: true,
+          tools,
+          options: this.mapOptions(request),
+        }),
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        yield { type: 'error', error: `Ollama API error (${response.status}): ${text}` };
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        yield { type: 'error', error: 'Ollama: No response body' };
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let accumulatedText = '';
+      let lastPayload: OllamaChatResponse | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          let payload: OllamaChatResponse;
+          try {
+            payload = JSON.parse(line);
+          } catch {
+            continue;
+          }
+
+          lastPayload = payload;
+
+          if (payload.message?.content) {
+            accumulatedText += payload.message.content;
+            yield { type: 'text_delta', text: payload.message.content };
+          }
+
+          // Tool calls in streaming mode come in the final message
+          if (payload.done && payload.message?.tool_calls) {
+            for (const call of payload.message.tool_calls) {
+              const toolId = `${payload.model}-${Date.now()}`;
+              yield { type: 'tool_use_start', id: toolId, name: call.function.name };
+              const argsJson = JSON.stringify(call.function.arguments ?? {});
+              yield { type: 'tool_use_delta', id: toolId, input_json: argsJson };
+              yield { type: 'tool_use_end', id: toolId };
+            }
+          }
+        }
+      }
+
+      // Process any remaining buffer
+      if (buffer.trim()) {
+        try {
+          const payload = JSON.parse(buffer) as OllamaChatResponse;
+          lastPayload = payload;
+          if (payload.message?.content) {
+            accumulatedText += payload.message.content;
+            yield { type: 'text_delta', text: payload.message.content };
+          }
+        } catch {
+          // ignore
+        }
+      }
+
+      // Build final response
+      const lp = lastPayload;
+      const content: ContentBlock[] = [];
+      if (accumulatedText) {
+        content.push({ type: 'text', text: accumulatedText } as TextContent);
+      }
+      if (lp?.message?.tool_calls) {
+        for (const call of lp.message.tool_calls) {
+          content.push({
+            type: 'tool_use',
+            id: `${lp.model}-${Date.now()}`,
+            name: call.function.name,
+            input: call.function.arguments ?? {},
+          } as ToolUseContent);
+        }
+      }
+
+      const inputTokens = lp?.prompt_eval_count ?? 0;
+      const outputTokens = lp?.eval_count ?? 0;
+
+      yield {
+        type: 'message_stop',
+        response: {
+          id: `${model}-${Date.now()}`,
+          role: 'assistant',
+          model: lp?.model || model,
+          stop_reason: this.mapStopReason(lp?.done_reason),
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            total_tokens: inputTokens + outputTokens,
+          },
+          content,
+        },
+      };
+    } catch (error) {
+      yield { type: 'error', error: `Ollama streaming error: ${error instanceof Error ? error.message : String(error)}` };
+    }
   }
 
   private mapOptions(request: LLMRequest): Record<string, unknown> | undefined {

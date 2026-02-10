@@ -26,6 +26,21 @@ export const ConfigSchema = z.object({
     denyPaths: z.array(z.string()).default([]),
     rememberApprovals: z.boolean().default(true),
   }).default({}),
+  agent: z.object({
+    maxIterations: z.number().default(50),
+    intentAnalysis: z.boolean().default(false),
+    maxRetries: z.number().default(3),
+    retryDelayMs: z.number().default(1000),
+    streaming: z.boolean().default(true),
+  }).default({}),
+  skills: z.object({
+    /** Maximum number of skills whose full content is injected into the prompt (default: 3) */
+    matchTopK: z.number().default(3),
+    /** Enable file system watching for hot-reload of skills (default: true) */
+    hotReload: z.boolean().default(true),
+    /** Additional directories to scan for skills */
+    extraDirs: z.array(z.string()).default([]),
+  }).default({}),
 });
 
 export type LydiaConfig = z.infer<typeof ConfigSchema>;

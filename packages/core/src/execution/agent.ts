@@ -1,16 +1,16 @@
 import { EventEmitter } from 'node:events';
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { ILLMProvider } from '../llm/index.js';
+import type { ILLMProvider, Message, ContentBlock, ToolDefinition, ToolUseContent, LLMRequest, LLMResponse, StreamChunk } from '../llm/index.js';
+import type { Skill, SkillMeta, DynamicSkill } from '../skills/types.js';
+import { isDynamicSkill, hasContent, getSkillContent } from '../skills/types.js';
 import {
   type Task,
-  type Step,
-  type AgentContext,
-  type TaskContext,
+  type IntentProfile,
   TaskStatusSchema,
   IntentAnalyzer,
-  SimplePlanner
 } from '../strategy/index.js';
 import { SkillRegistry, SkillLoader } from '../skills/index.js';
+import { SkillWatcher } from '../skills/watcher.js';
 import { StrategyRegistry, type Strategy } from '../strategy/index.js';
 import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServer } from '../mcp/index.js';
 import { ConfigLoader } from '../config/index.js';
@@ -28,7 +28,6 @@ import type { LydiaConfig } from '../config/index.js';
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
   private intentAnalyzer: IntentAnalyzer;
-  private planner!: SimplePlanner;
   private mcpClientManager: McpClientManager;
   private skillRegistry: SkillRegistry;
   private skillLoader: SkillLoader;
@@ -43,18 +42,29 @@ export class Agent extends EventEmitter {
   private stepResults: StepResult[] = [];
   private taskApprovals: Set<string> = new Set();
 
-  // New components
+  // Controlled Evolution components
   private branchManager: StrategyBranchManager;
   private reviewManager: ReviewManager;
   private updateGate: StrategyUpdateGate;
   private reporter: TaskReporter;
   private feedbackCollector: FeedbackCollector;
 
+  // Session state for multi-turn conversations (P1-1)
+  private sessionMessages: Message[] = [];
+  private sessionSystemPrompt: string = '';
+  private sessionTools: ToolDefinition[] = [];
+  private sessionInitialized = false;
+
+  // DynamicSkill tool routing (P2-1)
+  private skillToolMap: Map<string, DynamicSkill> = new Map();
+
+  // Hot-reload watcher for skill files
+  private skillWatcher?: SkillWatcher;
+
   constructor(llm: ILLMProvider) {
     super();
     this.llm = llm;
     this.intentAnalyzer = new IntentAnalyzer(llm);
-    // this.planner is initialized in init() after loading strategy
     this.mcpClientManager = new McpClientManager();
     this.skillRegistry = new SkillRegistry();
     this.skillLoader = new SkillLoader(this.skillRegistry);
@@ -82,11 +92,7 @@ export class Agent extends EventEmitter {
 
     // 0.5 Initialize Memory
     const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
-    // Ensure .lydia dir exists (handled by MemoryManager internal DB creation usually, or assume parent exists)
-    // MemoryManager will create file, but better check parent dir in loader or here.
-    // ConfigLoader already ensures .lydia exists.
     this.memoryManager = new MemoryManager(dbPath);
-    // Rebind review manager to the active memory manager
     this.reviewManager = new ReviewManager(this.memoryManager);
 
     const memoryServer = new MemoryServer(this.memoryManager);
@@ -111,8 +117,9 @@ export class Agent extends EventEmitter {
       transport: interactionClientTransport
     });
 
-    // 1. Load Skills
-    await this.skillLoader.loadAll();
+    // 1. Load Skills (Phase 1: metadata only for progressive disclosure)
+    const extraSkillDirs = config.skills?.extraDirs ?? [];
+    await this.skillLoader.loadAll(extraSkillDirs);
 
     // 1.1 Register System Skills
     const evolutionSkill = new SelfEvolutionSkill(
@@ -124,6 +131,17 @@ export class Agent extends EventEmitter {
     );
     this.skillRegistry.register(evolutionSkill);
 
+    // 1.2 Start hot-reload watcher if enabled
+    const enableHotReload = config.skills?.hotReload ?? true;
+    if (enableHotReload) {
+      const watchDirs = this.skillLoader.getDirectories(extraSkillDirs);
+      this.skillWatcher = new SkillWatcher(watchDirs, this.skillRegistry, this.skillLoader);
+      this.skillWatcher.on('skill:added', () => this.registerSkillTools());
+      this.skillWatcher.on('skill:updated', () => this.registerSkillTools());
+      this.skillWatcher.on('skill:removed', () => this.registerSkillTools());
+      this.skillWatcher.on('error', (err) => this.emit('skill:error', err));
+      this.skillWatcher.start();
+    }
 
     // 1.5 Load Active Strategy
     try {
@@ -136,13 +154,9 @@ export class Agent extends EventEmitter {
       }
     } catch (error) {
       console.warn('Failed to load default strategy:', error);
-      // Fallback or exit? For now warning is okay, but agent might fail
     }
 
-    // Initialize Planner with Strategy
-    if (this.activeStrategy) {
-      this.planner = new SimplePlanner(this.llm, this.activeStrategy);
-    } else {
+    if (!this.activeStrategy) {
       throw new Error("Failed to initialize Agent: No strategy loaded.");
     }
 
@@ -150,7 +164,7 @@ export class Agent extends EventEmitter {
     const shellServer = new ShellServer();
     const fsServer = new FileSystemServer();
 
-    // 2. Connect Shell Server
+    // Connect Shell Server
     const [shellClientTransport, shellServerTransport] = InMemoryTransport.createLinkedPair();
     await shellServer.server.connect(shellServerTransport);
     await this.mcpClientManager.connect({
@@ -159,7 +173,7 @@ export class Agent extends EventEmitter {
       transport: shellClientTransport
     });
 
-    // 3. Connect FS Server
+    // Connect FS Server
     const [fsClientTransport, fsServerTransport] = InMemoryTransport.createLinkedPair();
     await fsServer.server.connect(fsServerTransport);
     await this.mcpClientManager.connect({
@@ -168,7 +182,7 @@ export class Agent extends EventEmitter {
       transport: fsClientTransport
     });
 
-    // 4. Connect Git Server
+    // Connect Git Server
     const gitServer = new GitServer();
     const [gitClientTransport, gitServerTransport] = InMemoryTransport.createLinkedPair();
     await gitServer.server.connect(gitServerTransport);
@@ -188,20 +202,132 @@ export class Agent extends EventEmitter {
           args: serverConfig.args,
           env: serverConfig.env,
         });
-        // console.log(`Connected to external MCP server: ${id}`);
       } catch (error) {
         console.warn(`Failed to connect to external MCP server ${id}:`, error);
       }
     }
 
     this.isInitialized = true;
+
+    // Register DynamicSkill tools for routing (P2-1)
+    this.registerSkillTools();
   }
+
+  // ─── DynamicSkill Tool Registration (P2-1) ─────────────────────────
+
+  private registerSkillTools() {
+    this.skillToolMap.clear();
+    for (const skill of this.skillRegistry.list()) {
+      if (this.isDynamicSkillCheck(skill) && skill.tools) {
+        for (const tool of skill.tools) {
+          this.skillToolMap.set(tool.name, skill);
+        }
+      }
+    }
+  }
+
+  private isDynamicSkillCheck(skill: Skill | SkillMeta): skill is DynamicSkill {
+    return isDynamicSkill(skill);
+  }
+
+  private getAllToolDefinitions(): ToolDefinition[] {
+    const mcpTools = this.mcpClientManager.getToolDefinitions();
+    const skillTools: ToolDefinition[] = [];
+
+    for (const skill of this.skillRegistry.list()) {
+      if (this.isDynamicSkillCheck(skill) && skill.tools) {
+        for (const tool of skill.tools) {
+          skillTools.push({
+            name: tool.name,
+            description: tool.description || '',
+            inputSchema: tool.inputSchema as Record<string, unknown>,
+          });
+        }
+      }
+    }
+
+    return [...mcpTools, ...skillTools];
+  }
+
+  /**
+   * Collect allowedTools from matched skills and return a Set for filtering.
+   * Returns null if no skill restricts tools (all tools are allowed).
+   */
+  private getActiveAllowedTools(matchedSkills: (Skill | SkillMeta)[]): Set<string> | null {
+    const restrictions: string[] = [];
+    for (const skill of matchedSkills) {
+      if (skill.allowedTools && skill.allowedTools.length > 0) {
+        restrictions.push(...skill.allowedTools);
+      }
+    }
+    // If no skill has restrictions, allow all tools
+    if (restrictions.length === 0) return null;
+    return new Set(restrictions);
+  }
+
+  // ─── Multi-turn Chat (P1-1) ────────────────────────────────────────
+
+  async chat(userMessage: string): Promise<string> {
+    await this.init();
+
+    if (!this.sessionInitialized) {
+      const topK = this.config?.skills?.matchTopK ?? 3;
+      const matchedSkills = this.skillRegistry.match(userMessage, topK);
+
+      // Phase 2: Lazy-load content for matched skills only
+      await this.ensureSkillContent(matchedSkills);
+
+      const allSkillMetas = this.skillRegistry.list();
+      const facts = this.memoryManager.searchFacts(userMessage);
+      const episodes = this.memoryManager.recallEpisodes(userMessage);
+      this.sessionSystemPrompt = this.buildSystemPrompt(allSkillMetas, matchedSkills, facts, episodes);
+
+      // Apply allowedTools filtering
+      let tools = this.getAllToolDefinitions();
+      const allowedTools = this.getActiveAllowedTools(matchedSkills);
+      if (allowedTools) {
+        tools = tools.filter(t => allowedTools.has(t.name));
+      }
+      this.sessionTools = tools;
+      this.sessionInitialized = true;
+    }
+
+    // Add user message to session history
+    this.sessionMessages.push({ role: 'user', content: userMessage });
+
+    // Run the agentic loop with session context
+    const { messages, response } = await this.agenticLoop(
+      this.sessionSystemPrompt,
+      this.sessionMessages,
+      this.sessionTools,
+    );
+
+    // Update session messages with the loop results
+    this.sessionMessages = messages;
+
+    // Extract final text from response
+    const text = response?.content
+      .filter(b => b.type === 'text')
+      .map(b => (b as any).text)
+      .join('\n') || '';
+
+    return text;
+  }
+
+  resetSession() {
+    this.sessionMessages = [];
+    this.sessionSystemPrompt = '';
+    this.sessionTools = [];
+    this.sessionInitialized = false;
+  }
+
+  // ─── Single-task Run ───────────────────────────────────────────────
 
   async run(userInput: string): Promise<Task> {
     await this.init();
     this.taskApprovals = new Set();
     this.stepResults = [];
-    let intentProfile: Awaited<ReturnType<IntentAnalyzer['analyze']>> | null = null;
+    this.traces = [];
 
     // 1. Initialize Task
     const task: Task = {
@@ -211,88 +337,71 @@ export class Agent extends EventEmitter {
       status: 'running',
     };
 
-    const context: AgentContext = {
-      taskId: task.id,
-      history: [],
-      state: {
-        cwd: process.cwd(),
-        lastResult: ''
-      },
-    };
-
     this.emit('task:start', task);
-    this.traces = []; // Reset traces
+
+    let intentProfile: IntentProfile | null = null;
 
     try {
-      // 2. Analyze Intent
-      this.emit('phase:start', 'intent');
-      const intent = await this.intentAnalyzer.analyze(userInput);
-      intentProfile = intent;
-      this.emit('intent', intent);
-      this.emit('phase:end', 'intent');
-
-      // 2.5 Find Relevant Skills
-      // Basic matching for now using summary or raw input
-      const matchedSkills = this.skillRegistry.match(userInput + ' ' + intent.summary);
-      if (matchedSkills.length > 0) {
-        // console.log('Matched skills:', matchedSkills.map(s => s.name));
+      // 2. Optional: Intent Analysis
+      const enableIntentAnalysis = this.config?.agent?.intentAnalysis ?? false;
+      if (enableIntentAnalysis) {
+        this.emit('phase:start', 'intent');
+        intentProfile = await this.intentAnalyzer.analyze(userInput);
+        this.emit('intent', intentProfile);
+        this.emit('phase:end', 'intent');
       }
 
-      // 2.6 Retrieve Memories
-      this.emit('phase:start', 'memory');
+      // 3. Find Relevant Skills (topK for progressive disclosure)
+      const topK = this.config?.skills?.matchTopK ?? 3;
+      const matchedSkills = this.skillRegistry.match(userInput, topK);
+
+      // 3.1 Phase 2: Lazy-load content for matched skills only
+      await this.ensureSkillContent(matchedSkills);
+
+      // 4. Retrieve Memories
+      const allSkillMetas = this.skillRegistry.list();
       const facts = this.memoryManager.searchFacts(userInput);
       const episodes = this.memoryManager.recallEpisodes(userInput);
-      const taskContext = this.buildTaskContext(facts, episodes, context);
-      context.taskContext = taskContext;
-      this.emit('phase:end', 'memory');
 
-      // 3. Generate Plan
-      this.emit('phase:start', 'planning');
-      let steps = await this.planner.createPlan(task, intent, context, matchedSkills, { facts, episodes });
-      this.emit('plan', steps);
-      this.emit('phase:end', 'planning');
+      // 5. Build System Prompt (progressive: catalog + active details)
+      const systemPrompt = this.buildSystemPrompt(allSkillMetas, matchedSkills, facts, episodes);
 
-      // 4. Execution Loop (with single replan on failure)
-      this.emit('phase:start', 'execution');
-      let replanned = false;
-      let stepIndex = 0;
+      // 6. Get tools for LLM function calling (MCP + DynamicSkill)
+      let tools = this.getAllToolDefinitions();
 
-      while (stepIndex < steps.length) {
-        if (task.status !== 'running') break;
-        const step = steps[stepIndex];
-        try {
-          await this.executeStep(step, context);
-          stepIndex += 1;
-        } catch (error) {
-          if (replanned) {
-            throw error;
-          }
-          replanned = true;
-          context.state.lastError = error instanceof Error ? error.message : String(error);
-          context.state.lastFailedStep = step.id;
-          const replanTask: Task = {
-            ...task,
-            description: `${task.description}\n\nFailure context: step ${step.id} failed with ${context.state.lastError}`
-          };
-
-          this.emit('phase:start', 'replan');
-          steps = await this.planner.createPlan(replanTask, intent, context, matchedSkills, { facts, episodes });
-          stepIndex = 0;
-          this.emit('plan', steps);
-          this.emit('phase:end', 'replan');
-        }
+      // 6.1 Apply allowedTools restrictions from matched skills
+      const allowedTools = this.getActiveAllowedTools(matchedSkills);
+      if (allowedTools) {
+        tools = tools.filter(t => allowedTools.has(t.name));
       }
+
+      // 7. Initialize conversation messages
+      const messages: Message[] = [
+        { role: 'user', content: userInput }
+      ];
+
+      this.emit('phase:start', 'execution');
+
+      // 8. Run the shared agentic loop
+      const { response: lastResponse } = await this.agenticLoop(
+        systemPrompt,
+        messages,
+        tools,
+      );
 
       this.emit('phase:end', 'execution');
 
-      // Complete Task
+      // Extract final text from last response
       task.status = 'completed';
-      task.result = 'All steps executed successfully.';
+      task.result = lastResponse?.content
+        .filter(b => b.type === 'text')
+        .map(b => (b as any).text)
+        .join('\n') || 'Task completed.';
 
       // Save Episode and Traces
       const episodeId = this.memoryManager.recordEpisode({
         input: userInput,
-        plan: JSON.stringify({ steps }),
+        plan: JSON.stringify({ iterations: this.traces.length, traces: this.traces.length }),
         result: task.result,
         strategy_id: this.activeStrategy?.metadata.id,
         strategy_version: this.activeStrategy?.metadata.version,
@@ -309,14 +418,17 @@ export class Agent extends EventEmitter {
       this.emit('task:error', error);
     }
 
+    // Post-execution: report and feedback
     if (intentProfile) {
       const report = this.reporter.generateReport(task, intentProfile, this.stepResults);
       this.memoryManager.recordTaskReport(task.id, report);
+    }
 
-      const shouldRequestFeedback = task.status === 'failed' || (this.activeStrategy?.preferences?.userConfirmation ?? 0.8) >= 0.8;
-      const skipFeedback = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
-      if (shouldRequestFeedback && !skipFeedback && this.mcpClientManager.getToolInfo('ask_user')) {
-        const feedback = await this.feedbackCollector.collect(task, report, async (prompt) => {
+    const shouldRequestFeedback = task.status === 'failed' || (this.activeStrategy?.preferences?.userConfirmation ?? 0.8) >= 0.8;
+    const skipFeedback = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
+    if (shouldRequestFeedback && !skipFeedback && this.mcpClientManager.getToolInfo('ask_user')) {
+      try {
+        const feedback = await this.feedbackCollector.collect(task, {} as any, async (prompt) => {
           const result = await this.mcpClientManager.callTool('ask_user', { prompt });
           const textContent = (result.content as any[])
             .filter((c: any) => c.type === 'text')
@@ -329,16 +441,390 @@ export class Agent extends EventEmitter {
         if (feedback) {
           this.memoryManager.recordTaskFeedback(task.id, feedback);
         }
+      } catch {
+        // Ignore feedback collection errors
       }
     }
 
     return task;
   }
 
+  // ─── Shared Agentic Loop ───────────────────────────────────────────
+
+  private async agenticLoop(
+    systemPrompt: string,
+    messages: Message[],
+    tools: ToolDefinition[],
+  ): Promise<{ messages: Message[]; response: LLMResponse | null }> {
+    const maxIterations = this.config?.agent?.maxIterations ?? 50;
+    let iteration = 0;
+    let lastResponse: LLMResponse | null = null;
+
+    while (iteration < maxIterations) {
+      iteration++;
+
+      // Call LLM with retry and optional streaming (P1-2, P2-5)
+      const response = await this.callLLMWithRetry({
+        system: systemPrompt,
+        messages,
+        tools: tools.length > 0 ? tools : undefined,
+        max_tokens: 4096,
+        temperature: this.activeStrategy?.planning?.temperature ?? 0.2,
+      });
+
+      lastResponse = response;
+
+      // Append assistant response to conversation history
+      messages.push({
+        role: 'assistant',
+        content: response.content,
+      });
+
+      // Check if LLM wants to use tools
+      const toolUses = response.content.filter(
+        (b): b is ToolUseContent => b.type === 'tool_use'
+      );
+
+      if (response.stop_reason !== 'tool_use' || toolUses.length === 0) {
+        // Done — LLM has finished reasoning.
+        // In non-streaming mode, emit message events for final response.
+        const useStreaming = this.config?.agent?.streaming ?? true;
+        if (!useStreaming) {
+          for (const block of response.content) {
+            if (block.type === 'text' && block.text.trim()) {
+              this.emit('message', { role: 'assistant', text: block.text });
+            }
+            if (block.type === 'thinking') {
+              this.emit('thinking', (block as any).thinking);
+            }
+          }
+        }
+        break;
+      }
+
+      // In non-streaming mode, emit text/thinking from intermediate responses
+      const useStreaming = this.config?.agent?.streaming ?? true;
+      if (!useStreaming) {
+        for (const block of response.content) {
+          if (block.type === 'text' && block.text.trim()) {
+            this.emit('message', { role: 'assistant', text: block.text });
+          }
+          if (block.type === 'thinking') {
+            this.emit('thinking', (block as any).thinking);
+          }
+        }
+      }
+
+      // Execute tool calls and collect results
+      const toolResultBlocks: ContentBlock[] = [];
+
+      for (const toolUse of toolUses) {
+        this.emit('tool:start', { name: toolUse.name, input: toolUse.input });
+
+        try {
+          // Check if this is a DynamicSkill tool (P2-1)
+          const dynamicSkill = this.skillToolMap.get(toolUse.name);
+          if (dynamicSkill) {
+            const start = Date.now();
+            const result = await dynamicSkill.execute(toolUse.name, toolUse.input, {});
+            const duration = Date.now() - start;
+
+            toolResultBlocks.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: result,
+            });
+
+            this.traces.push({
+              step_index: this.traces.length,
+              tool_name: toolUse.name,
+              tool_args: JSON.stringify(toolUse.input),
+              tool_output: result,
+              duration,
+              status: 'success',
+            });
+
+            this.emit('tool:complete', { name: toolUse.name, result, duration });
+            continue;
+          }
+
+          // Risk assessment
+          const risk = assessRisk(toolUse.name, toolUse.input, this.mcpClientManager, this.config);
+          if (risk.level === 'high') {
+            const approved = await this.confirmRisk(risk, toolUse.name);
+            if (!approved) {
+              toolResultBlocks.push({
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: 'User denied this high-risk action.',
+                is_error: true,
+              });
+              this.emit('tool:error', { name: toolUse.name, error: 'User denied action' });
+              continue;
+            }
+          }
+
+          // Execute via MCP
+          const start = Date.now();
+          const result = await this.mcpClientManager.callTool(toolUse.name, toolUse.input);
+          const duration = Date.now() - start;
+
+          // Extract text content from MCP result
+          const textContent = (result.content as any[])
+            .filter((c: any) => c.type === 'text')
+            .map((c: any) => c.text)
+            .join('\n');
+
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: textContent,
+            is_error: !!result.isError,
+          });
+
+          // Record trace
+          this.traces.push({
+            step_index: this.traces.length,
+            tool_name: toolUse.name,
+            tool_args: JSON.stringify(toolUse.input),
+            tool_output: textContent,
+            duration,
+            status: result.isError ? 'failed' : 'success',
+          });
+
+          this.emit('tool:complete', { name: toolUse.name, result: textContent, duration });
+
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : String(error);
+
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: toolUse.id,
+            content: `Tool execution failed: ${errMsg}`,
+            is_error: true,
+          });
+
+          // Record failed trace
+          this.traces.push({
+            step_index: this.traces.length,
+            tool_name: toolUse.name,
+            tool_args: JSON.stringify(toolUse.input),
+            tool_output: errMsg,
+            duration: 0,
+            status: 'failed',
+          });
+
+          this.emit('tool:error', { name: toolUse.name, error: errMsg });
+        }
+      }
+
+      // Append tool results to conversation.
+      // Using individual 'tool' role messages — providers handle the conversion:
+      // - Anthropic provider groups consecutive tool messages into one user message
+      // - OpenAI provider keeps them as separate tool role messages
+      for (const block of toolResultBlocks) {
+        messages.push({
+          role: 'tool',
+          content: [block],
+        });
+      }
+    }
+
+    if (iteration >= maxIterations) {
+      this.emit('max_iterations', { iterations: maxIterations });
+    }
+
+    return { messages, response: lastResponse };
+  }
+
+  // ─── LLM Call with Retry (P2-5) and Streaming (P1-2) ───────────────
+
+  private async callLLMWithRetry(request: LLMRequest): Promise<LLMResponse> {
+    const maxRetries = this.config?.agent?.maxRetries ?? 3;
+    const retryDelayMs = this.config?.agent?.retryDelayMs ?? 1000;
+
+    let lastError: Error | null = null;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await this.callLLM(request);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        if (attempt < maxRetries && this.isRetryableError(lastError)) {
+          const delay = retryDelayMs * Math.pow(2, attempt);
+          this.emit('retry', { attempt: attempt + 1, maxRetries, delay, error: lastError.message });
+          await this.sleep(delay);
+        } else {
+          throw lastError;
+        }
+      }
+    }
+    throw lastError!;
+  }
+
+  private async callLLM(request: LLMRequest): Promise<LLMResponse> {
+    const useStreaming = this.config?.agent?.streaming ?? true;
+
+    if (useStreaming) {
+      let response: LLMResponse | null = null;
+      for await (const chunk of this.llm.generateStream(request)) {
+        switch (chunk.type) {
+          case 'text_delta':
+            this.emit('stream:text', chunk.text);
+            break;
+          case 'thinking_delta':
+            this.emit('stream:thinking', chunk.thinking);
+            break;
+          case 'message_stop':
+            response = chunk.response;
+            break;
+          case 'error':
+            throw new Error(chunk.error);
+        }
+      }
+      if (!response) throw new Error('Stream ended without a response');
+      return response;
+    } else {
+      return await this.llm.generate(request);
+    }
+  }
+
+  private isRetryableError(error: Error): boolean {
+    const msg = error.message.toLowerCase();
+    return (
+      msg.includes('rate limit') ||
+      msg.includes('429') ||
+      msg.includes('500') ||
+      msg.includes('502') ||
+      msg.includes('503') ||
+      msg.includes('504') ||
+      msg.includes('timeout') ||
+      msg.includes('econnreset') ||
+      msg.includes('econnrefused') ||
+      msg.includes('network') ||
+      msg.includes('fetch failed')
+    );
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // ─── Interaction ──────────────────────────────────────────────────────
+
   public resolveInteraction(id: string, response: string): boolean {
     if (!this.interactionServer) return false;
     return this.interactionServer.resolve(id, response);
   }
+
+  // ─── System Prompt Construction ───────────────────────────────────────
+
+  /**
+   * Build the system prompt with progressive skill disclosure:
+   * - Layer 1: Lightweight catalog of ALL registered skills (name + description)
+   * - Layer 2: Full content of only the top-K matched skills
+   */
+  private buildSystemPrompt(
+    allSkills: (Skill | SkillMeta)[],
+    activeSkills: (Skill | SkillMeta)[],
+    facts: Fact[],
+    episodes: Episode[],
+  ): string {
+    const sections: string[] = [];
+
+    // Strategy-defined personality and role
+    if (this.activeStrategy?.system) {
+      const sys = this.activeStrategy.system;
+      sections.push(sys.role);
+      if (sys.personality) {
+        sections.push(`Personality: ${sys.personality}`);
+      }
+      if (sys.goals.length > 0) {
+        sections.push(`Goals:\n${sys.goals.map(g => `- ${g}`).join('\n')}`);
+      }
+      if (sys.constraints.length > 0) {
+        sections.push(`Constraints:\n${sys.constraints.map(c => `- ${c}`).join('\n')}`);
+      }
+    }
+
+    // Environment info
+    sections.push(`Current working directory: ${process.cwd()}`);
+
+    // Tool usage instructions
+    sections.push(
+      'You have access to tools via function calling. ' +
+      'Use tools when you need to interact with the system (files, shell, git, memory, etc.). ' +
+      'When you are done with the task, respond with your final answer as text.'
+    );
+
+    // Safety constraints from strategy
+    const deniedTools = this.activeStrategy?.constraints?.deniedTools || [];
+    if (deniedTools.length > 0) {
+      sections.push(`DENIED TOOLS (never use these): ${deniedTools.join(', ')}`);
+    }
+
+    const mustConfirm = [
+      ...(this.activeStrategy?.execution?.requiresConfirmation || []),
+      ...(this.activeStrategy?.constraints?.mustConfirmBefore || []),
+    ];
+    if (mustConfirm.length > 0) {
+      sections.push(`HIGH-RISK TOOLS (will require user confirmation): ${[...new Set(mustConfirm)].join(', ')}`);
+    }
+
+    // Layer 1: Lightweight skill catalog (all skills, name + description only)
+    if (allSkills.length > 0) {
+      const catalogLines = allSkills.map(s => {
+        const tags = s.tags?.length ? ` [${s.tags.join(', ')}]` : '';
+        return `- ${s.name}: ${s.description}${tags}`;
+      });
+      sections.push(`AVAILABLE SKILLS (${allSkills.length} total):\n${catalogLines.join('\n')}`);
+    }
+
+    // Layer 2: Full content of matched/active skills only (progressive disclosure)
+    const activeWithContent = activeSkills.filter(s => hasContent(s));
+    if (activeWithContent.length > 0) {
+      const skillText = activeWithContent
+        .map(s => `--- SKILL: ${s.name} ---\n${getSkillContent(s)}\n--- END SKILL ---`)
+        .join('\n');
+      sections.push(`ACTIVE SKILL DETAILS (follow these instructions):\n${skillText}`);
+    }
+
+    // Memory context
+    if (facts.length > 0) {
+      sections.push(
+        `REMEMBERED FACTS:\n${facts.map(f => `- ${f.content}`).join('\n')}`
+      );
+    }
+    if (episodes.length > 0) {
+      const episodeText = episodes
+        .slice(0, 5)
+        .map(e => `- "${e.input}" → ${e.result.substring(0, 100)}...`)
+        .join('\n');
+      sections.push(`PAST SIMILAR TASKS:\n${episodeText}`);
+    }
+
+    // Use strategy's custom planning prompt if provided (as additional instructions)
+    if (this.activeStrategy?.prompts?.planning) {
+      sections.push(`STRATEGY INSTRUCTIONS:\n${this.activeStrategy.prompts.planning}`);
+    }
+
+    return sections.join('\n\n');
+  }
+
+  /**
+   * Lazy-load content for matched skills that don't have content in memory yet.
+   */
+  private async ensureSkillContent(skills: (Skill | SkillMeta)[]): Promise<void> {
+    for (const skill of skills) {
+      if (!hasContent(skill) && skill.path) {
+        const content = await this.skillLoader.loadContent(skill.name);
+        if (content) {
+          (skill as any).content = content;
+        }
+      }
+    }
+  }
+
+  // ─── Risk Management ──────────────────────────────────────────────────
 
   private buildApprovalKey(signature: string): string {
     return `risk_approval:${signature}`;
@@ -400,160 +886,5 @@ export class Agent extends EventEmitter {
     }
 
     return approved;
-  }
-
-  private resolveArgs(args: any, context: AgentContext): any {
-    if (!args) return args;
-    const state = context.state || {};
-
-    // Handle string substitution
-    if (typeof args === 'string') {
-      return args.replace(/\{\{([^}]+)\}\}/g, (_, key) => {
-        const val = state[key.trim()];
-        return val !== undefined ? String(val) : `{{${key}}}`;
-      });
-    }
-
-    // Handle arrays
-    if (Array.isArray(args)) {
-      return args.map(item => this.resolveArgs(item, context));
-    }
-
-    // Handle objects
-    if (typeof args === 'object') {
-      const result: any = {};
-      for (const key in args) {
-        result[key] = this.resolveArgs(args[key], context);
-      }
-      return result;
-    }
-
-    return args;
-  }
-
-  private async executeStep(step: Step, context: AgentContext): Promise<void> {
-    step.status = 'running';
-    step.startedAt = Date.now();
-    this.emit('step:start', step);
-
-    const stepIndex = this.traces.length; // Use current trace count as step index
-
-    try {
-      if (step.type === 'action' && step.tool) {
-        try {
-          // Resolve arguments with context state
-          const resolvedArgs = this.resolveArgs(step.args, context);
-
-          const risk = assessRisk(step.tool, resolvedArgs, this.mcpClientManager, this.config);
-          if (risk.level === 'high') {
-            const approved = await this.confirmRisk(risk, step.tool);
-            if (!approved) {
-              throw new Error('User denied high-risk action');
-            }
-          }
-
-          // Log if args were modified (debug info)
-          if (JSON.stringify(resolvedArgs) !== JSON.stringify(step.args)) {
-            // We could emit a debug event here, but for now let's just use the resolved args
-          }
-
-          const start = Date.now();
-          // Use MCP Client Manager to call tool
-          const result = await this.mcpClientManager.callTool(step.tool, resolvedArgs || {});
-          const duration = Date.now() - start;
-
-          // Flatten MCP result content to string for MVP
-          const textContent = (result.content as any[])
-            .filter((c: any) => c.type === 'text')
-            .map((c: any) => c.text)
-            .join('\n');
-
-          step.result = textContent;
-
-          if (step.verification && step.verification.length > 0 && !textContent.trim()) {
-            step.status = 'failed';
-            step.error = 'Verification failed: empty output';
-            throw new Error(step.error);
-          }
-
-          // Record Trace
-          this.traces.push({
-            step_index: stepIndex,
-            tool_name: step.tool,
-            tool_args: JSON.stringify(resolvedArgs || {}),
-            tool_output: JSON.stringify(result), // Store full MCP result
-            duration,
-            status: 'success'
-          });
-
-          // Update context state
-          context.state.lastResult = textContent.trim();
-        } catch (error: any) {
-          step.result = `Tool execution failed: ${error instanceof Error ? error.message : String(error)}`;
-
-          // Record Failed Trace
-          this.traces.push({
-            step_index: stepIndex,
-            tool_name: step.tool,
-            tool_args: JSON.stringify(this.resolveArgs(step.args, context) || {}),
-            tool_output: error.message,
-            duration: 0,
-            status: 'failed'
-          });
-
-          throw error;
-        }
-      } else {
-        // Thought step - just simulate a pause or processing
-        step.result = 'Thought processed.';
-      }
-
-      step.status = 'completed';
-    } catch (error) {
-      step.status = 'failed';
-      step.error = error instanceof Error ? error.message : String(error);
-      throw error; // Stop execution on failure for now
-    } finally {
-      step.completedAt = Date.now();
-      this.emit('step:complete', step);
-
-      const durationMs = step.startedAt && step.completedAt ? step.completedAt - step.startedAt : undefined;
-      const status = step.status === 'completed'
-        ? 'completed'
-        : step.status === 'failed'
-          ? 'failed'
-          : 'skipped';
-      this.stepResults.push({
-        stepId: step.id,
-        status,
-        output: step.result,
-        error: step.error,
-        durationMs
-      });
-    }
-  }
-
-  private buildTaskContext(facts: Fact[], episodes: Episode[], context: AgentContext): TaskContext {
-    const tools = this.mcpClientManager.getTools().map(t => t.name);
-    const strategyId = this.activeStrategy?.metadata.id || 'unknown';
-    const strategyVersion = this.activeStrategy?.metadata.version || 'unknown';
-    const requiresConfirmation = new Set<string>([
-      ...(this.activeStrategy?.execution?.requiresConfirmation || []),
-      ...(this.activeStrategy?.constraints?.mustConfirmBefore || [])
-    ]);
-    const deniedTools = this.activeStrategy?.constraints?.deniedTools || [];
-
-    return {
-      cwd: typeof context.state.cwd === 'string' ? context.state.cwd : process.cwd(),
-      tools,
-      strategyId,
-      strategyVersion,
-      facts,
-      episodes,
-      riskPolicy: {
-        requiresConfirmation: Array.from(requiresConfirmation),
-        deniedTools
-      }
-    };
   }
 }

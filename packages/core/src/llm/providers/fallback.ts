@@ -1,5 +1,5 @@
 import type { ILLMProvider } from '../interface.js';
-import type { LLMRequest, LLMResponse } from '../types.js';
+import type { LLMRequest, LLMResponse, StreamChunk } from '../types.js';
 
 export class FallbackProvider implements ILLMProvider {
   public readonly id = 'fallback';
@@ -25,5 +25,21 @@ export class FallbackProvider implements ILLMProvider {
     }
 
     throw new Error(`All providers failed. ${errors.join(' | ')}`);
+  }
+
+  async *generateStream(request: LLMRequest): AsyncGenerator<StreamChunk, void, unknown> {
+    const errors: string[] = [];
+
+    for (const provider of this.providers) {
+      try {
+        yield* provider.generateStream(request);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`${provider.id}: ${message}`);
+      }
+    }
+
+    yield { type: 'error', error: `All providers failed streaming. ${errors.join(' | ')}` };
   }
 }

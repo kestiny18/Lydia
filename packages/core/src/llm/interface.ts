@@ -1,4 +1,4 @@
-import type { LLMRequest, LLMResponse } from './types.js';
+import type { LLMRequest, LLMResponse, StreamChunk } from './types.js';
 
 export interface ILLMProvider {
   /**
@@ -13,7 +13,6 @@ export interface ILLMProvider {
 
   /**
    * Generate a stream of completion chunks
-   * Note: We'll define the stream chunk type when we implement streaming
    */
-  generateStream?(request: LLMRequest): AsyncGenerator<unknown, void, unknown>;
+  generateStream(request: LLMRequest): AsyncGenerator<StreamChunk, void, unknown>;
 }

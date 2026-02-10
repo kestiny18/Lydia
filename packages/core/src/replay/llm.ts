@@ -1,4 +1,4 @@
-import type { ILLMProvider, LLMRequest, LLMResponse } from '../llm/index.js';
+import type { ILLMProvider, LLMRequest, LLMResponse, StreamChunk } from '../llm/index.js';
 
 export class ReplayLLMProvider implements ILLMProvider {
   public readonly id = 'replay';
@@ -72,6 +72,16 @@ export class ReplayLLMProvider implements ILLMProvider {
         }
       ]
     };
+  }
+
+  async *generateStream(request: LLMRequest): AsyncGenerator<StreamChunk, void, unknown> {
+    const response = await this.generate(request);
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        yield { type: 'text_delta', text: block.text };
+      }
+    }
+    yield { type: 'message_stop', response };
   }
 
   private normalizePlan(plan: string): string {

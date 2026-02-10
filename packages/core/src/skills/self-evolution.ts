@@ -1,4 +1,4 @@
-import { DynamicSkill, SkillContext } from './types.js';
+import type { DynamicSkill, SkillContext } from './types.js';
 
 import { StrategyBranchManager } from '../strategy/branch-manager.js';
 import { StrategyUpdateGate } from '../gate/engine.js';

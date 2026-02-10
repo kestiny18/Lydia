@@ -1,4 +1,4 @@
-import type { ILLMProvider, LLMRequest, LLMResponse, TextContent } from '../index.js';
+import type { ILLMProvider, LLMRequest, LLMResponse, StreamChunk, TextContent } from '../index.js';
 
 export class MockProvider implements ILLMProvider {
   public readonly id = 'mock';
@@ -37,6 +37,23 @@ export class MockProvider implements ILLMProvider {
     }
 
     return response;
+  }
+
+  async *generateStream(request: LLMRequest): AsyncGenerator<StreamChunk, void, unknown> {
+    const response = await this.generate(request);
+
+    // Simulate streaming by yielding text content as deltas
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        yield { type: 'text_delta', text: block.text };
+      } else if (block.type === 'tool_use') {
+        yield { type: 'tool_use_start', id: block.id, name: block.name };
+        yield { type: 'tool_use_delta', id: block.id, input_json: JSON.stringify(block.input) };
+        yield { type: 'tool_use_end', id: block.id };
+      }
+    }
+
+    yield { type: 'message_stop', response };
   }
 
   /**

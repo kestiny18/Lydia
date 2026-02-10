@@ -70,17 +70,37 @@ export const LLMResponseSchema = z.object({
   content: z.array(ContentBlockSchema),
   role: RoleSchema,
   model: z.string(),
-  stop_reason: z.enum(['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'error']).nullable(),
+  stop_reason: z.enum(['end_turn', 'max_tokens', 'stop_sequence', 'tool_use', 'error', 'pause_turn']).nullable(),
   usage: TokenUsageSchema,
 });
 export type LLMResponse = z.infer<typeof LLMResponseSchema>;
+
+export const ToolDefinitionSchema = z.object({
+  name: z.string(),
+  description: z.string().default(''),
+  inputSchema: z.record(z.unknown()), // JSON Schema object
+});
+export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
+
+// ─── Streaming Types ────────────────────────────────────────────────
+
+export type StreamChunk =
+  | { type: 'text_delta'; text: string }
+  | { type: 'thinking_delta'; thinking: string }
+  | { type: 'tool_use_start'; id: string; name: string }
+  | { type: 'tool_use_delta'; id: string; input_json: string }
+  | { type: 'tool_use_end'; id: string }
+  | { type: 'message_stop'; response: LLMResponse }
+  | { type: 'error'; error: string };
+
+// ─── Request ────────────────────────────────────────────────────────
 
 export const LLMRequestSchema = z.object({
   messages: z.array(MessageSchema),
   model: z.string().optional(),
   max_tokens: z.number().optional(),
   temperature: z.number().optional(),
-  tools: z.array(z.any()).optional(), // We'll refine tool definition later
+  tools: z.array(ToolDefinitionSchema).optional(),
   system: z.string().optional(),
   stop: z.array(z.string()).optional(),
 });

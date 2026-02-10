@@ -5,6 +5,7 @@ import {
   type LLMResponse,
   type ContentBlock,
   type Message,
+  type StreamChunk,
   type TextContent,
   type ToolUseContent
 } from '../index.js';
@@ -31,14 +32,27 @@ export class OpenAIProvider implements ILLMProvider {
     const messages = this.convertMessages(request.messages, request.system);
 
     try {
-      const response = await this.client.chat.completions.create({
+      const createParams: any = {
         model,
         messages,
         max_tokens: request.max_tokens,
         temperature: request.temperature,
         stop: request.stop,
-        tools: request.tools,
-      });
+      };
+
+      // Map ToolDefinition[] to OpenAI function calling format
+      if (request.tools && request.tools.length > 0) {
+        createParams.tools = request.tools.map(t => ({
+          type: 'function' as const,
+          function: {
+            name: t.name,
+            description: t.description || '',
+            parameters: t.inputSchema,
+          },
+        }));
+      }
+
+      const response = await this.client.chat.completions.create(createParams);
 
       const choice = response.choices[0];
       if (!choice?.message) {
@@ -48,6 +62,127 @@ export class OpenAIProvider implements ILLMProvider {
       return this.convertResponse(response, choice.message, choice.finish_reason || null);
     } catch (error) {
       throw new Error(`OpenAI API error: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async *generateStream(request: LLMRequest): AsyncGenerator<StreamChunk, void, unknown> {
+    const model = request.model || this.defaultModel;
+    const messages = this.convertMessages(request.messages, request.system);
+
+    const createParams: any = {
+      model,
+      messages,
+      max_tokens: request.max_tokens,
+      temperature: request.temperature,
+      stop: request.stop,
+      stream: true,
+    };
+
+    if (request.tools && request.tools.length > 0) {
+      createParams.tools = request.tools.map(t => ({
+        type: 'function' as const,
+        function: {
+          name: t.name,
+          description: t.description || '',
+          parameters: t.inputSchema,
+        },
+      }));
+    }
+
+    try {
+      const stream = await this.client.chat.completions.create(createParams);
+
+      // Accumulated state for building final response
+      let responseId = '';
+      let responseModel = model;
+      let finishReason: string | null = null;
+      const usage = { input_tokens: 0, output_tokens: 0, total_tokens: 0 };
+      let accumulatedText = '';
+      const toolCalls: Map<number, { id: string; name: string; arguments: string }> = new Map();
+
+      for await (const chunk of stream as any) {
+        responseId = chunk.id || responseId;
+        responseModel = chunk.model || responseModel;
+
+        if (chunk.usage) {
+          usage.input_tokens = chunk.usage.prompt_tokens || 0;
+          usage.output_tokens = chunk.usage.completion_tokens || 0;
+          usage.total_tokens = chunk.usage.total_tokens || 0;
+        }
+
+        const choice = chunk.choices?.[0];
+        if (!choice) continue;
+
+        if (choice.finish_reason) {
+          finishReason = choice.finish_reason;
+        }
+
+        const delta = choice.delta;
+        if (!delta) continue;
+
+        // Text delta
+        if (delta.content) {
+          accumulatedText += delta.content;
+          yield { type: 'text_delta', text: delta.content };
+        }
+
+        // Tool call deltas
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!toolCalls.has(idx)) {
+              toolCalls.set(idx, { id: tc.id || '', name: tc.function?.name || '', arguments: '' });
+              if (tc.id) {
+                yield { type: 'tool_use_start', id: tc.id, name: tc.function?.name || '' };
+              }
+            }
+            const existing = toolCalls.get(idx)!;
+            if (tc.id) existing.id = tc.id;
+            if (tc.function?.name) existing.name = tc.function.name;
+            if (tc.function?.arguments) {
+              existing.arguments += tc.function.arguments;
+              yield { type: 'tool_use_delta', id: existing.id, input_json: tc.function.arguments };
+            }
+          }
+        }
+      }
+
+      // Emit tool_use_end for all tool calls
+      for (const [, tc] of toolCalls) {
+        if (tc.id) {
+          yield { type: 'tool_use_end', id: tc.id };
+        }
+      }
+
+      // Build final content blocks
+      const content: ContentBlock[] = [];
+      if (accumulatedText) {
+        content.push({ type: 'text', text: accumulatedText } as TextContent);
+      }
+      for (const [, tc] of toolCalls) {
+        let input: Record<string, unknown> = {};
+        try { input = JSON.parse(tc.arguments || '{}'); } catch { input = { raw: tc.arguments }; }
+        content.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.name,
+          input,
+        } as ToolUseContent);
+      }
+
+      yield {
+        type: 'message_stop',
+        response: {
+          id: responseId,
+          role: 'assistant',
+          model: responseModel,
+          stop_reason: this.mapStopReason(finishReason),
+          usage,
+          content,
+        },
+      };
+    } catch (error) {
+      yield { type: 'error', error: `OpenAI streaming error: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 
@@ -73,18 +208,18 @@ export class OpenAIProvider implements ILLMProvider {
       const role = msg.role as 'user' | 'assistant' | 'system';
       if (converted.toolCalls && role !== 'assistant') {
         // Tool calls are only valid on assistant messages.
-        output.push({ role, content: converted.content });
+        output.push({ role, content: converted.content ?? '' } as OpenAIMessageParam);
         continue;
       }
 
       if (converted.toolCalls) {
         output.push({
-          role,
+          role: 'assistant' as const,
           content: converted.content,
           tool_calls: converted.toolCalls,
-        });
+        } as OpenAIMessageParam);
       } else {
-        output.push({ role, content: converted.content });
+        output.push({ role, content: converted.content ?? '' } as OpenAIMessageParam);
       }
     }
 
@@ -144,18 +279,12 @@ export class OpenAIProvider implements ILLMProvider {
   private convertResponse(
     response: OpenAI.Chat.Completions.ChatCompletion,
     message: OpenAI.Chat.Completions.ChatCompletionMessage,
-    finishReason: OpenAI.Chat.Completions.ChatCompletionFinishReason | null
+    finishReason: string | null
   ): LLMResponse {
     const content: ContentBlock[] = [];
 
-    if (typeof message.content === 'string') {
+    if (message.content) {
       content.push({ type: 'text', text: message.content } as TextContent);
-    } else if (Array.isArray(message.content)) {
-      for (const part of message.content) {
-        if (part.type === 'text') {
-          content.push({ type: 'text', text: part.text } as TextContent);
-        }
-      }
     }
 
     if (Array.isArray(message.tool_calls)) {
@@ -192,7 +321,7 @@ export class OpenAIProvider implements ILLMProvider {
     };
   }
 
-  private mapStopReason(reason: OpenAI.Chat.Completions.ChatCompletionFinishReason | null): LLMResponse['stop_reason'] {
+  private mapStopReason(reason: string | null): LLMResponse['stop_reason'] {
     switch (reason) {
       case 'stop':
         return 'end_turn';
