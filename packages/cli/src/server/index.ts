@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
-import { MemoryManager, ConfigLoader, Agent, AnthropicProvider, OpenAIProvider, OllamaProvider, MockProvider, FallbackProvider } from '@lydia/core';
+import { MemoryManager, ConfigLoader, Agent, createLLMFromConfig } from '@lydia/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFile } from 'node:fs/promises';
@@ -14,11 +14,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 interface RunState {
   runId: string;
+  input: string;
   status: 'running' | 'completed' | 'failed';
   taskId?: string;
   result?: string;
   error?: string;
+  startedAt: number;
+  completedAt?: number;
   pendingPrompt?: { id: string; prompt: string };
+  agent?: Agent;
 }
 
 // WebSocket message types for real-time event pushing
@@ -28,12 +32,13 @@ interface WsMessage {
   timestamp: number;
 }
 
-export function createServer(port: number = 3000) {
+export function createServer(port: number = 3000, options?: { silent?: boolean }) {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
-  let isRunning = false;
-  let currentRun: RunState | null = null;
-  let currentAgent: Agent | null = null;
+
+  // Multi-run tracking: keep history of all runs in this session
+  const runs: Map<string, RunState> = new Map();
+  let activeRunId: string | null = null;
 
   // WebSocket clients
   const wsClients: Set<WSContext> = new Set();
@@ -55,7 +60,7 @@ export function createServer(port: number = 3000) {
       wsClients.add(ws);
       ws.send(JSON.stringify({
         type: 'connected',
-        data: { status: isRunning ? 'running' : 'idle' },
+        data: { status: activeRunId ? 'running' : 'idle', activeRunId },
         timestamp: Date.now(),
       }));
     },
@@ -157,8 +162,154 @@ export function createServer(port: number = 3000) {
     return c.json(reports);
   });
 
+  // ─── Task History API (merged: live runs + DB reports) ────────────
+
+  app.get('/api/tasks', (c) => {
+    const limit = Number(c.req.query('limit')) || 50;
+    const offset = Number(c.req.query('offset')) || 0;
+    const statusFilter = c.req.query('status') || '';
+    const search = c.req.query('search') || '';
+
+    // 1. Collect live runs from in-memory map
+    const liveItems: any[] = [];
+    for (const run of runs.values()) {
+      liveItems.push({
+        id: run.runId,
+        input: run.input,
+        status: run.status,
+        createdAt: run.startedAt,
+        duration: run.completedAt ? run.completedAt - run.startedAt : undefined,
+        summary: run.result?.substring(0, 120),
+        persisted: false,
+      });
+    }
+
+    // 2. Get persisted task reports from DB
+    const dbReports = memoryManager.listTaskReports(limit + 50); // fetch extra to compensate offset
+    const dbItems: any[] = dbReports.map((r: any) => {
+      let report: any = null;
+      try { report = JSON.parse(r.report_json); } catch { /* ignore */ }
+      return {
+        id: `report-${r.id}`,
+        input: report?.intentSummary || r.task_id || 'Unknown task',
+        status: report?.success ? 'completed' : 'failed',
+        createdAt: r.created_at,
+        duration: report?.duration,
+        summary: report?.summary || report?.intentSummary,
+        persisted: true,
+      };
+    });
+
+    // 3. Merge and deduplicate (live runs override DB entries with same taskId)
+    const liveTaskIds = new Set(liveItems.map(i => i.id));
+    const merged = [
+      ...liveItems,
+      ...dbItems.filter(d => !liveTaskIds.has(d.id)),
+    ];
+
+    // 4. Apply filters
+    let filtered = merged;
+    if (statusFilter) {
+      filtered = filtered.filter(i => i.status === statusFilter);
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      filtered = filtered.filter(i =>
+        i.input?.toLowerCase().includes(q) || i.summary?.toLowerCase().includes(q)
+      );
+    }
+
+    // 5. Sort: running first, then by createdAt descending
+    filtered.sort((a, b) => {
+      if (a.status === 'running' && b.status !== 'running') return -1;
+      if (b.status === 'running' && a.status !== 'running') return 1;
+      return (b.createdAt || 0) - (a.createdAt || 0);
+    });
+
+    // 6. Paginate
+    const paginated = filtered.slice(offset, offset + limit);
+
+    return c.json({
+      items: paginated,
+      total: filtered.length,
+      activeRunId,
+    });
+  });
+
+  // ─── Task Detail API ──────────────────────────────────────────────
+
+  app.get('/api/tasks/:id/detail', (c) => {
+    const id = c.req.param('id');
+
+    // Check if it's a live run
+    const liveRun = runs.get(id);
+    if (liveRun) {
+      return c.json({
+        id: liveRun.runId,
+        input: liveRun.input,
+        status: liveRun.status,
+        createdAt: liveRun.startedAt,
+        completedAt: liveRun.completedAt,
+        duration: liveRun.completedAt ? liveRun.completedAt - liveRun.startedAt : undefined,
+        result: liveRun.result,
+        error: liveRun.error,
+        pendingPrompt: liveRun.pendingPrompt,
+        report: null,
+        traces: null,
+        episode: null,
+      });
+    }
+
+    // Check if it's a DB report (id format: "report-{number}")
+    if (id.startsWith('report-')) {
+      const reportId = Number(id.slice('report-'.length));
+      if (Number.isNaN(reportId)) return c.json({ error: 'Invalid id' }, 400);
+
+      const dbReports = memoryManager.listTaskReports(500);
+      const dbReport = dbReports.find((r: any) => r.id === reportId);
+      if (!dbReport) return c.json({ error: 'Task not found' }, 404);
+
+      let report: any = null;
+      try { report = JSON.parse(dbReport.report_json); } catch { /* ignore */ }
+
+      // Try to find the associated episode
+      let episode: any = null;
+      let traces: any[] = [];
+      if (dbReport.task_id) {
+        const episodes = memoryManager.listEpisodes(200);
+        episode = episodes.find((e: any) => e.input?.includes(dbReport.task_id)) || null;
+        if (episode?.id) {
+          const rawTraces = memoryManager.getTraces(episode.id);
+          traces = rawTraces.map((t: any) => {
+            let args: any = null;
+            let output: any = null;
+            try { args = JSON.parse(t.tool_args); } catch { /* ignore */ }
+            try { output = JSON.parse(t.tool_output); } catch { /* ignore */ }
+            return { ...t, args, output };
+          });
+        }
+      }
+
+      return c.json({
+        id,
+        input: report?.intentSummary || dbReport.task_id || 'Unknown task',
+        status: report?.success ? 'completed' : 'failed',
+        createdAt: dbReport.created_at,
+        completedAt: dbReport.created_at,
+        duration: report?.duration,
+        report,
+        traces: traces.length > 0 ? traces : null,
+        episode,
+      });
+    }
+
+    return c.json({ error: 'Task not found' }, 404);
+  });
+
+  // ─── Run Task API (enhanced with multi-run tracking) ──────────────
+
   app.post('/api/tasks/run', async (c) => {
-    if (isRunning) {
+    if (activeRunId) {
       return c.json({ error: 'A task is already running. Please wait.' }, 409);
     }
 
@@ -174,146 +325,125 @@ export function createServer(port: number = 3000) {
       return c.json({ error: 'input is required' }, 400);
     }
 
-    const config = await new ConfigLoader().load();
-    const providerChoice = config.llm?.provider || 'auto';
-    const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0
-      ? config.llm.fallbackOrder
-      : ['ollama', 'openai', 'anthropic'];
-
-    const createProvider = (name: string, strict: boolean) => {
-      if (name === 'mock') return new MockProvider();
-      if (name === 'ollama') {
-        return new OllamaProvider({ defaultModel: config.llm?.defaultModel || undefined });
-      }
-      if (name === 'openai') {
-        if (!process.env.OPENAI_API_KEY) {
-          if (strict) throw new Error('OPENAI_API_KEY is not set.');
-          return null;
-        }
-        return new OpenAIProvider({ defaultModel: config.llm?.defaultModel || undefined });
-      }
-      if (name === 'anthropic') {
-        if (!process.env.ANTHROPIC_API_KEY) {
-          if (strict) throw new Error('ANTHROPIC_API_KEY is not set.');
-          return null;
-        }
-        return new AnthropicProvider({ defaultModel: config.llm?.defaultModel || undefined });
-      }
-      if (strict) throw new Error(`Unknown provider ${name}.`);
-      return null;
-    };
-
     let llm: any;
     try {
-      if (providerChoice === 'auto') {
-        const providers = fallbackOrder.map((name) => createProvider(name, false)).filter(Boolean);
-        if (providers.length === 0) {
-          return c.json({ error: 'No available providers configured.' }, 500);
-        }
-        llm = providers.length === 1 ? providers[0] : new FallbackProvider(providers as any);
-      } else {
-        llm = createProvider(providerChoice, true);
-      }
+      llm = await createLLMFromConfig();
     } catch (error: any) {
       return c.json({ error: error.message || 'Failed to initialize provider.' }, 500);
     }
 
-    isRunning = true;
     const runId = `run-${Date.now()}`;
-    currentRun = { runId, status: 'running' };
+    const runState: RunState = {
+      runId,
+      input: inputText,
+      status: 'running',
+      startedAt: Date.now(),
+    };
+    runs.set(runId, runState);
+    activeRunId = runId;
 
     try {
       const agent = new Agent(llm);
-      currentAgent = agent;
+      runState.agent = agent;
 
-      // Wire up agent events for WebSocket broadcasting (P2-4)
+      // Wire up agent events for WebSocket broadcasting
       agent.on('task:start', (task) => {
-        if (currentRun) currentRun.taskId = task.id;
-        broadcastWs({ type: 'task:start', data: { taskId: task.id, description: task.description }, timestamp: Date.now() });
+        runState.taskId = task.id;
+        broadcastWs({ type: 'task:start', data: { runId, taskId: task.id, description: task.description }, timestamp: Date.now() });
       });
 
       agent.on('stream:text', (text: string) => {
-        broadcastWs({ type: 'stream:text', data: { text }, timestamp: Date.now() });
+        broadcastWs({ type: 'stream:text', data: { runId, text }, timestamp: Date.now() });
       });
 
       agent.on('stream:thinking', (thinking: string) => {
-        broadcastWs({ type: 'stream:thinking', data: { thinking }, timestamp: Date.now() });
+        broadcastWs({ type: 'stream:thinking', data: { runId, thinking }, timestamp: Date.now() });
       });
 
       agent.on('message', (msg) => {
-        broadcastWs({ type: 'message', data: msg, timestamp: Date.now() });
+        broadcastWs({ type: 'message', data: { runId, ...msg }, timestamp: Date.now() });
       });
 
       agent.on('tool:start', (data) => {
-        broadcastWs({ type: 'tool:start', data, timestamp: Date.now() });
+        broadcastWs({ type: 'tool:start', data: { runId, ...data }, timestamp: Date.now() });
       });
 
       agent.on('tool:complete', (data) => {
-        broadcastWs({ type: 'tool:complete', data, timestamp: Date.now() });
+        broadcastWs({ type: 'tool:complete', data: { runId, ...data }, timestamp: Date.now() });
       });
 
       agent.on('tool:error', (data) => {
-        broadcastWs({ type: 'tool:error', data, timestamp: Date.now() });
+        broadcastWs({ type: 'tool:error', data: { runId, ...data }, timestamp: Date.now() });
       });
 
       agent.on('retry', (data) => {
-        broadcastWs({ type: 'retry', data, timestamp: Date.now() });
+        broadcastWs({ type: 'retry', data: { runId, ...data }, timestamp: Date.now() });
       });
 
       agent.on('interaction_request', (req) => {
-        if (!currentRun) return;
-        currentRun.pendingPrompt = { id: req.id, prompt: req.prompt };
-        broadcastWs({ type: 'interaction_request', data: { id: req.id, prompt: req.prompt }, timestamp: Date.now() });
+        runState.pendingPrompt = { id: req.id, prompt: req.prompt };
+        broadcastWs({ type: 'interaction_request', data: { runId, id: req.id, prompt: req.prompt }, timestamp: Date.now() });
       });
 
       agent.run(inputText)
         .then((task) => {
-          if (!currentRun) return;
-          currentRun.taskId = task.id;
-          currentRun.status = task.status === 'completed' ? 'completed' : 'failed';
-          currentRun.result = task.result;
-          currentRun.pendingPrompt = undefined;
-          broadcastWs({ type: 'task:complete', data: { taskId: task.id, status: task.status, result: task.result }, timestamp: Date.now() });
+          runState.taskId = task.id;
+          runState.status = task.status === 'completed' ? 'completed' : 'failed';
+          runState.result = task.result;
+          runState.completedAt = Date.now();
+          runState.pendingPrompt = undefined;
+          broadcastWs({ type: 'task:complete', data: { runId, taskId: task.id, status: task.status, result: task.result }, timestamp: Date.now() });
         })
         .catch((error: any) => {
-          if (!currentRun) return;
-          currentRun.status = 'failed';
-          currentRun.error = error?.message || 'Task failed.';
-          currentRun.pendingPrompt = undefined;
-          broadcastWs({ type: 'task:error', data: { error: currentRun.error }, timestamp: Date.now() });
+          runState.status = 'failed';
+          runState.error = error?.message || 'Task failed.';
+          runState.completedAt = Date.now();
+          runState.pendingPrompt = undefined;
+          broadcastWs({ type: 'task:error', data: { runId, error: runState.error }, timestamp: Date.now() });
         })
         .finally(() => {
-          isRunning = false;
+          activeRunId = null;
+          // Clean up agent reference to free memory, keep run state for history
+          runState.agent = undefined;
         });
 
       return c.json({ runId });
     } catch (error: any) {
-      isRunning = false;
+      activeRunId = null;
+      runs.delete(runId);
       return c.json({ error: error.message || 'Task failed.' }, 500);
     }
   });
 
-  app.get('/api/tasks/:id', (c) => {
+  // ─── Run Status (legacy + enhanced) ───────────────────────────────
+
+  app.get('/api/tasks/:id/status', (c) => {
     const runId = c.req.param('id');
-    if (!currentRun || currentRun.runId !== runId) {
+    const run = runs.get(runId);
+    if (!run) {
       return c.json({ error: 'Task not found' }, 404);
     }
     return c.json({
-      runId: currentRun.runId,
-      status: currentRun.status,
-      taskId: currentRun.taskId,
-      result: currentRun.result,
-      error: currentRun.error,
-      pendingPrompt: currentRun.pendingPrompt
+      runId: run.runId,
+      input: run.input,
+      status: run.status,
+      taskId: run.taskId,
+      result: run.result,
+      error: run.error,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      duration: run.completedAt ? run.completedAt - run.startedAt : Date.now() - run.startedAt,
+      pendingPrompt: run.pendingPrompt,
     });
   });
 
   app.post('/api/tasks/:id/respond', async (c) => {
     const runId = c.req.param('id');
-    if (!currentRun || currentRun.runId !== runId) {
+    const run = runs.get(runId);
+    if (!run) {
       return c.json({ error: 'Task not found' }, 404);
     }
-    if (!currentRun.pendingPrompt) {
+    if (!run.pendingPrompt) {
       return c.json({ error: 'No pending prompt' }, 409);
     }
 
@@ -328,13 +458,13 @@ export function createServer(port: number = 3000) {
       return c.json({ error: 'response is required' }, 400);
     }
 
-    if (!currentAgent) {
+    if (!run.agent) {
       return c.json({ error: 'Agent not available' }, 500);
     }
 
-    const promptId = currentRun.pendingPrompt.id;
-    currentRun.pendingPrompt = undefined;
-    currentAgent.resolveInteraction(promptId, response);
+    const promptId = run.pendingPrompt.id;
+    run.pendingPrompt = undefined;
+    run.agent.resolveInteraction(promptId, response);
 
     return c.json({ ok: true });
   });
@@ -344,36 +474,9 @@ export function createServer(port: number = 3000) {
   const chatSessions: Map<string, { agent: Agent; createdAt: number }> = new Map();
 
   app.post('/api/chat/start', async (c) => {
-    const config = await new ConfigLoader().load();
-    const providerChoice = config.llm?.provider || 'auto';
-    const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0
-      ? config.llm.fallbackOrder
-      : ['ollama', 'openai', 'anthropic'];
-
-    const createProvider = (name: string, strict: boolean) => {
-      if (name === 'mock') return new MockProvider();
-      if (name === 'ollama') return new OllamaProvider({ defaultModel: config.llm?.defaultModel || undefined });
-      if (name === 'openai') {
-        if (!process.env.OPENAI_API_KEY) { if (strict) throw new Error('OPENAI_API_KEY not set.'); return null; }
-        return new OpenAIProvider({ defaultModel: config.llm?.defaultModel || undefined });
-      }
-      if (name === 'anthropic') {
-        if (!process.env.ANTHROPIC_API_KEY) { if (strict) throw new Error('ANTHROPIC_API_KEY not set.'); return null; }
-        return new AnthropicProvider({ defaultModel: config.llm?.defaultModel || undefined });
-      }
-      if (strict) throw new Error(`Unknown provider ${name}.`);
-      return null;
-    };
-
     let llm: any;
     try {
-      if (providerChoice === 'auto') {
-        const providers = fallbackOrder.map((name) => createProvider(name, false)).filter(Boolean);
-        if (providers.length === 0) return c.json({ error: 'No available providers.' }, 500);
-        llm = providers.length === 1 ? providers[0] : new FallbackProvider(providers as any);
-      } else {
-        llm = createProvider(providerChoice, true);
-      }
+      llm = await createLLMFromConfig();
     } catch (error: any) {
       return c.json({ error: error.message }, 500);
     }
@@ -557,7 +660,9 @@ export function createServer(port: number = 3000) {
 
   return {
     start: () => {
-      console.log(`Starting server on port ${port}...`);
+      if (!options?.silent) {
+        console.log(`Starting server on port ${port}...`);
+      }
       const server = serve({
         fetch: app.fetch,
         port

@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, AnthropicProvider, OpenAIProvider, OllamaProvider, MockProvider, FallbackProvider, ReplayManager, StrategyRegistry, StrategyReviewer, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
+import { Agent, ReplayManager, StrategyRegistry, StrategyReviewer, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +11,7 @@ import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import open from 'open';
 import { createServer } from './server/index.js';
+import { ensureServer, apiGet, apiPost, connectTaskStream } from './client.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -27,6 +28,15 @@ async function getVersion() {
   } catch (e) {
     return 'unknown';
   }
+}
+
+function formatDurationMs(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainSeconds = seconds % 60;
+  return `${minutes}m ${remainSeconds}s`;
 }
 
 function bumpPatchVersion(version: string): string {
@@ -53,307 +63,143 @@ async function main() {
     .argument('<task>', 'The task description')
     .option('-m, --model <model>', 'Override default model')
     .option('-p, --provider <provider>', 'LLM provider (anthropic|openai|ollama|mock|auto)')
+    .option('--port <number>', 'Server port', '3000')
     .action(async (taskDescription, options) => {
-      const config = await new ConfigLoader().load();
-      const providerChoice = options.provider || config.llm?.provider || 'auto';
-      const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0
-        ? config.llm.fallbackOrder
-        : ['ollama', 'openai', 'anthropic'];
-
       console.log(chalk.bold.blue('\nLydia is starting...\n'));
 
-      const spinner = ora('Initializing Agent...').start();
+      const spinner = ora('Connecting to server...').start();
 
       try {
-        let llm;
-        const createProvider = (name, strict) => {
-          if (name === 'mock') {
-            return new MockProvider();
-          }
-          if (name === 'ollama') {
-            return new OllamaProvider({
-              defaultModel: options.model || config.llm?.defaultModel || undefined
-            });
-          }
-          if (name === 'openai') {
-            if (!process.env.OPENAI_API_KEY) {
-              if (strict) {
-                console.error(chalk.red('Error: OPENAI_API_KEY is not set.'));
-                console.error('Please set it in your .env file or environment variables.');
-                process.exit(1);
-              }
-              console.warn(chalk.yellow('Skipping OpenAI: OPENAI_API_KEY is not set.'));
-              return null;
-            }
-            return new OpenAIProvider({
-              defaultModel: options.model || config.llm?.defaultModel || undefined
-            });
-          }
-          if (name === 'anthropic') {
-            if (!process.env.ANTHROPIC_API_KEY) {
-              if (strict) {
-                console.error(chalk.red('Error: ANTHROPIC_API_KEY is not set.'));
-                console.error('Please set it in your .env file or environment variables.');
-                process.exit(1);
-              }
-              console.warn(chalk.yellow('Skipping Anthropic: ANTHROPIC_API_KEY is not set.'));
-              return null;
-            }
-            return new AnthropicProvider({
-              defaultModel: options.model || config.llm?.defaultModel || undefined
-            });
-          }
-          if (strict) {
-            console.error(chalk.red(`Error: Unknown provider ${name}.`));
-            process.exit(1);
-          }
-          console.warn(chalk.yellow(`Skipping unknown provider: ${name}.`));
-          return null;
-        };
+        // 1. Ensure server is running (auto-start if needed)
+        const port = await ensureServer(parseInt(options.port, 10));
+        spinner.succeed(chalk.green('Server connected'));
 
-        if (providerChoice === 'auto') {
-          const providers = fallbackOrder.map((name) => createProvider(name, false)).filter(Boolean);
-          if (providers.length === 0) {
-            console.error(chalk.red('No available providers from fallbackOrder.'));
-            process.exit(1);
-          }
-          llm = providers.length === 1 ? providers[0] : new FallbackProvider(providers);
-        } else {
-          const provider = createProvider(providerChoice, true);
-          if (!provider) {
-            process.exit(1);
-          }
-          llm = provider;
-        }
+        // 2. Submit task to server
+        spinner.start('Submitting task...');
+        const { runId } = await apiPost<{ runId: string }>('/api/tasks/run', { input: taskDescription }, port);
+        spinner.succeed(chalk.green(`Task submitted (${runId})`));
+        console.log(chalk.bold(`\nTask: ${taskDescription}\n`));
+        spinner.start('Thinking...');
 
-        const agent = new Agent(llm);
-
-        // --- Event Listeners for Agentic Loop UI ---
-
-        agent.on('task:start', (task) => {
-          spinner.succeed(chalk.green('Agent initialized'));
-          console.log(chalk.bold(`\nTask: ${task.description}\n`));
-          spinner.start('Thinking...');
-        });
-
-        // Optional: intent analysis (only if enabled in config)
-        agent.on('intent', (intent) => {
-          spinner.succeed(chalk.blue('Intent Analyzed'));
-          console.log(chalk.gray(`   Category: ${intent.category}`));
-          console.log(chalk.gray(`   Summary:  ${intent.summary}`));
-          spinner.start('Thinking...');
-        });
-
-        // Streaming text output (P1-2)
+        // 3. Stream results via WebSocket
         let isStreaming = false;
-        agent.on('stream:text', (text: string) => {
-          if (!isStreaming) {
-            spinner.stop();
-            isStreaming = true;
-          }
-          process.stdout.write(chalk.white(text));
+
+        await new Promise<void>((resolve, reject) => {
+          connectTaskStream(runId, {
+            onText(text) {
+              if (!isStreaming) {
+                spinner.stop();
+                isStreaming = true;
+              }
+              process.stdout.write(chalk.white(text));
+            },
+            onThinking() {
+              if (!isStreaming) {
+                spinner.stop();
+                isStreaming = true;
+              }
+              spinner.text = chalk.dim('Thinking...');
+            },
+            onToolStart(name) {
+              if (isStreaming) {
+                process.stdout.write('\n');
+                isStreaming = false;
+              }
+              spinner.start(`Using tool: ${name}`);
+            },
+            onToolComplete(name, duration, result) {
+              spinner.stopAndPersist({
+                symbol: chalk.green('*'),
+                text: `${chalk.green(name)} ${chalk.dim(`(${duration}ms)`)}`
+              });
+              if (result) {
+                const resultLines = String(result).split('\n');
+                const preview = resultLines.slice(0, 5).join('\n');
+                console.log(chalk.dim(preview.replace(/^/gm, '      ')));
+                if (resultLines.length > 5) {
+                  console.log(chalk.dim(`      ... (${resultLines.length - 5} more lines)`));
+                }
+              }
+              spinner.start('Thinking...');
+            },
+            onToolError(name, error) {
+              spinner.stopAndPersist({
+                symbol: chalk.red('x'),
+                text: `${chalk.red(name)}: ${error}`
+              });
+              spinner.start('Thinking...');
+            },
+            onRetry(attempt, maxRetries, delay, error) {
+              spinner.text = chalk.yellow(`Retry ${attempt}/${maxRetries} after ${delay}ms: ${error}`);
+            },
+            async onInteraction(_id, prompt) {
+              if (isStreaming) {
+                process.stdout.write('\n');
+                isStreaming = false;
+              }
+              spinner.stopAndPersist({ symbol: '!', text: 'User Input Required' });
+
+              const rl = readline.createInterface({ input, output });
+              console.log(chalk.yellow(`\nAgent asks: ${prompt}`));
+              const answer = await rl.question(chalk.bold('> '));
+              rl.close();
+
+              spinner.start('Resuming...');
+              return answer;
+            },
+            onComplete(_taskId, _result) {
+              if (isStreaming) {
+                process.stdout.write('\n');
+                isStreaming = false;
+              }
+              spinner.succeed(chalk.bold.green('Task Completed.'));
+              resolve();
+            },
+            onError(error) {
+              if (isStreaming) {
+                process.stdout.write('\n');
+                isStreaming = false;
+              }
+              spinner.fail(chalk.red('Task Failed'));
+              console.error(chalk.red(`\nError details: ${error}`));
+              resolve(); // resolve, not reject — error is expected
+            },
+            onMessage(type, _data) {
+              if (type === 'message' && _data?.text) {
+                spinner.stop();
+                console.log(chalk.white(_data.text));
+                spinner.start('Thinking...');
+              }
+            },
+          }, port).catch(reject);
         });
-
-        // Streaming thinking output (P1-2)
-        agent.on('stream:thinking', (_thinking: string) => {
-          if (!isStreaming) {
-            spinner.stop();
-            isStreaming = true;
-          }
-          spinner.text = chalk.dim('Thinking...');
-        });
-
-        // Non-streaming LLM text output (fallback)
-        agent.on('message', ({ text }) => {
-          spinner.stop();
-          console.log(chalk.white(text));
-          spinner.start('Thinking...');
-        });
-
-        // Non-streaming LLM thinking
-        agent.on('thinking', () => {
-          spinner.text = chalk.dim('Thinking...');
-        });
-
-        // Tool execution events
-        agent.on('tool:start', ({ name }) => {
-          if (isStreaming) {
-            process.stdout.write('\n');
-            isStreaming = false;
-          }
-          spinner.start(`Using tool: ${name}`);
-        });
-
-        agent.on('tool:complete', ({ name, result, duration }) => {
-          spinner.stopAndPersist({
-            symbol: chalk.green('*'),
-            text: `${chalk.green(name)} ${chalk.dim(`(${duration}ms)`)}`
-          });
-
-          if (result) {
-            const resultLines = String(result).split('\n');
-            const preview = resultLines.slice(0, 5).join('\n');
-            console.log(chalk.dim(preview.replace(/^/gm, '      ')));
-            if (resultLines.length > 5) {
-              console.log(chalk.dim(`      ... (${resultLines.length - 5} more lines)`));
-            }
-          }
-          spinner.start('Thinking...');
-        });
-
-        agent.on('tool:error', ({ name, error }) => {
-          spinner.stopAndPersist({
-            symbol: chalk.red('x'),
-            text: `${chalk.red(name)}: ${error}`
-          });
-          spinner.start('Thinking...');
-        });
-
-        // Retry events (P2-5)
-        agent.on('retry', ({ attempt, maxRetries, delay, error }) => {
-          spinner.text = chalk.yellow(`Retry ${attempt}/${maxRetries} after ${delay}ms: ${error}`);
-        });
-
-        // --- Interaction Handler ---
-        agent.on('interaction_request', async (request) => {
-          if (isStreaming) {
-            process.stdout.write('\n');
-            isStreaming = false;
-          }
-          spinner.stopAndPersist({ symbol: '!', text: 'User Input Required' });
-
-          const rl = readline.createInterface({ input, output });
-          console.log(chalk.yellow(`\nAgent asks: ${request.prompt}`));
-          const answer = await rl.question(chalk.bold('> '));
-          rl.close();
-
-          agent.resolveInteraction(request.id, answer);
-          spinner.start('Resuming...');
-        });
-
-        agent.on('task:complete', () => {
-          if (isStreaming) {
-            process.stdout.write('\n');
-            isStreaming = false;
-          }
-          spinner.succeed(chalk.bold.green('Task Completed.'));
-        });
-
-        agent.on('task:error', (error) => {
-          if (isStreaming) {
-            process.stdout.write('\n');
-            isStreaming = false;
-          }
-          spinner.fail(chalk.red('Task Failed'));
-          console.error(chalk.red(`\nError details: ${error.message}`));
-        });
-
-        // --- Execute ---
-        await agent.run(taskDescription);
 
       } catch (error: any) {
         spinner.fail(chalk.red('Fatal Error'));
-        console.error(error);
+        console.error(chalk.red(error.message || error));
         process.exit(1);
       }
     });
 
-  // ─── Chat Command (P1-1: Multi-turn Conversation) ──────────────────
+  // ─── Chat Command (via Server API) ─────────────────────────────────
 
   program
     .command('chat')
     .description('Start an interactive chat session with Lydia')
-    .option('-m, --model <model>', 'Override default model')
-    .option('-p, --provider <provider>', 'LLM provider (anthropic|openai|ollama|mock|auto)')
+    .option('--port <number>', 'Server port', '3000')
     .action(async (options) => {
-      const config = await new ConfigLoader().load();
-      const providerChoice = options.provider || config.llm?.provider || 'auto';
-      const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0
-        ? config.llm.fallbackOrder
-        : ['ollama', 'openai', 'anthropic'];
-
       console.log(chalk.bold.blue('\nLydia Chat Mode\n'));
-      console.log(chalk.dim('Commands: /exit, /reset, /help'));
-      console.log(chalk.dim('─'.repeat(40) + '\n'));
+      console.log(chalk.dim('Commands: /exit, /reset, /tasks, /task <id>, /help'));
+      console.log(chalk.dim('\u2500'.repeat(40) + '\n'));
 
       try {
-        let llm;
-        const createProvider = (name: string, strict: boolean) => {
-          if (name === 'mock') return new MockProvider();
-          if (name === 'ollama') {
-            return new OllamaProvider({ defaultModel: options.model || config.llm?.defaultModel || undefined });
-          }
-          if (name === 'openai') {
-            if (!process.env.OPENAI_API_KEY) {
-              if (strict) { console.error(chalk.red('Error: OPENAI_API_KEY is not set.')); process.exit(1); }
-              return null;
-            }
-            return new OpenAIProvider({ defaultModel: options.model || config.llm?.defaultModel || undefined });
-          }
-          if (name === 'anthropic') {
-            if (!process.env.ANTHROPIC_API_KEY) {
-              if (strict) { console.error(chalk.red('Error: ANTHROPIC_API_KEY is not set.')); process.exit(1); }
-              return null;
-            }
-            return new AnthropicProvider({ defaultModel: options.model || config.llm?.defaultModel || undefined });
-          }
-          if (strict) { console.error(chalk.red(`Error: Unknown provider ${name}.`)); process.exit(1); }
-          return null;
-        };
+        // 1. Ensure server is running
+        const port = await ensureServer(parseInt(options.port, 10));
 
-        if (providerChoice === 'auto') {
-          const providers = fallbackOrder.map((name) => createProvider(name, false)).filter(Boolean);
-          if (providers.length === 0) { console.error(chalk.red('No available providers.')); process.exit(1); }
-          llm = providers.length === 1 ? providers[0] : new FallbackProvider(providers as any);
-        } else {
-          const provider = createProvider(providerChoice, true);
-          if (!provider) process.exit(1);
-          llm = provider;
-        }
+        // 2. Start a chat session via server API
+        let sessionId = (await apiPost<{ sessionId: string }>('/api/chat/start', {}, port)).sessionId;
 
-        const agent = new Agent(llm!);
-        let isStreaming = false;
-
-        // Streaming events
-        agent.on('stream:text', (text: string) => {
-          isStreaming = true;
-          process.stdout.write(chalk.white(text));
-        });
-
-        agent.on('stream:thinking', () => {
-          // Dim indicator during thinking
-        });
-
-        // Non-streaming fallback
-        agent.on('message', ({ text }) => {
-          console.log(chalk.white(text));
-        });
-
-        // Tool events
-        agent.on('tool:start', ({ name }) => {
-          if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
-          console.log(chalk.dim(`  [tool] ${name}...`));
-        });
-
-        agent.on('tool:complete', ({ name, duration }) => {
-          console.log(chalk.dim(`  [tool] ${chalk.green(name)} (${duration}ms)`));
-        });
-
-        agent.on('tool:error', ({ name, error }) => {
-          console.log(chalk.dim(`  [tool] ${chalk.red(name)}: ${error}`));
-        });
-
-        // Interaction handler
-        agent.on('interaction_request', async (request) => {
-          if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
-          const rl2 = readline.createInterface({ input, output });
-          console.log(chalk.yellow(`\nAgent asks: ${request.prompt}`));
-          const answer = await rl2.question(chalk.bold('> '));
-          rl2.close();
-          agent.resolveInteraction(request.id, answer);
-        });
-
-        // REPL loop
+        // 3. REPL loop
         const rl = readline.createInterface({ input, output });
 
         while (true) {
@@ -363,30 +209,81 @@ async function main() {
           if (!trimmed) continue;
 
           if (trimmed === '/exit' || trimmed === '/quit') {
+            // Clean up server session
+            await apiPost(`/api/chat/${sessionId}`, undefined, port).catch(() => {});
             console.log(chalk.dim('\nGoodbye!'));
             rl.close();
             break;
           }
 
           if (trimmed === '/reset') {
-            agent.resetSession();
+            // Delete old session, start new one
+            await fetch(`http://localhost:${port}/api/chat/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+            sessionId = (await apiPost<{ sessionId: string }>('/api/chat/start', {}, port)).sessionId;
             console.log(chalk.dim('Session reset.\n'));
             continue;
           }
 
           if (trimmed === '/help') {
-            console.log(chalk.dim('  /exit   - End the chat session'));
-            console.log(chalk.dim('  /reset  - Clear conversation history'));
-            console.log(chalk.dim('  /help   - Show this help message\n'));
+            console.log(chalk.dim('  /exit      - End the chat session'));
+            console.log(chalk.dim('  /reset     - Clear conversation history'));
+            console.log(chalk.dim('  /tasks     - List recent task history'));
+            console.log(chalk.dim('  /task <id> - Show task detail'));
+            console.log(chalk.dim('  /help      - Show this help message\n'));
             continue;
           }
 
-          isStreaming = false;
+          if (trimmed === '/tasks') {
+            try {
+              const result = await apiGet<{ items: any[] }>('/api/tasks?limit=10', port);
+              if (!result.items?.length) {
+                console.log(chalk.dim('No tasks found.\n'));
+              } else {
+                console.log(chalk.bold('\nRecent Tasks:'));
+                for (const item of result.items) {
+                  const icon = item.status === 'completed' ? chalk.green('\u2713')
+                    : item.status === 'running' ? chalk.blue('\u25CB')
+                      : chalk.red('\u2717');
+                  const date = new Date(item.createdAt).toLocaleString();
+                  console.log(`  ${icon} ${item.input?.substring(0, 60) || 'Unknown'} ${chalk.dim(`\u00B7 ${date} \u00B7 ${item.id}`)}`);
+                }
+                console.log('');
+              }
+            } catch (err: any) {
+              console.log(chalk.red(`Failed to fetch tasks: ${err.message}\n`));
+            }
+            continue;
+          }
+
+          if (trimmed.startsWith('/task ')) {
+            const taskId = trimmed.slice('/task '.length).trim();
+            try {
+              const detail = await apiGet<any>(`/api/tasks/${encodeURIComponent(taskId)}/detail`, port);
+              const statusText = detail.status === 'completed' ? chalk.green('SUCCESS')
+                : detail.status === 'running' ? chalk.blue('RUNNING')
+                  : chalk.red('FAILED');
+              console.log(chalk.bold(`\n${detail.report?.intentSummary || detail.input || 'Task'}`));
+              console.log(`  Status: ${statusText} \u00B7 ${new Date(detail.createdAt).toLocaleString()}`);
+              if (detail.report?.summary) console.log(`  ${detail.report.summary}`);
+              if (detail.report?.outputs?.length) {
+                for (const out of detail.report.outputs) console.log(`  \u2192 ${out}`);
+              }
+              console.log('');
+            } catch (err: any) {
+              console.log(chalk.red(`Failed to fetch task: ${err.message}\n`));
+            }
+            continue;
+          }
+
+          // Send message to chat session
           try {
-            await agent.chat(trimmed);
-            if (isStreaming) {
-              process.stdout.write('\n');
-              isStreaming = false;
+            const { response } = await apiPost<{ response: string }>(
+              `/api/chat/${sessionId}/message`,
+              { message: trimmed },
+              port,
+            );
+            if (response) {
+              console.log(chalk.white(response));
             }
             console.log(''); // blank line after response
           } catch (error: any) {
@@ -899,6 +796,125 @@ async function main() {
       const outPath = path.resolve(file);
       fs.writeFileSync(outPath, proposal.evaluation_json, 'utf-8');
       console.log(chalk.green(`Report saved: ${outPath}`));
+    });
+
+  // ─── Tasks Command Group (via Server API) ────────────────────────
+
+  const tasksCmd = program
+    .command('tasks')
+    .description('View and manage task history');
+
+  tasksCmd
+    .command('list')
+    .description('List recent tasks')
+    .option('-n, --limit <limit>', 'Max number of tasks', '20')
+    .option('--status <status>', 'Filter by status (running|completed|failed)')
+    .option('-s, --search <query>', 'Search tasks by keyword')
+    .option('--port <number>', 'Server port', '3000')
+    .action(async (options) => {
+      try {
+        const port = await ensureServer(parseInt(options.port, 10));
+        const limit = Number(options.limit) || 20;
+        const params = new URLSearchParams({ limit: String(limit) });
+        if (options.status) params.set('status', options.status);
+        if (options.search) params.set('search', options.search);
+
+        const result = await apiGet<{ items: any[]; total: number; activeRunId: string | null }>(
+          `/api/tasks?${params}`, port
+        );
+
+        if (!result.items?.length) {
+          console.log(chalk.yellow('No tasks found.'));
+          return;
+        }
+
+        console.log(chalk.bold(`\nRecent Tasks (${result.items.length} of ${result.total}):\n`));
+
+        for (const item of result.items) {
+          const statusIcon = item.status === 'completed' ? chalk.green('\u2713')
+            : item.status === 'running' ? chalk.blue('\u25CB')
+              : chalk.red('\u2717');
+          const statusText = item.status === 'completed' ? chalk.green('completed')
+            : item.status === 'running' ? chalk.blue('running')
+              : chalk.red('failed');
+          const title = item.input?.substring(0, 80) || item.summary || 'Unknown task';
+          const date = new Date(item.createdAt).toLocaleString();
+          const duration = item.duration ? ` (${formatDurationMs(item.duration)})` : '';
+
+          console.log(`  ${statusIcon} ${chalk.bold(title)}`);
+          console.log(`    ${statusText}${duration} \u00B7 ${chalk.dim(date)} \u00B7 ID: ${chalk.dim(item.id)}`);
+          if (item.summary && item.summary !== item.input) {
+            console.log(`    ${chalk.dim(item.summary.substring(0, 100))}`);
+          }
+          console.log('');
+        }
+      } catch (error: any) {
+        console.error(chalk.red('Failed to list tasks:'), error.message);
+      }
+    });
+
+  tasksCmd
+    .command('show')
+    .description('Show detailed information about a task')
+    .argument('<id>', 'Task ID (e.g., report-5 or run-...)')
+    .option('--port <number>', 'Server port', '3000')
+    .action(async (id, options) => {
+      try {
+        const port = await ensureServer(parseInt(options.port, 10));
+        const detail = await apiGet<any>(`/api/tasks/${encodeURIComponent(id)}/detail`, port);
+
+        const statusText = detail.status === 'completed' ? chalk.green('SUCCESS')
+          : detail.status === 'running' ? chalk.blue('RUNNING')
+            : chalk.red('FAILED');
+        const title = detail.report?.intentSummary || detail.input || 'Unknown task';
+        const date = new Date(detail.createdAt).toLocaleString();
+        const duration = detail.duration ? formatDurationMs(detail.duration) : 'N/A';
+
+        console.log(chalk.bold(`\nTask: ${title}\n`));
+        console.log(`  Status:   ${statusText}`);
+        console.log(`  Date:     ${date}`);
+        console.log(`  Duration: ${duration}`);
+        console.log(`  ID:       ${id}`);
+
+        if (detail.report?.summary) {
+          console.log(`\n  ${chalk.bold('Summary:')}`);
+          console.log(`  ${detail.report.summary}`);
+        }
+
+        if (detail.report?.outputs?.length) {
+          console.log(`\n  ${chalk.bold('Outputs:')}`);
+          for (const out of detail.report.outputs) {
+            console.log(`  \u2192 ${out}`);
+          }
+        }
+
+        if (detail.report?.steps?.length) {
+          console.log(`\n  ${chalk.bold('Steps:')}`);
+          for (const step of detail.report.steps) {
+            const stepIcon = step.status === 'completed' ? chalk.green('\u2713') : chalk.red('\u2717');
+            console.log(`  ${stepIcon} ${step.stepId} (${step.status})`);
+          }
+        }
+
+        if (detail.report?.followUps?.length) {
+          console.log(`\n  ${chalk.bold('Follow-ups:')}`);
+          for (const item of detail.report.followUps) {
+            console.log(`  \u2022 ${item}`);
+          }
+        }
+
+        if (detail.traces?.length) {
+          console.log(`\n  ${chalk.bold(`Tool Traces (${detail.traces.length} steps):`)}`);
+          for (const trace of detail.traces) {
+            const traceIcon = trace.status === 'success' ? chalk.green('\u2713') : chalk.red('\u2717');
+            console.log(`  ${traceIcon} ${trace.tool_name} ${chalk.dim(`(${trace.duration}ms)`)}`);
+          }
+        }
+
+        console.log('');
+      } catch (error: any) {
+        console.error(chalk.red('Failed to show task:'), error.message);
+      }
     });
 
   // ─── Skills Command Group ─────────────────────────────────────────
