@@ -105,16 +105,36 @@ Phased delivery plan
 
 ## Current Priorities
 
-**Phase 1 (This Month)**: Basic Documentation
+**Completed**: Core Agent Capabilities
 - [x] Product Vision
 - [x] Architecture Overview (General + Strategy)
 - [x] Technical Roadmap (Weekly detail)
-- [ ] Setup task tracking
+- [x] Agentic Loop — LLM-driven iterative execution
+- [x] Streaming Output — Real-time text display
+- [x] Multi-turn Chat — Interactive conversation sessions
+- [x] Error Recovery — Exponential backoff retry
+- [x] Tool Namespace — Collision detection and auto-prefix
+- [x] Skill Enhancement — TF-IDF matching, DynamicSkill tool routing
+- [x] Dashboard WebSocket — Real-time event push
+- [x] Test Coverage — Agent, Skills, MCP, Streaming
 
-**Phase 2 (Next Month)**: Core Feature Development
-- Implement the strategy system according to design docs
-- Continuously update API docs
+**Completed**: Skill System Overhaul (v0.3.0)
+- [x] Two-phase progressive loading (metadata-first, lazy content)
+- [x] Progressive disclosure in prompt (catalog + active details)
+- [x] Hot-reload via fs.watch — skills update without restart
+- [x] Community skill compatibility — passthrough schema
+- [x] Tags matching in TF-IDF (weight 2.5)
+- [x] topK limit for match() — controls prompt token usage
+- [x] allowedTools runtime enforcement
+- [x] CLI: `lydia skills list/info/install/remove`
+- [x] Config: `skills.matchTopK`, `skills.hotReload`, `skills.extraDirs`
+
+**Next**: Production Hardening
+- [ ] API Authentication
+- [ ] A/B Testing Framework for strategies
+- [ ] Reflection Mechanism (post-execution summary)
+- [ ] Advanced semantic skill matching (embeddings)
 
 ---
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-10

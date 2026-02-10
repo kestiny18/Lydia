@@ -68,12 +68,12 @@ Successfully running this complete flow constitutes MVP success.
 
 ```
 lydia/
-‚îú‚îÄ‚îÄ packages/
-‚î?  ‚îú‚îÄ‚îÄ core/           # Strategy Engine + LLM + MCP Client
-‚î?  ‚îú‚îÄ‚îÄ cli/            # Command Line Client
-‚î?  ‚îî‚îÄ‚îÄ shared/         # Shared Types
-‚îú‚îÄ‚îÄ docs/               # Documentation
-‚îî‚îÄ‚îÄ README.md           # Quick Start Guide
+??? packages/
+??  ??? core/           # Strategy Engine + LLM + MCP Client
+??  ??? cli/            # Command Line Client
+??  ??? shared/         # Shared Types
+??? docs/               # Documentation
+??? README.md           # Quick Start Guide
 ```
 
 ## Gap Analysis (Vision vs. Reality)
@@ -84,13 +84,14 @@ lydia/
 - Replay exists but is manual; no automated scenario testing for proposals.
 
 ### Pillar B: Evolutionary Intelligence (Learning)
-- Skill loader exists; automated skill generation is missing.
+- Skill system overhauled: progressive loading, hot-reload, community compatibility, CLI management.
+- Automated skill generation is still missing.
 - Proposal table exists; delta generation and branching are missing.
 - Memory is log-heavy; insight/summarization layer is weak.
 
 ### Pillar C: Capable Hands (Tools & MCP)
 - Core MCP tools exist; ecosystem-specific MCPs are missing.
-- Extensibility is good but installation UX is still basic.
+- Skill installation UX improved: `lydia skills install` supports GitHub and local paths.
 
 ### Pillar D: Usability (Deployment & UX)
 - CLI works; dashboard is basic.
@@ -115,39 +116,40 @@ Goal: Lydia must know "How did I do?".
 
 ### Phase 3: The Gatekeeper (Week 3)
 Goal: Safe evolution.
-- Implement 4-layer gate (syntax °˙ tests °˙ safety °˙ human).
+- Implement 4-layer gate (syntax ?? tests ?? safety ?? human).
 - Build CLI/Dashboard review UI for proposals.
 ---
 
 ## Phase 2: Core Refinement (Week 3-4)
 
 ### Strategy Engine Enhancement
-- [ ] Strategy Version Management (Save/Load Strategy Snapshots)
-- [ ] Strategy Branching Mechanism (Create/Switch Branches)
+- [x] Strategy Version Management (Save/Load Strategy Snapshots)
+- [x] Strategy Branching Mechanism (Create/Switch Branches)
 - [ ] Reflection Mechanism (Post-execution Summary)
-- [ ] Error Recovery (Retry/Alternative Solutions)
+- [x] Error Recovery (Retry with exponential backoff)
 
 ### Tool Ecosystem
-- [ ] File System MCP Server
-- [ ] Git Operation MCP Server
-- [ ] Support Loading External MCP Servers
+- [x] File System MCP Server
+- [x] Git Operation MCP Server
+- [x] Support Loading External MCP Servers
+- [x] Tool namespace collision handling (auto-prefix)
 
 ### Observability
-- [ ] Execution Log System
-- [ ] Decision Process Visualization (CLI Output)
+- [x] Execution Log System (traces + episodes)
+- [x] Decision Process Visualization (CLI streaming output)
 
 ---
 
 ## Phase 3: Memory & Learning (Week 5-6)
 
 ### Memory System
-- [ ] Short-term Memory (Session Context)
-- [ ] Long-term Memory (Cross-session Persistence)
-- [ ] Memory Retrieval (Context Recall)
+- [x] Short-term Memory (Session Context via multi-turn chat)
+- [x] Long-term Memory (Cross-session Persistence via SQLite)
+- [x] Memory Retrieval (Context Recall)
 
 ### Replay Validation
-- [ ] Task Execution History
-- [ ] Strategy Replay Evaluation
+- [x] Task Execution History
+- [x] Strategy Replay Evaluation
 - [ ] A/B Testing Framework
 
 ---
@@ -155,14 +157,34 @@ Goal: Safe evolution.
 ## Phase 4: Multi-Platform Support (Week 7-8)
 
 ### Web API
-- [ ] RESTful API Design (production)
-- [ ] WebSocket Real-time Communication
+- [x] RESTful API Design (Dashboard server)
+- [x] WebSocket Real-time Communication
 - [ ] API Authentication Mechanism
 
 ### Multi-Model Support
-- [ ] OpenAI GPT-4/4o
-- [ ] Anthropic Claude (Enhanced)
-- [ ] Local Models (Ollama)
+- [x] OpenAI GPT-4/4o
+- [x] Anthropic Claude (Enhanced, with streaming)
+- [x] Local Models (Ollama, with streaming)
+
+### Agent Capabilities (Completed in P0-P2)
+- [x] LLM-driven Agentic Loop (replaces plan+execute)
+- [x] Streaming output (all providers)
+- [x] Multi-turn conversation (chat command + API)
+- [x] DynamicSkill tool registration
+- [x] TF-IDF skill matching
+- [x] Unified ToolDefinition type
+
+### Skill System Overhaul (Completed)
+- [x] Two-phase progressive loading (metadata-first, lazy content)
+- [x] SkillMeta / StaticSkill type split with passthrough schema
+- [x] Tags field support in TF-IDF matching (weight 2.5)
+- [x] topK parameter for match() to limit prompt injection
+- [x] Progressive disclosure in system prompt (catalog + active details)
+- [x] Hot-reload via fs.watch with debounce
+- [x] allowedTools runtime enforcement
+- [x] CLI: `lydia skills list/info/install/remove`
+- [x] Config: `skills.matchTopK`, `skills.hotReload`, `skills.extraDirs`
+- [x] Community skill compatibility (.passthrough() schema)
 
 ---
 
@@ -183,8 +205,8 @@ Goal: Safe evolution.
 Implement the simplest version of each feature first, run through the complete flow, then iteratively improve.
 
 ```
-‚ù?Wrong: Spend 1 week perfecting LLM layer, then 1 week perfecting Strategy Engine...
-‚ú?Right: By Week 1, lydia run "hello" works, then iterate and optimize.
+??Wrong: Spend 1 week perfecting LLM layer, then 1 week perfecting Strategy Engine...
+??Right: By Week 1, lydia run "hello" works, then iterate and optimize.
 ```
 
 ### Documentation Driven
@@ -198,7 +220,7 @@ Implement the simplest version of each feature first, run through the complete f
 
 ---
 
-**Last Updated**: 2026-02-08
+**Last Updated**: 2026-02-10
 
 
 ## Immediate Focus: Task Execution Chain

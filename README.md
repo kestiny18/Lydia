@@ -78,22 +78,61 @@ Run your first task:
 pnpm tsx packages/cli/src/index.ts run "check git status"
 ```
 
-Launch the dashboard:
+Start an interactive chat session:
+```bash
+pnpm tsx packages/cli/src/index.ts chat
+```
+
+Launch the dashboard (with real-time WebSocket):
 ```bash
 pnpm tsx packages/cli/src/index.ts dashboard
+```
+
+Manage skills:
+```bash
+# List all loaded skills
+pnpm tsx packages/cli/src/index.ts skills list
+
+# Install a community skill from GitHub
+pnpm tsx packages/cli/src/index.ts skills install github:user/repo/path/to/skill.md
+
+# Show skill details
+pnpm tsx packages/cli/src/index.ts skills info git-commit
+
+# Remove an installed skill
+pnpm tsx packages/cli/src/index.ts skills remove my-skill
 ```
 
 ---
 
 ## How Lydia Works
 
-At runtime, Lydia follows a task execution chain:
+At runtime, Lydia uses an **LLM-driven agentic loop**:
 
-- Understand intent and constraints.
-- Produce a plan with dependencies, risk tags, and verification.
-- Execute steps with tool access and confirmation gates.
-- Aggregate results into a task report.
-- Collect feedback for iterative improvement.
+1. **Understand** — Analyze user intent and retrieve relevant skills/memories.
+2. **Think** — LLM reasons about the task, decides what to do next.
+3. **Act** — If a tool is needed, execute it via MCP and feed the result back.
+4. **Repeat** — The LLM continues until the task is complete (`end_turn`).
+5. **Report** — Aggregate results, collect feedback for future improvement.
+
+This loop supports **streaming output** for real-time text display, **multi-turn conversations** for interactive sessions, and **automatic retry with exponential backoff** for resilience.
+
+---
+
+## Key Capabilities
+
+| Capability | Description |
+|------------|-------------|
+| **Agentic Loop** | LLM-driven iterative execution: think → tool_use → observe → repeat |
+| **Streaming Output** | Real-time text and thinking display via `generateStream` |
+| **Multi-turn Chat** | `lydia chat` — interactive REPL with persistent conversation context |
+| **Multi-provider LLM** | Anthropic, OpenAI, Ollama with auto-fallback |
+| **MCP Tools** | Shell, FileSystem, Git, Memory, and external MCP servers |
+| **Skill System** | Progressive disclosure, hot-reload, community-compatible skills with TF-IDF matching |
+| **Skill CLI** | `lydia skills list/info/install/remove` — manage and install skills from GitHub |
+| **Controlled Evolution** | Strategy versioning, proposals, replay evaluation, human review |
+| **Dashboard** | Web UI with WebSocket real-time event streaming |
+| **Error Recovery** | Exponential backoff retry for LLM calls, tool errors fed back to LLM |
 
 ---
 
@@ -116,17 +155,23 @@ Approved or rejected
 
 ```text
 +-----------------------------------------+
-|           Intent Analyzer               |  <- Understands your goal
+|           Agentic Loop (Agent)          |  <- LLM-driven iterative execution
 +-----------------+-----------------------+
                   |
-+-----------------------------------------+
-|           Strategic Planner             |  <- Generates a safe plan
-|   (loads your skills and constraints)   |
-+-----------------+-----------------------+
-                  |
-+-----------------------------------------+
-|           Execution Engine              |  <- Do the work
-|   (Shell, FileSystem, Git, Custom...)   |
+        +---------+---------+
+        |                   |
++-------v-------+   +------v--------+
+| LLM Providers |   | MCP Tool Mgr  |  <- Streaming + Function Calling
+| (Stream/Gen)  |   | + Skill Tools |
++-------+-------+   +------+--------+
+        |                   |
++-------v-------------------v---------+
+|     Memory / Strategy / Skills      |  <- Context and knowledge
++-----------+-------------------------+
+            |
++-----------v-------------------------+
+|   CLI / Dashboard / Server API      |  <- User interfaces
+|   (Chat REPL, WebSocket, REST)      |
 +-----------------------------------------+
 ```
 

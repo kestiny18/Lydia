@@ -155,54 +155,69 @@ Current branch status:
 
 ## Implementation Plan
 
-### Phase 1: Basic Framework (Week 1-2)
+### Phase 1: Basic Framework -- COMPLETED
 
 ```
 packages/core/src/skills/
-├── types.ts          # Skill type definitions
-├── parser.ts         # SKILL.md parser
-├── loader.ts         # Filesystem scan & load
-├── registry.ts       # Skill registry
+├── types.ts          # SkillMeta / StaticSkill / DynamicSkill types + type guards
+├── parser.ts         # SKILL.md parser (parse + parseMeta)
+├── loader.ts         # Two-phase loader (metadata-first + lazy content)
+├── registry.ts       # Skill registry with TF-IDF matching + topK + tags
+├── watcher.ts        # File system watcher for hot-reload
+├── self-evolution.ts  # DynamicSkill: strategy self-evolution
 └── index.ts          # Export
 ```
 
-Core Interface:
+Core Interface (as implemented):
 
 ```typescript
-interface Skill {
+// Lightweight metadata (Phase 1 — always in memory)
+interface SkillMeta {
   name: string;
   description: string;
-  content: string;
+  version?: string;
+  author?: string;
+  tags?: string[];
   allowedTools?: string[];
   context?: 'main' | 'fork';
-  path: string;
+  path?: string;
+  [key: string]: unknown; // passthrough for community fields
+}
+
+// Full skill with content (Phase 2 — loaded on demand)
+interface StaticSkill extends SkillMeta {
+  content: string;
 }
 
 interface SkillRegistry {
-  register(skill: Skill): void;
-  get(name: string): Skill | undefined;
-  match(intent: string): Skill[];
-  list(): Skill[];
+  register(skill: Skill | SkillMeta): void;
+  unregister(name: string): boolean;
+  get(name: string): Skill | SkillMeta | undefined;
+  match(intent: string, topK?: number): (Skill | SkillMeta)[];
+  list(): (Skill | SkillMeta)[];
 }
 ```
 
-### Phase 2: Strategy Engine Integration (Week 3)
+### Phase 2: Strategy Engine Integration -- COMPLETED
 
-- Strategy engine queries relevant skills during intent analysis.
-- Inject skill content as context into LLM calls.
-- Implement `allowed-tools` permission control.
+- Agent queries relevant skills during intent analysis via TF-IDF.
+- Progressive prompt injection: Layer 1 (catalog) + Layer 2 (active details).
+- `allowedTools` runtime enforcement implemented (soft filtering).
+- Skills config: `matchTopK`, `hotReload`, `extraDirs`.
 
-### Phase 3: CLI Integration (Week 4)
+### Phase 3: CLI Integration -- COMPLETED
 
-- Support `/skill-name` syntax.
-- Implement `lydia skills list` command.
-- Implement `lydia skills add <name>` scaffold.
+- `lydia skills list` — list all loaded skills.
+- `lydia skills info <name>` — show skill details and content.
+- `lydia skills install <source>` — install from GitHub or local path.
+- `lydia skills remove <name>` — remove installed skills.
 
 ### Phase 4: Advanced Features (Future)
 
 - Dynamic context injection (`!command` syntax).
 - Skill argument passing (`$ARGUMENTS`).
 - Skill composition and inheritance.
+- Advanced semantic matching (embeddings).
 
 ## Planned Built-in Skills
 
