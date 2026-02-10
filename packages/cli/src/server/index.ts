@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
+import { createNodeWebSocket } from '@hono/node-ws';
 import { MemoryManager, ConfigLoader, Agent, AnthropicProvider, OpenAIProvider, OllamaProvider, MockProvider, FallbackProvider } from '@lydia/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -7,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import type { WSContext } from 'hono/ws';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -19,11 +21,62 @@ interface RunState {
   pendingPrompt?: { id: string; prompt: string };
 }
 
+// WebSocket message types for real-time event pushing
+interface WsMessage {
+  type: string;
+  data?: any;
+  timestamp: number;
+}
+
 export function createServer(port: number = 3000) {
   const app = new Hono();
+  const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
   let isRunning = false;
   let currentRun: RunState | null = null;
   let currentAgent: Agent | null = null;
+
+  // WebSocket clients
+  const wsClients: Set<WSContext> = new Set();
+
+  function broadcastWs(message: WsMessage) {
+    const data = JSON.stringify(message);
+    for (const ws of wsClients) {
+      try {
+        ws.send(data);
+      } catch {
+        wsClients.delete(ws);
+      }
+    }
+  }
+
+  // WebSocket endpoint for real-time agent events (P2-4)
+  app.get('/ws', upgradeWebSocket(() => ({
+    onOpen(_event, ws) {
+      wsClients.add(ws);
+      ws.send(JSON.stringify({
+        type: 'connected',
+        data: { status: isRunning ? 'running' : 'idle' },
+        timestamp: Date.now(),
+      }));
+    },
+    onMessage(event, ws) {
+      // Handle client messages if needed (e.g., ping)
+      try {
+        const msg = JSON.parse(String(event.data));
+        if (msg.type === 'ping') {
+          ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+        }
+      } catch {
+        // Ignore invalid messages
+      }
+    },
+    onClose(_event, ws) {
+      wsClients.delete(ws);
+    },
+    onError(_event, ws) {
+      wsClients.delete(ws);
+    },
+  })));
 
   // Initialize MemoryManager
   const dbPath = join(homedir(), '.lydia', 'memory.db');
@@ -173,13 +226,44 @@ export function createServer(port: number = 3000) {
       const agent = new Agent(llm);
       currentAgent = agent;
 
+      // Wire up agent events for WebSocket broadcasting (P2-4)
       agent.on('task:start', (task) => {
         if (currentRun) currentRun.taskId = task.id;
+        broadcastWs({ type: 'task:start', data: { taskId: task.id, description: task.description }, timestamp: Date.now() });
+      });
+
+      agent.on('stream:text', (text: string) => {
+        broadcastWs({ type: 'stream:text', data: { text }, timestamp: Date.now() });
+      });
+
+      agent.on('stream:thinking', (thinking: string) => {
+        broadcastWs({ type: 'stream:thinking', data: { thinking }, timestamp: Date.now() });
+      });
+
+      agent.on('message', (msg) => {
+        broadcastWs({ type: 'message', data: msg, timestamp: Date.now() });
+      });
+
+      agent.on('tool:start', (data) => {
+        broadcastWs({ type: 'tool:start', data, timestamp: Date.now() });
+      });
+
+      agent.on('tool:complete', (data) => {
+        broadcastWs({ type: 'tool:complete', data, timestamp: Date.now() });
+      });
+
+      agent.on('tool:error', (data) => {
+        broadcastWs({ type: 'tool:error', data, timestamp: Date.now() });
+      });
+
+      agent.on('retry', (data) => {
+        broadcastWs({ type: 'retry', data, timestamp: Date.now() });
       });
 
       agent.on('interaction_request', (req) => {
         if (!currentRun) return;
         currentRun.pendingPrompt = { id: req.id, prompt: req.prompt };
+        broadcastWs({ type: 'interaction_request', data: { id: req.id, prompt: req.prompt }, timestamp: Date.now() });
       });
 
       agent.run(inputText)
@@ -189,12 +273,14 @@ export function createServer(port: number = 3000) {
           currentRun.status = task.status === 'completed' ? 'completed' : 'failed';
           currentRun.result = task.result;
           currentRun.pendingPrompt = undefined;
+          broadcastWs({ type: 'task:complete', data: { taskId: task.id, status: task.status, result: task.result }, timestamp: Date.now() });
         })
         .catch((error: any) => {
           if (!currentRun) return;
           currentRun.status = 'failed';
           currentRun.error = error?.message || 'Task failed.';
           currentRun.pendingPrompt = undefined;
+          broadcastWs({ type: 'task:error', data: { error: currentRun.error }, timestamp: Date.now() });
         })
         .finally(() => {
           isRunning = false;
@@ -251,6 +337,76 @@ export function createServer(port: number = 3000) {
     currentAgent.resolveInteraction(promptId, response);
 
     return c.json({ ok: true });
+  });
+
+  // ─── Chat Session API (P1-1) ──────────────────────────────────────
+
+  const chatSessions: Map<string, { agent: Agent; createdAt: number }> = new Map();
+
+  app.post('/api/chat/start', async (c) => {
+    const config = await new ConfigLoader().load();
+    const providerChoice = config.llm?.provider || 'auto';
+    const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0
+      ? config.llm.fallbackOrder
+      : ['ollama', 'openai', 'anthropic'];
+
+    const createProvider = (name: string, strict: boolean) => {
+      if (name === 'mock') return new MockProvider();
+      if (name === 'ollama') return new OllamaProvider({ defaultModel: config.llm?.defaultModel || undefined });
+      if (name === 'openai') {
+        if (!process.env.OPENAI_API_KEY) { if (strict) throw new Error('OPENAI_API_KEY not set.'); return null; }
+        return new OpenAIProvider({ defaultModel: config.llm?.defaultModel || undefined });
+      }
+      if (name === 'anthropic') {
+        if (!process.env.ANTHROPIC_API_KEY) { if (strict) throw new Error('ANTHROPIC_API_KEY not set.'); return null; }
+        return new AnthropicProvider({ defaultModel: config.llm?.defaultModel || undefined });
+      }
+      if (strict) throw new Error(`Unknown provider ${name}.`);
+      return null;
+    };
+
+    let llm: any;
+    try {
+      if (providerChoice === 'auto') {
+        const providers = fallbackOrder.map((name) => createProvider(name, false)).filter(Boolean);
+        if (providers.length === 0) return c.json({ error: 'No available providers.' }, 500);
+        llm = providers.length === 1 ? providers[0] : new FallbackProvider(providers as any);
+      } else {
+        llm = createProvider(providerChoice, true);
+      }
+    } catch (error: any) {
+      return c.json({ error: error.message }, 500);
+    }
+
+    const sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const agent = new Agent(llm);
+    chatSessions.set(sessionId, { agent, createdAt: Date.now() });
+
+    return c.json({ sessionId });
+  });
+
+  app.post('/api/chat/:id/message', async (c) => {
+    const sessionId = c.req.param('id');
+    const session = chatSessions.get(sessionId);
+    if (!session) return c.json({ error: 'Session not found' }, 404);
+
+    let body: any;
+    try { body = await c.req.json(); } catch { body = {}; }
+    const message = typeof body?.message === 'string' ? body.message.trim() : '';
+    if (!message) return c.json({ error: 'message is required' }, 400);
+
+    try {
+      const response = await session.agent.chat(message);
+      return c.json({ response });
+    } catch (error: any) {
+      return c.json({ error: error.message || 'Chat failed.' }, 500);
+    }
+  });
+
+  app.delete('/api/chat/:id', (c) => {
+    const sessionId = c.req.param('id');
+    const deleted = chatSessions.delete(sessionId);
+    return c.json({ ok: deleted });
   });
 
   // Get Active Strategy Content
@@ -402,10 +558,11 @@ export function createServer(port: number = 3000) {
   return {
     start: () => {
       console.log(`Starting server on port ${port}...`);
-      serve({
+      const server = serve({
         fetch: app.fetch,
         port
       });
+      injectWebSocket(server);
     }
   };
 }

@@ -49,3 +49,25 @@ export interface EvaluationData {
         suggestedConfirmations: string[];
     }
 }
+
+// WebSocket message types (P2-4)
+export interface WsMessage {
+    type: string;
+    data?: any;
+    timestamp: number;
+}
+
+export type AgentEventType =
+    | 'connected'
+    | 'task:start'
+    | 'task:complete'
+    | 'task:error'
+    | 'stream:text'
+    | 'stream:thinking'
+    | 'message'
+    | 'tool:start'
+    | 'tool:complete'
+    | 'tool:error'
+    | 'interaction_request'
+    | 'retry'
+    | 'pong';

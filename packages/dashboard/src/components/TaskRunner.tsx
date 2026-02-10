@@ -1,7 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
+import { useWebSocket } from '../lib/useWebSocket';
+import type { WsMessage } from '../types';
 import { TaskReports } from './TaskReports';
+
+interface AgentEvent {
+    type: string;
+    data?: any;
+    timestamp: number;
+}
 
 export function TaskRunner() {
     const [input, setInput] = useState('');
@@ -17,6 +25,58 @@ export function TaskRunner() {
     const [constraints, setConstraints] = useState('');
     const [successCriteria, setSuccessCriteria] = useState('');
     const queryClient = useQueryClient();
+
+    // Real-time streaming state (P2-4)
+    const [streamText, setStreamText] = useState('');
+    const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
+    const [activeTools, setActiveTools] = useState<string[]>([]);
+    const streamTextRef = useRef('');
+
+    // WebSocket handler
+    const handleWsMessage = useCallback((msg: WsMessage) => {
+        switch (msg.type) {
+            case 'stream:text':
+                streamTextRef.current += msg.data?.text || '';
+                setStreamText(streamTextRef.current);
+                break;
+            case 'stream:thinking':
+                setAgentEvents(prev => [...prev, { type: 'thinking', data: msg.data, timestamp: msg.timestamp }]);
+                break;
+            case 'message':
+                setAgentEvents(prev => [...prev, { type: 'message', data: msg.data, timestamp: msg.timestamp }]);
+                break;
+            case 'tool:start':
+                setActiveTools(prev => [...prev, msg.data?.name || 'unknown']);
+                setAgentEvents(prev => [...prev, { type: 'tool:start', data: msg.data, timestamp: msg.timestamp }]);
+                break;
+            case 'tool:complete':
+                setActiveTools(prev => prev.filter((_, i) => i !== 0));
+                setAgentEvents(prev => [...prev, { type: 'tool:complete', data: msg.data, timestamp: msg.timestamp }]);
+                break;
+            case 'tool:error':
+                setActiveTools(prev => prev.filter((_, i) => i !== 0));
+                setAgentEvents(prev => [...prev, { type: 'tool:error', data: msg.data, timestamp: msg.timestamp }]);
+                break;
+            case 'task:complete':
+                setLastResult(msg.data?.result || 'Task completed.');
+                setIsRunning(false);
+                queryClient.invalidateQueries({ queryKey: ['task-reports'] });
+                break;
+            case 'task:error':
+                setError(msg.data?.error || 'Task failed.');
+                setIsRunning(false);
+                queryClient.invalidateQueries({ queryKey: ['task-reports'] });
+                break;
+            case 'interaction_request':
+                setPendingPrompt({ id: msg.data?.id, prompt: msg.data?.prompt });
+                break;
+            case 'retry':
+                setAgentEvents(prev => [...prev, { type: 'retry', data: msg.data, timestamp: msg.timestamp }]);
+                break;
+        }
+    }, [queryClient]);
+
+    const { status: wsStatus } = useWebSocket({ onMessage: handleWsMessage });
 
     const templates = useMemo(() => ([
         { label: 'Summarize Repo', text: 'Summarize the current repository structure and key files.' },
@@ -100,6 +160,10 @@ export function TaskRunner() {
         setRunId(null);
         setPendingPrompt(null);
         setPromptResponse('');
+        setStreamText('');
+        streamTextRef.current = '';
+        setAgentEvents([]);
+        setActiveTools([]);
         saveHistory(trimmed);
         try {
             const result = await api.runTask(trimmed);
@@ -262,6 +326,72 @@ export function TaskRunner() {
                             </button>
                         ))}
                     </div>
+                </div>
+            )}
+
+            {/* Real-time Agent Output (P2-4 WebSocket) */}
+            {(isRunning || streamText || agentEvents.length > 0) && (
+                <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-sm font-semibold">
+                            {isRunning ? 'Agent Output' : 'Last Run Output'}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {wsStatus === 'connected' && (
+                                <span className="text-xs text-green-600 flex items-center gap-1">
+                                    <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
+                                    Live
+                                </span>
+                            )}
+                            {wsStatus !== 'connected' && wsStatus !== 'connecting' && (
+                                <span className="text-xs text-gray-400">Polling</span>
+                            )}
+                            {activeTools.length > 0 && (
+                                <span className="text-xs text-blue-600">
+                                    Running: {activeTools[0]}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Streamed text */}
+                    {streamText && (
+                        <div className="bg-gray-50 rounded p-3 mb-2 text-sm whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
+                            {streamText}
+                            {isRunning && <span className="animate-pulse">▌</span>}
+                        </div>
+                    )}
+
+                    {/* Event log */}
+                    {agentEvents.length > 0 && (
+                        <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {agentEvents.slice(-20).map((evt, i) => (
+                                <div key={i} className="text-xs text-gray-500 flex items-start gap-2">
+                                    <span className="text-gray-300 shrink-0">
+                                        {new Date(evt.timestamp).toLocaleTimeString()}
+                                    </span>
+                                    {evt.type === 'tool:start' && (
+                                        <span className="text-blue-600">⚙ {evt.data?.name}</span>
+                                    )}
+                                    {evt.type === 'tool:complete' && (
+                                        <span className="text-green-600">✓ {evt.data?.name} ({evt.data?.duration}ms)</span>
+                                    )}
+                                    {evt.type === 'tool:error' && (
+                                        <span className="text-red-600">✗ {evt.data?.name}: {evt.data?.error}</span>
+                                    )}
+                                    {evt.type === 'message' && (
+                                        <span className="text-gray-700">{evt.data?.text?.substring(0, 100)}</span>
+                                    )}
+                                    {evt.type === 'thinking' && (
+                                        <span className="text-gray-400 italic">thinking...</span>
+                                    )}
+                                    {evt.type === 'retry' && (
+                                        <span className="text-yellow-600">⟳ Retry {evt.data?.attempt}/{evt.data?.maxRetries}</span>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 

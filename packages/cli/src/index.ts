@@ -128,45 +128,70 @@ async function main() {
 
         const agent = new Agent(llm);
 
-        // --- Event Listeners for UI ---
+        // --- Event Listeners for Agentic Loop UI ---
 
         agent.on('task:start', (task) => {
           spinner.succeed(chalk.green('Agent initialized'));
           console.log(chalk.bold(`\nTask: ${task.description}\n`));
-          spinner.start('Analyzing intent...');
+          spinner.start('Thinking...');
         });
 
+        // Optional: intent analysis (only if enabled in config)
         agent.on('intent', (intent) => {
           spinner.succeed(chalk.blue('Intent Analyzed'));
           console.log(chalk.gray(`   Category: ${intent.category}`));
           console.log(chalk.gray(`   Summary:  ${intent.summary}`));
-          spinner.start('Planning steps...');
+          spinner.start('Thinking...');
         });
 
-        agent.on('plan', (steps) => {
-          spinner.succeed(chalk.blue('Plan Generated'));
-          console.log(chalk.bold('\nExecution Plan:'));
-          steps.forEach((s: any, i: number) => {
-            const icon = s.type === 'action' ? '*' : '-';
-            console.log(`   ${i + 1}. ${icon} ${s.description}`);
-          });
-          console.log(''); // newline
-          spinner.start('Executing...');
+        // Streaming text output (P1-2)
+        let isStreaming = false;
+        agent.on('stream:text', (text: string) => {
+          if (!isStreaming) {
+            spinner.stop();
+            isStreaming = true;
+          }
+          process.stdout.write(chalk.white(text));
         });
 
-        agent.on('step:start', (step) => {
-          spinner.text = `Executing step: ${step.description}`;
+        // Streaming thinking output (P1-2)
+        agent.on('stream:thinking', (_thinking: string) => {
+          if (!isStreaming) {
+            spinner.stop();
+            isStreaming = true;
+          }
+          spinner.text = chalk.dim('Thinking...');
         });
 
-        agent.on('step:complete', (step) => {
+        // Non-streaming LLM text output (fallback)
+        agent.on('message', ({ text }) => {
+          spinner.stop();
+          console.log(chalk.white(text));
+          spinner.start('Thinking...');
+        });
+
+        // Non-streaming LLM thinking
+        agent.on('thinking', () => {
+          spinner.text = chalk.dim('Thinking...');
+        });
+
+        // Tool execution events
+        agent.on('tool:start', ({ name }) => {
+          if (isStreaming) {
+            process.stdout.write('\n');
+            isStreaming = false;
+          }
+          spinner.start(`Using tool: ${name}`);
+        });
+
+        agent.on('tool:complete', ({ name, result, duration }) => {
           spinner.stopAndPersist({
-            symbol: 'OK',
-            text: `${step.description}`
+            symbol: chalk.green('*'),
+            text: `${chalk.green(name)} ${chalk.dim(`(${duration}ms)`)}`
           });
 
-          if (step.result) {
-            // Indent result
-            const resultLines = step.result.split('\n');
+          if (result) {
+            const resultLines = String(result).split('\n');
             const preview = resultLines.slice(0, 5).join('\n');
             console.log(chalk.dim(preview.replace(/^/gm, '      ')));
             if (resultLines.length > 5) {
@@ -176,31 +201,49 @@ async function main() {
           spinner.start('Thinking...');
         });
 
+        agent.on('tool:error', ({ name, error }) => {
+          spinner.stopAndPersist({
+            symbol: chalk.red('x'),
+            text: `${chalk.red(name)}: ${error}`
+          });
+          spinner.start('Thinking...');
+        });
+
+        // Retry events (P2-5)
+        agent.on('retry', ({ attempt, maxRetries, delay, error }) => {
+          spinner.text = chalk.yellow(`Retry ${attempt}/${maxRetries} after ${delay}ms: ${error}`);
+        });
+
         // --- Interaction Handler ---
         agent.on('interaction_request', async (request) => {
-          // 1. Stop the current spinner so it doesn't conflict with input
+          if (isStreaming) {
+            process.stdout.write('\n');
+            isStreaming = false;
+          }
           spinner.stopAndPersist({ symbol: '!', text: 'User Input Required' });
 
-          // 2. Prompt user
           const rl = readline.createInterface({ input, output });
-
           console.log(chalk.yellow(`\nAgent asks: ${request.prompt}`));
           const answer = await rl.question(chalk.bold('> '));
           rl.close();
 
-          // 3. Resume Agent
           agent.resolveInteraction(request.id, answer);
-
-          // 4. Restart spinner for next steps
-          spinner.start('Resuming execution...');
+          spinner.start('Resuming...');
         });
 
-
         agent.on('task:complete', () => {
-          spinner.succeed(chalk.bold.green('Task Completed Successfully.'));
+          if (isStreaming) {
+            process.stdout.write('\n');
+            isStreaming = false;
+          }
+          spinner.succeed(chalk.bold.green('Task Completed.'));
         });
 
         agent.on('task:error', (error) => {
+          if (isStreaming) {
+            process.stdout.write('\n');
+            isStreaming = false;
+          }
           spinner.fail(chalk.red('Task Failed'));
           console.error(chalk.red(`\nError details: ${error.message}`));
         });
@@ -211,6 +254,147 @@ async function main() {
       } catch (error: any) {
         spinner.fail(chalk.red('Fatal Error'));
         console.error(error);
+        process.exit(1);
+      }
+    });
+
+  // ─── Chat Command (P1-1: Multi-turn Conversation) ──────────────────
+
+  program
+    .command('chat')
+    .description('Start an interactive chat session with Lydia')
+    .option('-m, --model <model>', 'Override default model')
+    .option('-p, --provider <provider>', 'LLM provider (anthropic|openai|ollama|mock|auto)')
+    .action(async (options) => {
+      const config = await new ConfigLoader().load();
+      const providerChoice = options.provider || config.llm?.provider || 'auto';
+      const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm?.fallbackOrder.length > 0
+        ? config.llm.fallbackOrder
+        : ['ollama', 'openai', 'anthropic'];
+
+      console.log(chalk.bold.blue('\nLydia Chat Mode\n'));
+      console.log(chalk.dim('Commands: /exit, /reset, /help'));
+      console.log(chalk.dim('─'.repeat(40) + '\n'));
+
+      try {
+        let llm;
+        const createProvider = (name: string, strict: boolean) => {
+          if (name === 'mock') return new MockProvider();
+          if (name === 'ollama') {
+            return new OllamaProvider({ defaultModel: options.model || config.llm?.defaultModel || undefined });
+          }
+          if (name === 'openai') {
+            if (!process.env.OPENAI_API_KEY) {
+              if (strict) { console.error(chalk.red('Error: OPENAI_API_KEY is not set.')); process.exit(1); }
+              return null;
+            }
+            return new OpenAIProvider({ defaultModel: options.model || config.llm?.defaultModel || undefined });
+          }
+          if (name === 'anthropic') {
+            if (!process.env.ANTHROPIC_API_KEY) {
+              if (strict) { console.error(chalk.red('Error: ANTHROPIC_API_KEY is not set.')); process.exit(1); }
+              return null;
+            }
+            return new AnthropicProvider({ defaultModel: options.model || config.llm?.defaultModel || undefined });
+          }
+          if (strict) { console.error(chalk.red(`Error: Unknown provider ${name}.`)); process.exit(1); }
+          return null;
+        };
+
+        if (providerChoice === 'auto') {
+          const providers = fallbackOrder.map((name) => createProvider(name, false)).filter(Boolean);
+          if (providers.length === 0) { console.error(chalk.red('No available providers.')); process.exit(1); }
+          llm = providers.length === 1 ? providers[0] : new FallbackProvider(providers as any);
+        } else {
+          const provider = createProvider(providerChoice, true);
+          if (!provider) process.exit(1);
+          llm = provider;
+        }
+
+        const agent = new Agent(llm!);
+        let isStreaming = false;
+
+        // Streaming events
+        agent.on('stream:text', (text: string) => {
+          isStreaming = true;
+          process.stdout.write(chalk.white(text));
+        });
+
+        agent.on('stream:thinking', () => {
+          // Dim indicator during thinking
+        });
+
+        // Non-streaming fallback
+        agent.on('message', ({ text }) => {
+          console.log(chalk.white(text));
+        });
+
+        // Tool events
+        agent.on('tool:start', ({ name }) => {
+          if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+          console.log(chalk.dim(`  [tool] ${name}...`));
+        });
+
+        agent.on('tool:complete', ({ name, duration }) => {
+          console.log(chalk.dim(`  [tool] ${chalk.green(name)} (${duration}ms)`));
+        });
+
+        agent.on('tool:error', ({ name, error }) => {
+          console.log(chalk.dim(`  [tool] ${chalk.red(name)}: ${error}`));
+        });
+
+        // Interaction handler
+        agent.on('interaction_request', async (request) => {
+          if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+          const rl2 = readline.createInterface({ input, output });
+          console.log(chalk.yellow(`\nAgent asks: ${request.prompt}`));
+          const answer = await rl2.question(chalk.bold('> '));
+          rl2.close();
+          agent.resolveInteraction(request.id, answer);
+        });
+
+        // REPL loop
+        const rl = readline.createInterface({ input, output });
+
+        while (true) {
+          const userInput = await rl.question(chalk.bold.cyan('You> '));
+          const trimmed = userInput.trim();
+
+          if (!trimmed) continue;
+
+          if (trimmed === '/exit' || trimmed === '/quit') {
+            console.log(chalk.dim('\nGoodbye!'));
+            rl.close();
+            break;
+          }
+
+          if (trimmed === '/reset') {
+            agent.resetSession();
+            console.log(chalk.dim('Session reset.\n'));
+            continue;
+          }
+
+          if (trimmed === '/help') {
+            console.log(chalk.dim('  /exit   - End the chat session'));
+            console.log(chalk.dim('  /reset  - Clear conversation history'));
+            console.log(chalk.dim('  /help   - Show this help message\n'));
+            continue;
+          }
+
+          isStreaming = false;
+          try {
+            await agent.chat(trimmed);
+            if (isStreaming) {
+              process.stdout.write('\n');
+              isStreaming = false;
+            }
+            console.log(''); // blank line after response
+          } catch (error: any) {
+            console.error(chalk.red(`Error: ${error.message}\n`));
+          }
+        }
+      } catch (error: any) {
+        console.error(chalk.red('Fatal Error:'), error.message);
         process.exit(1);
       }
     });
@@ -717,7 +901,226 @@ async function main() {
       console.log(chalk.green(`Report saved: ${outPath}`));
     });
 
+  // ─── Skills Command Group ─────────────────────────────────────────
+
+  const skillsCmd = program
+    .command('skills')
+    .description('Manage skills');
+
+  skillsCmd
+    .command('list')
+    .description('List all loaded skills')
+    .action(async () => {
+      const { SkillRegistry, SkillLoader } = await import('@lydia/core');
+      const registry = new SkillRegistry();
+      const loader = new SkillLoader(registry);
+      const config = await new ConfigLoader().load();
+      const extraDirs = config.skills?.extraDirs ?? [];
+      await loader.loadAll(extraDirs);
+
+      const skills = registry.list();
+      if (skills.length === 0) {
+        console.log(chalk.yellow('No skills found.'));
+        return;
+      }
+
+      console.log(chalk.bold(`\nLoaded Skills (${skills.length}):\n`));
+      for (const skill of skills) {
+        const version = ('version' in skill && skill.version) ? ` v${skill.version}` : '';
+        const tags = skill.tags?.length ? chalk.dim(` [${skill.tags.join(', ')}]`) : '';
+        const source = skill.path ? chalk.dim(` (${skill.path})`) : '';
+        const isDynamic = 'execute' in skill ? chalk.cyan(' [dynamic]') : '';
+        console.log(`  ${chalk.green(skill.name)}${version}${isDynamic} - ${skill.description}${tags}`);
+        if (source) console.log(`    ${source}`);
+      }
+      console.log('');
+    });
+
+  skillsCmd
+    .command('info')
+    .description('Show detailed information about a skill')
+    .argument('<name>', 'Skill name')
+    .action(async (name) => {
+      const { SkillRegistry, SkillLoader } = await import('@lydia/core');
+      const registry = new SkillRegistry();
+      const loader = new SkillLoader(registry);
+      const config = await new ConfigLoader().load();
+      const extraDirs = config.skills?.extraDirs ?? [];
+      await loader.loadAll(extraDirs);
+
+      const skill = registry.get(name);
+      if (!skill) {
+        console.error(chalk.red(`Skill "${name}" not found.`));
+        return;
+      }
+
+      console.log(chalk.bold(`\nSkill: ${skill.name}\n`));
+      console.log(`  Description: ${skill.description}`);
+      if ('version' in skill && skill.version) console.log(`  Version:     ${skill.version}`);
+      if ('author' in skill && skill.author) console.log(`  Author:      ${skill.author}`);
+      if (skill.tags?.length) console.log(`  Tags:        ${skill.tags.join(', ')}`);
+      if (skill.allowedTools?.length) console.log(`  Allowed Tools: ${skill.allowedTools.join(', ')}`);
+      if (skill.path) console.log(`  Path:        ${skill.path}`);
+
+      // Load and show content
+      const content = await loader.loadContent(name);
+      if (content) {
+        console.log(chalk.dim(`\n${'─'.repeat(40)}\n`));
+        console.log(content);
+        console.log('');
+      }
+    });
+
+  skillsCmd
+    .command('install')
+    .description('Install a skill from a GitHub URL or local path')
+    .argument('<source>', 'GitHub URL (github:user/repo/path) or local directory path')
+    .option('--project', 'Install to project .lydia/skills/ instead of user global')
+    .action(async (source, options) => {
+      const targetDir = options.project
+        ? path.join(process.cwd(), '.lydia', 'skills')
+        : path.join(os.homedir(), '.lydia', 'skills');
+
+      await fsPromises.mkdir(targetDir, { recursive: true });
+
+      if (source.startsWith('github:')) {
+        // Parse GitHub source: github:user/repo/path/to/skill
+        const ghPath = source.slice('github:'.length);
+        const parts = ghPath.split('/');
+        if (parts.length < 3) {
+          console.error(chalk.red('Invalid GitHub source. Format: github:owner/repo/path/to/skill'));
+          return;
+        }
+
+        const owner = parts[0];
+        const repo = parts[1];
+        const skillPath = parts.slice(2).join('/');
+        const skillName = parts[parts.length - 1].replace(/\.md$/, '');
+
+        console.log(chalk.dim(`Fetching from GitHub: ${owner}/${repo}/${skillPath}...`));
+
+        try {
+          // Try to fetch as a single file first
+          const rawUrl = `https://raw.githubusercontent.com/${owner}/${repo}/main/${skillPath}`;
+          const response = await fetch(rawUrl);
+
+          if (response.ok) {
+            const content = await response.text();
+            const fileName = skillPath.endsWith('.md') ? path.basename(skillPath) : `${skillName}.md`;
+            const destPath = path.join(targetDir, fileName);
+            await fsPromises.writeFile(destPath, content, 'utf-8');
+            console.log(chalk.green(`Installed skill to: ${destPath}`));
+          } else {
+            // Try fetching as directory via GitHub API (contents endpoint)
+            const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${skillPath}`;
+            const apiResponse = await fetch(apiUrl, {
+              headers: { 'Accept': 'application/vnd.github.v3+json' }
+            });
+
+            if (!apiResponse.ok) {
+              console.error(chalk.red(`Failed to fetch from GitHub: ${apiResponse.statusText}`));
+              return;
+            }
+
+            const contents = await apiResponse.json() as any[];
+            if (!Array.isArray(contents)) {
+              console.error(chalk.red('Source is not a valid file or directory.'));
+              return;
+            }
+
+            // Download each file in the directory
+            const skillDir = path.join(targetDir, skillName);
+            await fsPromises.mkdir(skillDir, { recursive: true });
+
+            for (const item of contents) {
+              if (item.type === 'file' && item.download_url) {
+                const fileRes = await fetch(item.download_url);
+                if (fileRes.ok) {
+                  const fileContent = await fileRes.text();
+                  const fileDest = path.join(skillDir, item.name);
+                  await fsPromises.writeFile(fileDest, fileContent, 'utf-8');
+                  console.log(chalk.dim(`  Downloaded: ${item.name}`));
+                }
+              }
+            }
+            console.log(chalk.green(`Installed skill directory to: ${skillDir}`));
+          }
+        } catch (error: any) {
+          console.error(chalk.red(`Installation failed: ${error.message}`));
+        }
+      } else {
+        // Local path installation: copy file or directory
+        const sourcePath = path.resolve(source);
+        try {
+          const stat = await fsPromises.stat(sourcePath);
+          if (stat.isFile()) {
+            const destPath = path.join(targetDir, path.basename(sourcePath));
+            await fsPromises.copyFile(sourcePath, destPath);
+            console.log(chalk.green(`Installed skill to: ${destPath}`));
+          } else if (stat.isDirectory()) {
+            const dirName = path.basename(sourcePath);
+            const destDir = path.join(targetDir, dirName);
+            await fsPromises.mkdir(destDir, { recursive: true });
+            // Recursively copy directory
+            await copyDir(sourcePath, destDir);
+            console.log(chalk.green(`Installed skill directory to: ${destDir}`));
+          }
+        } catch (error: any) {
+          console.error(chalk.red(`Installation failed: ${error.message}`));
+        }
+      }
+    });
+
+  skillsCmd
+    .command('remove')
+    .description('Remove an installed skill')
+    .argument('<name>', 'Skill name to remove')
+    .option('--project', 'Remove from project .lydia/skills/ instead of user global')
+    .action(async (name, options) => {
+      const baseDir = options.project
+        ? path.join(process.cwd(), '.lydia', 'skills')
+        : path.join(os.homedir(), '.lydia', 'skills');
+
+      // Try to find and remove the skill file/directory
+      let removed = false;
+
+      // Check for direct .md file
+      const mdPath = path.join(baseDir, `${name}.md`);
+      if (fs.existsSync(mdPath)) {
+        await fsPromises.unlink(mdPath);
+        console.log(chalk.green(`Removed skill file: ${mdPath}`));
+        removed = true;
+      }
+
+      // Check for directory with SKILL.md
+      const dirPath = path.join(baseDir, name);
+      if (fs.existsSync(dirPath)) {
+        await fsPromises.rm(dirPath, { recursive: true });
+        console.log(chalk.green(`Removed skill directory: ${dirPath}`));
+        removed = true;
+      }
+
+      if (!removed) {
+        console.error(chalk.red(`Skill "${name}" not found in ${baseDir}`));
+      }
+    });
+
   program.parse();
+}
+
+/** Recursively copy a directory */
+async function copyDir(src: string, dest: string) {
+  const entries = await fsPromises.readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      await fsPromises.mkdir(destPath, { recursive: true });
+      await copyDir(srcPath, destPath);
+    } else {
+      await fsPromises.copyFile(srcPath, destPath);
+    }
+  }
 }
 
 main();
