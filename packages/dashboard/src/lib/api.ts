@@ -1,8 +1,80 @@
-import { StrategyProposal } from '../types';
+import type { StrategyProposal, TaskHistoryItem, TaskDetail } from '../types';
 
 const API_BASE = ''; // Relative path, assuming served from same origin
 
 export const api = {
+    // ─── Task APIs ──────────────────────────────────────────────────
+
+    async getTaskHistory(options?: {
+        limit?: number;
+        offset?: number;
+        status?: string;
+        search?: string;
+    }): Promise<{ items: TaskHistoryItem[]; total: number; activeRunId: string | null }> {
+        const params = new URLSearchParams();
+        if (options?.limit) params.set('limit', String(options.limit));
+        if (options?.offset) params.set('offset', String(options.offset));
+        if (options?.status) params.set('status', options.status);
+        if (options?.search) params.set('search', options.search);
+        const qs = params.toString();
+        const res = await fetch(`${API_BASE}/api/tasks${qs ? `?${qs}` : ''}`);
+        if (!res.ok) throw new Error('Failed to fetch task history');
+        return res.json();
+    },
+
+    async getTaskDetail(id: string): Promise<TaskDetail> {
+        const res = await fetch(`${API_BASE}/api/tasks/${encodeURIComponent(id)}/detail`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to fetch task detail');
+        }
+        return res.json();
+    },
+
+    async getTaskStatus(runId: string): Promise<any> {
+        const res = await fetch(`${API_BASE}/api/tasks/${runId}/status`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to fetch task status');
+        }
+        return res.json();
+    },
+
+    async runTask(input: string): Promise<{ runId: string }> {
+        const res = await fetch(`${API_BASE}/api/tasks/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ input })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to run task');
+        }
+        return res.json();
+    },
+
+    async respondToTask(runId: string, response: string): Promise<void> {
+        const res = await fetch(`${API_BASE}/api/tasks/${runId}/respond`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ response })
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to send response');
+        }
+    },
+
+    // ─── Task Reports (legacy, still used by settings) ──────────────
+
+    async getTaskReports(limit = 50): Promise<any[]> {
+        const res = await fetch(`${API_BASE}/api/reports?limit=${limit}`);
+        if (!res.ok) throw new Error('Failed to fetch task reports');
+        return res.json();
+    },
+
+    // ─── Strategy APIs ──────────────────────────────────────────────
+
     async getProposals(limit = 50): Promise<StrategyProposal[]> {
         const res = await fetch(`${API_BASE}/api/strategy/proposals?limit=${limit}`);
         if (!res.ok) throw new Error('Failed to fetch proposals');
@@ -31,11 +103,6 @@ export const api = {
         }
     },
 
-    async getStatus(): Promise<any> {
-        const res = await fetch(`${API_BASE}/api/status`);
-        return res.json();
-    },
-
     async getStrategyContent(path: string): Promise<string> {
         const res = await fetch(`${API_BASE}/api/strategy/content?path=${encodeURIComponent(path)}`);
         if (!res.ok) throw new Error('Failed to fetch strategy content');
@@ -52,43 +119,10 @@ export const api = {
         return res.json();
     },
 
-    async getTaskReports(limit = 50): Promise<any[]> {
-        const res = await fetch(`${API_BASE}/api/reports?limit=${limit}`);
-        if (!res.ok) throw new Error('Failed to fetch task reports');
+    // ─── System APIs ────────────────────────────────────────────────
+
+    async getStatus(): Promise<any> {
+        const res = await fetch(`${API_BASE}/api/status`);
         return res.json();
     },
-
-    async runTask(input: string): Promise<{ runId: string }> {
-        const res = await fetch(`${API_BASE}/api/tasks/run`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ input })
-        });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || 'Failed to run task');
-        }
-        return res.json();
-    },
-
-    async getTaskStatus(runId: string): Promise<any> {
-        const res = await fetch(`${API_BASE}/api/tasks/${runId}`);
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || 'Failed to fetch task status');
-        }
-        return res.json();
-    },
-
-    async respondToTask(runId: string, response: string): Promise<void> {
-        const res = await fetch(`${API_BASE}/api/tasks/${runId}/respond`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ response })
-        });
-        if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err.error || 'Failed to send response');
-        }
-    }
 };
