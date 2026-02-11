@@ -385,7 +385,11 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
         broadcastWs({ type: 'interaction_request', data: { runId, id: req.id, prompt: req.prompt }, timestamp: Date.now() });
       });
 
-      agent.run(inputText)
+      agent.on('checkpoint:saved', (data) => {
+        broadcastWs({ type: 'checkpoint:saved', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
+      agent.run(inputText, runId)
         .then((task) => {
           runState.taskId = task.id;
           runState.status = task.status === 'completed' ? 'completed' : 'failed';
@@ -467,6 +471,127 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
     run.agent.resolveInteraction(promptId, response);
 
     return c.json({ ok: true });
+  });
+
+  // ─── Checkpoint / Resume API ─────────────────────────────────────
+
+  app.get('/api/tasks/resumable', (c) => {
+    const checkpoints = memoryManager.listCheckpoints();
+    const items = checkpoints.map((cp) => ({
+      taskId: cp.taskId,
+      runId: cp.runId,
+      input: cp.input,
+      iteration: cp.iteration,
+      taskCreatedAt: cp.taskCreatedAt,
+      updatedAt: cp.updatedAt,
+    }));
+    return c.json({ items });
+  });
+
+  app.post('/api/tasks/:id/resume', async (c) => {
+    if (activeRunId) {
+      return c.json({ error: 'A task is already running. Please wait.' }, 409);
+    }
+
+    const taskId = c.req.param('id');
+
+    // Verify checkpoint exists
+    const checkpoint = memoryManager.loadCheckpoint(taskId);
+    if (!checkpoint) {
+      return c.json({ error: 'No checkpoint found for this task.' }, 404);
+    }
+
+    let llm: any;
+    try {
+      llm = await createLLMFromConfig();
+    } catch (error: any) {
+      return c.json({ error: error.message || 'Failed to initialize provider.' }, 500);
+    }
+
+    const runId = checkpoint.runId || `resume-${Date.now()}`;
+    const runState: RunState = {
+      runId,
+      input: checkpoint.input,
+      status: 'running',
+      startedAt: Date.now(),
+      taskId: checkpoint.taskId,
+    };
+    runs.set(runId, runState);
+    activeRunId = runId;
+
+    try {
+      const agent = new Agent(llm);
+      runState.agent = agent;
+
+      // Wire up agent events (same as /api/tasks/run)
+      agent.on('task:resume', (data) => {
+        broadcastWs({ type: 'task:resume', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
+      agent.on('stream:text', (text: string) => {
+        broadcastWs({ type: 'stream:text', data: { runId, text }, timestamp: Date.now() });
+      });
+
+      agent.on('stream:thinking', (thinking: string) => {
+        broadcastWs({ type: 'stream:thinking', data: { runId, thinking }, timestamp: Date.now() });
+      });
+
+      agent.on('message', (msg) => {
+        broadcastWs({ type: 'message', data: { runId, ...msg }, timestamp: Date.now() });
+      });
+
+      agent.on('tool:start', (data) => {
+        broadcastWs({ type: 'tool:start', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
+      agent.on('tool:complete', (data) => {
+        broadcastWs({ type: 'tool:complete', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
+      agent.on('tool:error', (data) => {
+        broadcastWs({ type: 'tool:error', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
+      agent.on('retry', (data) => {
+        broadcastWs({ type: 'retry', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
+      agent.on('interaction_request', (req) => {
+        runState.pendingPrompt = { id: req.id, prompt: req.prompt };
+        broadcastWs({ type: 'interaction_request', data: { runId, id: req.id, prompt: req.prompt }, timestamp: Date.now() });
+      });
+
+      agent.on('checkpoint:saved', (data) => {
+        broadcastWs({ type: 'checkpoint:saved', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
+      agent.resume(taskId)
+        .then((task) => {
+          runState.taskId = task.id;
+          runState.status = task.status === 'completed' ? 'completed' : 'failed';
+          runState.result = task.result;
+          runState.completedAt = Date.now();
+          runState.pendingPrompt = undefined;
+          broadcastWs({ type: 'task:complete', data: { runId, taskId: task.id, status: task.status, result: task.result }, timestamp: Date.now() });
+        })
+        .catch((error: any) => {
+          runState.status = 'failed';
+          runState.error = error?.message || 'Resume failed.';
+          runState.completedAt = Date.now();
+          runState.pendingPrompt = undefined;
+          broadcastWs({ type: 'task:error', data: { runId, error: runState.error }, timestamp: Date.now() });
+        })
+        .finally(() => {
+          activeRunId = null;
+          runState.agent = undefined;
+        });
+
+      return c.json({ runId, resumed: true, fromIteration: checkpoint.iteration });
+    } catch (error: any) {
+      activeRunId = null;
+      runs.delete(runId);
+      return c.json({ error: error.message || 'Resume failed.' }, 500);
+    }
   });
 
   // ─── Chat Session API (P1-1) ──────────────────────────────────────

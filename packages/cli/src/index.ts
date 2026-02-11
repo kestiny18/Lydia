@@ -917,6 +917,128 @@ async function main() {
       }
     });
 
+  tasksCmd
+    .command('resumable')
+    .description('List tasks that can be resumed from checkpoint')
+    .option('--port <number>', 'Server port', '3000')
+    .action(async (options) => {
+      try {
+        const port = await ensureServer(parseInt(options.port, 10));
+        const result = await apiGet<{ items: any[] }>('/api/tasks/resumable', port);
+
+        if (!result.items?.length) {
+          console.log(chalk.yellow('No resumable tasks found.'));
+          return;
+        }
+
+        console.log(chalk.bold(`\nResumable Tasks (${result.items.length}):\n`));
+
+        for (const item of result.items) {
+          const date = new Date(item.taskCreatedAt).toLocaleString();
+          const updated = new Date(item.updatedAt).toLocaleString();
+          const title = item.input?.substring(0, 80) || 'Unknown task';
+
+          console.log(`  ${chalk.blue('\u25CB')} ${chalk.bold(title)}`);
+          console.log(`    Iteration: ${chalk.cyan(String(item.iteration))} \u00B7 Started: ${chalk.dim(date)} \u00B7 Last checkpoint: ${chalk.dim(updated)}`);
+          console.log(`    ID: ${chalk.dim(item.taskId)}`);
+          console.log('');
+        }
+      } catch (error: any) {
+        console.error(chalk.red('Failed to list resumable tasks:'), error.message);
+      }
+    });
+
+  tasksCmd
+    .command('resume')
+    .description('Resume an interrupted task from its checkpoint')
+    .argument('<id>', 'Task ID (from "tasks resumable")')
+    .option('--port <number>', 'Server port', '3000')
+    .action(async (taskId, options) => {
+      const spinner = ora('Connecting to server...').start();
+
+      try {
+        const port = await ensureServer(parseInt(options.port, 10));
+        spinner.succeed(chalk.green('Server connected'));
+
+        spinner.start('Resuming task from checkpoint...');
+        const { runId, fromIteration } = await apiPost<{ runId: string; resumed: boolean; fromIteration: number }>(
+          `/api/tasks/${encodeURIComponent(taskId)}/resume`, {}, port
+        );
+        spinner.succeed(chalk.green(`Task resumed from iteration ${fromIteration} (${runId})`));
+        spinner.start('Thinking...');
+
+        let isStreaming = false;
+
+        await new Promise<void>((resolve, reject) => {
+          connectTaskStream(runId, {
+            onText(text) {
+              if (!isStreaming) { spinner.stop(); isStreaming = true; }
+              process.stdout.write(chalk.white(text));
+            },
+            onThinking() {
+              if (!isStreaming) { spinner.stop(); isStreaming = true; }
+              spinner.text = chalk.dim('Thinking...');
+            },
+            onToolStart(name) {
+              if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+              spinner.start(`Using tool: ${name}`);
+            },
+            onToolComplete(name, duration, result) {
+              spinner.stopAndPersist({
+                symbol: chalk.green('*'),
+                text: `${chalk.green(name)} ${chalk.dim(`(${duration}ms)`)}`
+              });
+              if (result) {
+                const resultLines = String(result).split('\n');
+                const preview = resultLines.slice(0, 5).join('\n');
+                console.log(chalk.dim(preview.replace(/^/gm, '      ')));
+                if (resultLines.length > 5) {
+                  console.log(chalk.dim(`      ... (${resultLines.length - 5} more lines)`));
+                }
+              }
+              spinner.start('Thinking...');
+            },
+            onToolError(name, error) {
+              spinner.stopAndPersist({
+                symbol: chalk.red('x'),
+                text: `${chalk.red(name)}: ${error}`
+              });
+              spinner.start('Thinking...');
+            },
+            onRetry(attempt, maxRetries, delay, error) {
+              spinner.text = chalk.yellow(`Retry ${attempt}/${maxRetries} after ${delay}ms: ${error}`);
+            },
+            async onInteraction(_id, prompt) {
+              if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+              spinner.stopAndPersist({ symbol: '!', text: 'User Input Required' });
+              const rl = readline.createInterface({ input, output });
+              console.log(chalk.yellow(`\nAgent asks: ${prompt}`));
+              const answer = await rl.question(chalk.bold('> '));
+              rl.close();
+              spinner.start('Resuming...');
+              return answer;
+            },
+            onComplete() {
+              if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+              spinner.succeed(chalk.bold.green('Task Completed.'));
+              resolve();
+            },
+            onError(error) {
+              if (isStreaming) { process.stdout.write('\n'); isStreaming = false; }
+              spinner.fail(chalk.red('Task Failed'));
+              console.error(chalk.red(`\nError details: ${error}`));
+              resolve();
+            },
+          }, port).catch(reject);
+        });
+
+      } catch (error: any) {
+        spinner.fail(chalk.red('Resume Error'));
+        console.error(chalk.red(error.message || error));
+        process.exit(1);
+      }
+    });
+
   // ─── Skills Command Group ─────────────────────────────────────────
 
   const skillsCmd = program

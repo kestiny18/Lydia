@@ -14,7 +14,7 @@ import { SkillWatcher } from '../skills/watcher.js';
 import { StrategyRegistry, type Strategy } from '../strategy/index.js';
 import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServer } from '../mcp/index.js';
 import { ConfigLoader } from '../config/index.js';
-import { MemoryManager, type Trace, type Fact, type Episode } from '../memory/index.js';
+import { MemoryManager, type Trace, type Fact, type Episode, type Checkpoint } from '../memory/index.js';
 import { InteractionServer } from '../mcp/servers/interaction.js';
 import { assessRisk, type RiskAssessment, StrategyUpdateGate, ReviewManager } from '../gate/index.js';
 import { StrategyBranchManager } from '../strategy/branch-manager.js';
@@ -60,6 +60,12 @@ export class Agent extends EventEmitter {
 
   // Hot-reload watcher for skill files
   private skillWatcher?: SkillWatcher;
+
+  // Checkpoint state — tracks current task context for save/resume
+  private currentTaskId?: string;
+  private currentRunId?: string;
+  private currentInput?: string;
+  private currentTaskCreatedAt?: number;
 
   constructor(llm: ILLMProvider) {
     super();
@@ -323,7 +329,7 @@ export class Agent extends EventEmitter {
 
   // ─── Single-task Run ───────────────────────────────────────────────
 
-  async run(userInput: string): Promise<Task> {
+  async run(userInput: string, runId?: string): Promise<Task> {
     await this.init();
     this.taskApprovals = new Set();
     this.stepResults = [];
@@ -336,6 +342,12 @@ export class Agent extends EventEmitter {
       createdAt: Date.now(),
       status: 'running',
     };
+
+    // Set checkpoint context
+    this.currentTaskId = task.id;
+    this.currentRunId = runId || task.id;
+    this.currentInput = userInput;
+    this.currentTaskCreatedAt = task.createdAt;
 
     this.emit('task:start', task);
 
@@ -418,6 +430,14 @@ export class Agent extends EventEmitter {
       this.emit('task:error', error);
     }
 
+    // Delete checkpoint — task is finished (success or failure)
+    try {
+      this.memoryManager.deleteCheckpoint(task.id);
+    } catch {
+      // Ignore cleanup errors
+    }
+    this.currentTaskId = undefined;
+
     // Post-execution: report and feedback
     if (intentProfile) {
       const report = this.reporter.generateReport(task, intentProfile, this.stepResults);
@@ -449,15 +469,108 @@ export class Agent extends EventEmitter {
     return task;
   }
 
+  // ─── Resume from Checkpoint ──────────────────────────────────────
+
+  /**
+   * Resume an interrupted task from a persisted checkpoint.
+   * Restores the conversation history, traces, and iteration counter,
+   * then continues the agentic loop from where it left off.
+   */
+  async resume(taskId: string): Promise<Task> {
+    await this.init();
+
+    const checkpoint = this.memoryManager.loadCheckpoint(taskId);
+    if (!checkpoint) {
+      throw new Error(`No checkpoint found for task ${taskId}`);
+    }
+
+    // Restore state from checkpoint
+    this.taskApprovals = new Set();
+    this.stepResults = [];
+    this.traces = JSON.parse(checkpoint.tracesJson) as Trace[];
+    const messages: Message[] = JSON.parse(checkpoint.messagesJson) as Message[];
+    const tools: ToolDefinition[] = JSON.parse(checkpoint.toolsJson) as ToolDefinition[];
+
+    // Reconstruct task object
+    const task: Task = {
+      id: checkpoint.taskId,
+      description: checkpoint.input,
+      createdAt: checkpoint.taskCreatedAt,
+      status: 'running',
+    };
+
+    // Set checkpoint context for continued saves
+    this.currentTaskId = task.id;
+    this.currentRunId = checkpoint.runId;
+    this.currentInput = checkpoint.input;
+    this.currentTaskCreatedAt = checkpoint.taskCreatedAt;
+
+    this.emit('task:resume', {
+      task,
+      fromIteration: checkpoint.iteration,
+      tracesRestored: this.traces.length,
+    });
+
+    try {
+      this.emit('phase:start', 'execution');
+
+      // Continue the agentic loop from the checkpoint iteration
+      const { response: lastResponse } = await this.agenticLoop(
+        checkpoint.systemPrompt,
+        messages,
+        tools,
+        checkpoint.iteration,  // resume from this iteration
+      );
+
+      this.emit('phase:end', 'execution');
+
+      task.status = 'completed';
+      task.result = lastResponse?.content
+        .filter(b => b.type === 'text')
+        .map(b => (b as any).text)
+        .join('\n') || 'Task completed.';
+
+      // Save Episode and Traces (includes traces from before + after checkpoint)
+      const episodeId = this.memoryManager.recordEpisode({
+        input: checkpoint.input,
+        plan: JSON.stringify({ iterations: this.traces.length, traces: this.traces.length, resumed: true }),
+        result: task.result,
+        strategy_id: this.activeStrategy?.metadata.id,
+        strategy_version: this.activeStrategy?.metadata.version,
+        created_at: Date.now(),
+      });
+
+      this.memoryManager.recordTraces(episodeId, this.traces);
+
+      this.emit('task:complete', task);
+
+    } catch (error) {
+      task.status = 'failed';
+      task.result = error instanceof Error ? error.message : String(error);
+      this.emit('task:error', error);
+    }
+
+    // Delete checkpoint — task is finished (success or failure)
+    try {
+      this.memoryManager.deleteCheckpoint(task.id);
+    } catch {
+      // Ignore cleanup errors
+    }
+    this.currentTaskId = undefined;
+
+    return task;
+  }
+
   // ─── Shared Agentic Loop ───────────────────────────────────────────
 
   private async agenticLoop(
     systemPrompt: string,
     messages: Message[],
     tools: ToolDefinition[],
+    startIteration: number = 0,
   ): Promise<{ messages: Message[]; response: LLMResponse | null }> {
     const maxIterations = this.config?.agent?.maxIterations ?? 50;
-    let iteration = 0;
+    let iteration = startIteration;
     let lastResponse: LLMResponse | null = null;
 
     while (iteration < maxIterations) {
@@ -627,6 +740,28 @@ export class Agent extends EventEmitter {
           role: 'tool',
           content: [block],
         });
+      }
+
+      // ─── Save Checkpoint after each complete iteration ────────────
+      if (this.currentTaskId) {
+        try {
+          this.memoryManager.saveCheckpoint({
+            taskId: this.currentTaskId,
+            runId: this.currentRunId || this.currentTaskId,
+            input: this.currentInput || '',
+            iteration,
+            messagesJson: JSON.stringify(messages),
+            tracesJson: JSON.stringify(this.traces),
+            systemPrompt,
+            toolsJson: JSON.stringify(tools),
+            taskCreatedAt: this.currentTaskCreatedAt || Date.now(),
+            updatedAt: Date.now(),
+          });
+          this.emit('checkpoint:saved', { taskId: this.currentTaskId, iteration });
+        } catch (err) {
+          // Checkpoint save failure should not abort execution
+          this.emit('checkpoint:error', { taskId: this.currentTaskId, iteration, error: err });
+        }
       }
     }
 

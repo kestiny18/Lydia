@@ -54,6 +54,23 @@ export interface TaskFeedbackRecord {
   created_at: number;
 }
 
+/**
+ * Checkpoint captures the full execution state of an agentic loop iteration,
+ * allowing interrupted tasks to be resumed from the last successful checkpoint.
+ */
+export interface Checkpoint {
+  taskId: string;
+  runId: string;
+  input: string;
+  iteration: number;
+  messagesJson: string;     // JSON-serialized Message[]
+  tracesJson: string;       // JSON-serialized Trace[]
+  systemPrompt: string;
+  toolsJson: string;        // JSON-serialized ToolDefinition[]
+  taskCreatedAt: number;
+  updatedAt: number;
+}
+
 export class MemoryManager extends EventEmitter {
   private db: Database.Database;
 
@@ -193,6 +210,23 @@ export class MemoryManager extends EventEmitter {
       );
     `);
 
+    // 9. Checkpoints Table — persists agentic loop state for resumable tasks
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS checkpoints (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL UNIQUE,
+        run_id TEXT NOT NULL,
+        input TEXT NOT NULL,
+        iteration INTEGER NOT NULL,
+        messages_json TEXT NOT NULL,
+        traces_json TEXT NOT NULL,
+        system_prompt TEXT NOT NULL,
+        tools_json TEXT NOT NULL,
+        task_created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+
     // Migrate existing DBs if column is missing
     try {
       const cols = this.db.prepare("PRAGMA table_info(strategy_proposals)").all() as any[];
@@ -203,6 +237,9 @@ export class MemoryManager extends EventEmitter {
     } catch {
       // Ignore migration errors to keep startup resilient
     }
+
+    // Clean up stale checkpoints (older than 24 hours)
+    this.cleanupStaleCheckpoints();
   }
 
   /**
@@ -464,6 +501,101 @@ export class MemoryManager extends EventEmitter {
     const stmt = this.db.prepare('SELECT * FROM traces WHERE episode_id = ? ORDER BY step_index ASC');
     return stmt.all(episodeId) as Trace[];
   }
+
+  // ─── Checkpoint CRUD ──────────────────────────────────────────────
+
+  /**
+   * Save or update a checkpoint. Uses UPSERT (INSERT OR REPLACE) so each
+   * task has at most one checkpoint row, updated in-place every iteration.
+   */
+  public saveCheckpoint(checkpoint: Checkpoint): void {
+    const stmt = this.db.prepare(`
+      INSERT INTO checkpoints (task_id, run_id, input, iteration, messages_json, traces_json, system_prompt, tools_json, task_created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(task_id) DO UPDATE SET
+        run_id = excluded.run_id,
+        iteration = excluded.iteration,
+        messages_json = excluded.messages_json,
+        traces_json = excluded.traces_json,
+        system_prompt = excluded.system_prompt,
+        tools_json = excluded.tools_json,
+        updated_at = excluded.updated_at
+    `);
+    stmt.run(
+      checkpoint.taskId,
+      checkpoint.runId,
+      checkpoint.input,
+      checkpoint.iteration,
+      checkpoint.messagesJson,
+      checkpoint.tracesJson,
+      checkpoint.systemPrompt,
+      checkpoint.toolsJson,
+      checkpoint.taskCreatedAt,
+      checkpoint.updatedAt,
+    );
+  }
+
+  /**
+   * Load a checkpoint by task ID. Returns null if not found.
+   */
+  public loadCheckpoint(taskId: string): Checkpoint | null {
+    const stmt = this.db.prepare('SELECT * FROM checkpoints WHERE task_id = ?');
+    const row = stmt.get(taskId) as any;
+    if (!row) return null;
+    return {
+      taskId: row.task_id,
+      runId: row.run_id,
+      input: row.input,
+      iteration: row.iteration,
+      messagesJson: row.messages_json,
+      tracesJson: row.traces_json,
+      systemPrompt: row.system_prompt,
+      toolsJson: row.tools_json,
+      taskCreatedAt: row.task_created_at,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  /**
+   * Delete a checkpoint after task completion or failure.
+   */
+  public deleteCheckpoint(taskId: string): boolean {
+    const stmt = this.db.prepare('DELETE FROM checkpoints WHERE task_id = ?');
+    const info = stmt.run(taskId);
+    return info.changes > 0;
+  }
+
+  /**
+   * List all checkpoints that can be resumed (for UI and CLI).
+   */
+  public listCheckpoints(): Checkpoint[] {
+    const stmt = this.db.prepare('SELECT * FROM checkpoints ORDER BY updated_at DESC');
+    const rows = stmt.all() as any[];
+    return rows.map((row: any) => ({
+      taskId: row.task_id,
+      runId: row.run_id,
+      input: row.input,
+      iteration: row.iteration,
+      messagesJson: row.messages_json,
+      tracesJson: row.traces_json,
+      systemPrompt: row.system_prompt,
+      toolsJson: row.tools_json,
+      taskCreatedAt: row.task_created_at,
+      updatedAt: row.updated_at,
+    }));
+  }
+
+  /**
+   * Remove checkpoints older than the TTL (default: 24 hours).
+   */
+  public cleanupStaleCheckpoints(ttlMs: number = 24 * 60 * 60 * 1000): number {
+    const cutoff = Date.now() - ttlMs;
+    const stmt = this.db.prepare('DELETE FROM checkpoints WHERE updated_at < ?');
+    const info = stmt.run(cutoff);
+    return info.changes;
+  }
+
+  // ─── Performance Metrics ────────────────────────────────────────────
 
   public getPerformanceMetrics(limit: number = 50): { total: number; success: number; failure: number } {
     // We assume an episode is failed if ANY trace is failed, or if we can infer from other data.

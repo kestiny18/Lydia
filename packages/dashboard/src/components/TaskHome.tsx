@@ -39,6 +39,15 @@ export function TaskHome() {
                 setActiveRunId(msg.data?.runId || null);
                 setIsRunning(true);
                 break;
+            case 'task:resume':
+                setActiveRunId(msg.data?.runId || null);
+                setIsRunning(true);
+                setAgentEvents(prev => [...prev, {
+                    type: 'resume',
+                    data: msg.data,
+                    timestamp: msg.timestamp,
+                }]);
+                break;
             case 'stream:text':
                 streamTextRef.current += msg.data?.text || '';
                 setStreamText(streamTextRef.current);
@@ -107,6 +116,31 @@ export function TaskHome() {
         }
     }, []);
 
+    // ─── Task resume ──────────────────────────────────────────────
+    const handleResumeTask = useCallback(async (taskId: string) => {
+        setError(null);
+        setLastResult(null);
+        setStreamText('');
+        streamTextRef.current = '';
+        setAgentEvents([]);
+        setActiveTools([]);
+        setPendingPrompt(null);
+        setPromptResponse('');
+        setActiveInput('(resumed)');
+        setActiveStartedAt(Date.now());
+
+        try {
+            const result = await api.resumeTask(taskId);
+            setActiveRunId(result.runId);
+            setIsRunning(true);
+            setSelectedId(result.runId);
+            setActiveInput(`Resumed from iteration ${result.fromIteration}`);
+        } catch (err: any) {
+            setError(err.message || 'Failed to resume task.');
+            setIsRunning(false);
+        }
+    }, []);
+
     // ─── Interaction response ───────────────────────────────────────
     const handlePromptSubmit = useCallback(async () => {
         if (!activeRunId || !pendingPrompt) return;
@@ -144,6 +178,7 @@ export function TaskHome() {
                     selectedId={selectedId}
                     isRunning={isRunning && selectedId === activeRunId}
                     onSubmitTask={handleSubmitTask}
+                    onResumeTask={handleResumeTask}
                     activeRunId={activeRunId}
                     activeInput={activeInput}
                     activeStartedAt={activeStartedAt}

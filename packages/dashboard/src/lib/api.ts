@@ -65,6 +65,32 @@ export const api = {
         }
     },
 
+    // ─── Checkpoint / Resume APIs ────────────────────────────────────
+
+    async getResumableTasks(): Promise<{ items: Array<{
+        taskId: string;
+        runId: string;
+        input: string;
+        iteration: number;
+        taskCreatedAt: number;
+        updatedAt: number;
+    }> }> {
+        const res = await fetch(`${API_BASE}/api/tasks/resumable`);
+        if (!res.ok) throw new Error('Failed to fetch resumable tasks');
+        return res.json();
+    },
+
+    async resumeTask(taskId: string): Promise<{ runId: string; resumed: boolean; fromIteration: number }> {
+        const res = await fetch(`${API_BASE}/api/tasks/${encodeURIComponent(taskId)}/resume`, {
+            method: 'POST',
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to resume task');
+        }
+        return res.json();
+    },
+
     // ─── Task Reports (legacy, still used by settings) ──────────────
 
     async getTaskReports(limit = 50): Promise<any[]> {

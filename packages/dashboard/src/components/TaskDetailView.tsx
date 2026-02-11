@@ -10,6 +10,8 @@ interface TaskDetailViewProps {
     isRunning: boolean;
     /** Callbacks for new task submission */
     onSubmitTask: (input: string) => void;
+    /** Callback to resume an interrupted task from checkpoint */
+    onResumeTask?: (taskId: string) => void;
 
     // Live task state (passed through from parent)
     activeRunId: string | null;
@@ -31,6 +33,7 @@ export function TaskDetailView({
     selectedId,
     isRunning,
     onSubmitTask,
+    onResumeTask,
     activeRunId,
     activeInput,
     activeStartedAt,
@@ -78,10 +81,10 @@ export function TaskDetailView({
         );
     }
 
-    // Mode C: Completed/historical task
+    // Mode C: Completed/historical task (or resumable)
     return (
         <div className="h-full p-6">
-            <TaskReportView taskId={selectedId} />
+            <TaskReportView taskId={selectedId} onResumeTask={onResumeTask} />
         </div>
     );
 }

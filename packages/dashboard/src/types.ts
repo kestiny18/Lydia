@@ -132,10 +132,12 @@ export interface WsMessage {
 export type AgentEventType =
     | 'connected'
     | 'task:start'
+    | 'task:resume'
     | 'task:complete'
     | 'task:error'
     | 'task:progress'
     | 'task:cancelled'
+    | 'checkpoint:saved'
     | 'stream:text'
     | 'stream:thinking'
     | 'message'
