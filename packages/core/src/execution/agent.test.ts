@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MockProvider } from '../llm/providers/mock.js';
 import type { LLMResponse, ToolUseContent, TextContent } from '../llm/types.js';
+import { Agent } from './agent.js';
 
 // We test the Agent's agentic loop behavior by mocking the LLM and MCP layers.
 // The Agent class requires many dependencies (MCP servers, memory, etc.), so we
@@ -167,5 +168,14 @@ describe('Agent Agentic Loop (via MockProvider)', () => {
     expect(toolStarts[0].name).toBe('shell_execute');
     expect(toolDeltas).toHaveLength(1);
     expect(toolEnds).toHaveLength(1);
+  });
+
+  it('should include available tools in the system prompt', () => {
+    const agent = new Agent(provider);
+    const prompt = (agent as any).buildSystemPrompt([], [], [], [], ['browser_navigate', 'browser_click']);
+
+    expect(prompt).toContain('AVAILABLE TOOLS');
+    expect(prompt).toContain('- browser_navigate');
+    expect(prompt).toContain('- browser_click');
   });
 });
