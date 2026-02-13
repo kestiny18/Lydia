@@ -151,4 +151,18 @@ export const api = {
         const res = await fetch(`${API_BASE}/api/status`);
         return res.json();
     },
+
+    async getMcpHealth(options?: { server?: string; timeoutMs?: number; retries?: number }): Promise<any> {
+        const params = new URLSearchParams();
+        if (options?.server) params.set('server', options.server);
+        if (options?.timeoutMs !== undefined) params.set('timeoutMs', String(options.timeoutMs));
+        if (options?.retries !== undefined) params.set('retries', String(options.retries));
+        const qs = params.toString();
+        const res = await fetch(`${API_BASE}/api/mcp/check${qs ? `?${qs}` : ''}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to check MCP health');
+        }
+        return res.json();
+    },
 };

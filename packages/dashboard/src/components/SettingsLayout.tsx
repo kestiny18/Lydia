@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-    Database, History, ShieldCheck, GitBranch, Settings2,
+    Database, History, ShieldCheck, GitBranch, Settings2, Plug,
 } from 'lucide-react';
 import { StrategyReview } from './StrategyReview';
 import { EvolutionHistory } from './EvolutionHistory';
+import { api } from '../lib/api';
 
-type SettingsTab = 'system' | 'memory' | 'strategy' | 'evolution' | 'replay' | 'approvals';
+type SettingsTab = 'system' | 'memory' | 'strategy' | 'evolution' | 'replay' | 'approvals' | 'mcp';
 
 export function SettingsLayout() {
     const [activeTab, setActiveTab] = useState<SettingsTab>('system');
@@ -18,6 +19,7 @@ export function SettingsLayout() {
         { key: 'evolution', label: 'Evolution', icon: <GitBranch size={16} /> },
         { key: 'replay', label: 'Replay Studio', icon: <History size={16} /> },
         { key: 'approvals', label: 'Approvals', icon: <ShieldCheck size={16} /> },
+        { key: 'mcp', label: 'MCP Health', icon: <Plug size={16} /> },
     ];
 
     return (
@@ -53,6 +55,7 @@ export function SettingsLayout() {
                 {activeTab === 'evolution' && <EvolutionHistory />}
                 {activeTab === 'replay' && <ReplayView />}
                 {activeTab === 'approvals' && <ApprovalsView />}
+                {activeTab === 'mcp' && <McpHealthView />}
             </div>
         </div>
     );
@@ -332,6 +335,85 @@ function ApprovalsView() {
                     </tbody>
                 </table>
             </div>
+        </div>
+    );
+}
+
+function McpHealthView() {
+    const { data, isLoading, error, refetch, isFetching } = useQuery({
+        queryKey: ['mcp-health'],
+        queryFn: () => api.getMcpHealth({ timeoutMs: 15000, retries: 0 }),
+    });
+
+    return (
+        <div className="max-w-4xl">
+            <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-bold">MCP Health</h2>
+                <button
+                    onClick={() => refetch()}
+                    disabled={isFetching}
+                    className="px-3 py-1.5 text-sm rounded-md border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-50"
+                >
+                    {isFetching ? 'Checking...' : 'Re-check'}
+                </button>
+            </div>
+
+            {isLoading && (
+                <div className="text-sm text-gray-500">Checking MCP servers...</div>
+            )}
+
+            {error && (
+                <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2">
+                    {(error as Error).message}
+                </div>
+            )}
+
+            {!isLoading && !error && (
+                <div className="space-y-3">
+                    <div className={`text-sm px-3 py-2 rounded border ${data?.ok ? 'text-green-700 bg-green-50 border-green-200' : 'text-red-700 bg-red-50 border-red-200'}`}>
+                        {data?.ok ? 'All configured MCP servers are reachable.' : 'Some MCP servers failed health check.'}
+                    </div>
+                    <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                        <table className="w-full text-left">
+                            <thead className="bg-gray-50 border-b border-gray-200 text-xs uppercase text-gray-500 font-medium">
+                                <tr>
+                                    <th className="px-4 py-3">Server</th>
+                                    <th className="px-4 py-3 w-24">Status</th>
+                                    <th className="px-4 py-3 w-28">Attempts</th>
+                                    <th className="px-4 py-3 w-28">Duration</th>
+                                    <th className="px-4 py-3">Tools / Error</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {(data?.results || []).map((r: any) => (
+                                    <tr key={r.id}>
+                                        <td className="px-4 py-3 text-sm font-mono">{r.id}</td>
+                                        <td className="px-4 py-3 text-xs">
+                                            <span className={`px-2 py-0.5 rounded ${r.ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                                                {r.ok ? 'ok' : 'failed'}
+                                            </span>
+                                        </td>
+                                        <td className="px-4 py-3 text-xs text-gray-600">{r.attempts}</td>
+                                        <td className="px-4 py-3 text-xs text-gray-600">{r.durationMs}ms</td>
+                                        <td className="px-4 py-3 text-xs text-gray-600">
+                                            {r.ok
+                                                ? (r.tools?.length ? r.tools.join(', ') : '(no tools)')
+                                                : (r.error || 'unknown error')}
+                                        </td>
+                                    </tr>
+                                ))}
+                                {!data?.results?.length && (
+                                    <tr>
+                                        <td colSpan={5} className="px-4 py-8 text-center text-gray-400 text-sm">
+                                            No configured external MCP servers.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
