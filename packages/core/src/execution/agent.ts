@@ -272,7 +272,6 @@ export class Agent extends EventEmitter {
       const allSkillMetas = this.skillRegistry.list();
       const facts = this.memoryManager.searchFacts(userMessage);
       const episodes = this.memoryManager.recallEpisodes(userMessage);
-      this.sessionSystemPrompt = this.buildSystemPrompt(allSkillMetas, matchedSkills, facts, episodes);
 
       // Apply allowedTools filtering
       let tools = this.getAllToolDefinitions();
@@ -281,6 +280,13 @@ export class Agent extends EventEmitter {
         tools = tools.filter(t => allowedTools.has(t.name));
       }
       this.sessionTools = tools;
+      this.sessionSystemPrompt = this.buildSystemPrompt(
+        allSkillMetas,
+        matchedSkills,
+        facts,
+        episodes,
+        tools.map(t => t.name),
+      );
       this.sessionInitialized = true;
     }
 
@@ -361,17 +367,23 @@ export class Agent extends EventEmitter {
       const facts = this.memoryManager.searchFacts(userInput);
       const episodes = this.memoryManager.recallEpisodes(userInput);
 
-      // 5. Build System Prompt (progressive: catalog + active details)
-      const systemPrompt = this.buildSystemPrompt(allSkillMetas, matchedSkills, facts, episodes);
-
-      // 6. Get tools for LLM function calling (MCP + DynamicSkill)
+      // 5. Get tools for LLM function calling (MCP + DynamicSkill)
       let tools = this.getAllToolDefinitions();
 
-      // 6.1 Apply allowedTools restrictions from matched skills
+      // 5.1 Apply allowedTools restrictions from matched skills
       const allowedTools = this.getActiveAllowedTools(matchedSkills);
       if (allowedTools) {
         tools = tools.filter(t => allowedTools.has(t.name));
       }
+
+      // 6. Build System Prompt (progressive: catalog + active details + available tools)
+      const systemPrompt = this.buildSystemPrompt(
+        allSkillMetas,
+        matchedSkills,
+        facts,
+        episodes,
+        tools.map(t => t.name),
+      );
 
       // 7. Initialize conversation messages
       const messages: Message[] = [
@@ -849,6 +861,7 @@ export class Agent extends EventEmitter {
     activeSkills: (Skill | SkillMeta)[],
     facts: Fact[],
     episodes: Episode[],
+    toolNames: string[] = [],
   ): string {
     const sections: string[] = [];
 
@@ -876,6 +889,9 @@ export class Agent extends EventEmitter {
       'Use tools when you need to interact with the system (files, shell, git, memory, etc.). ' +
       'When you are done with the task, respond with your final answer as text.'
     );
+    if (toolNames.length > 0) {
+      sections.push(`AVAILABLE TOOLS:\n${toolNames.map(name => `- ${name}`).join('\n')}`);
+    }
 
     // Safety constraints from strategy
     const deniedTools = this.activeStrategy?.constraints?.deniedTools || [];
