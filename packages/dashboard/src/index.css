@@ -1,3 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --bg: #f4f6fb;
+  --surface: #ffffff;
+  --surface-subtle: #f7f9fe;
+  --surface-accent: #eef3ff;
+  --text-strong: #0f172a;
+  --text-muted: #5b6478;
+  --line: #dde3ee;
+  --line-strong: #c5d2ef;
+  --accent: #2f5eff;
+  --ring: #a7bcff;
+  --success: #14784b;
+  --success-soft: #def8eb;
+  --danger: #b4232e;
+  --danger-soft: #fde8ea;
+  --warning: #9a5a00;
+  --warning-soft: #fff1d6;
+  --info: #225cc8;
+  --info-soft: #e4eeff;
+  --shadow-soft: 0 8px 24px rgba(16, 24, 40, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Manrope', 'Segoe UI', sans-serif;
+  color: var(--text-strong);
+  background:
+    radial-gradient(circle at 10% 10%, #eef3ff 0%, transparent 40%),
+    radial-gradient(circle at 88% 8%, #e8f6f2 0%, transparent 34%),
+    var(--bg);
+}
+
+code,
+pre,
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.app-shell {
+  display: flex;
+  background-color: transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cfd8e8;
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+

@@ -99,6 +99,18 @@ export const api = {
         return res.json();
     },
 
+    async getFacts(limit = 100): Promise<any[]> {
+        const res = await fetch(`${API_BASE}/api/memory/facts?limit=${limit}`);
+        if (!res.ok) throw new Error('Failed to fetch memory facts');
+        return res.json();
+    },
+
+    async getEpisodes(limit = 50): Promise<any[]> {
+        const res = await fetch(`${API_BASE}/api/replay?limit=${limit}`);
+        if (!res.ok) throw new Error('Failed to fetch replay episodes');
+        return res.json();
+    },
+
     // ─── Strategy APIs ──────────────────────────────────────────────
 
     async getProposals(limit = 50): Promise<StrategyProposal[]> {
@@ -162,6 +174,25 @@ export const api = {
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.error || 'Failed to check MCP health');
+        }
+        return res.json();
+    },
+
+    async startChatSession(): Promise<{ sessionId: string }> {
+        const res = await fetch(`${API_BASE}/api/chat/start`, { method: 'POST' });
+        if (!res.ok) throw new Error('Failed to start chat session');
+        return res.json();
+    },
+
+    async sendChatMessage(sessionId: string, message: string): Promise<{ response: string }> {
+        const res = await fetch(`${API_BASE}/api/chat/${encodeURIComponent(sessionId)}/message`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message }),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to send chat message');
         }
         return res.json();
     },
