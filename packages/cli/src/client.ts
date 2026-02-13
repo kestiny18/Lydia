@@ -6,7 +6,6 @@
  */
 import chalk from 'chalk';
 import { createServer } from './server/index.js';
-import WebSocket from 'ws';
 
 const DEFAULT_PORT = 3000;
 const MAX_RETRIES = 20;
@@ -75,6 +74,37 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type WsLike = {
+  close: () => void;
+  send: (data: string) => void;
+  on?: (event: string, handler: (...args: any[]) => void) => void;
+  addEventListener?: (event: string, handler: (...args: any[]) => void) => void;
+};
+
+async function resolveWebSocketCtor(): Promise<new (url: string) => WsLike> {
+  const globalWs = (globalThis as any).WebSocket;
+  if (typeof globalWs === 'function') {
+    return globalWs as new (url: string) => WsLike;
+  }
+
+  try {
+    const mod = await import('ws');
+    return mod.default as unknown as new (url: string) => WsLike;
+  } catch {
+    throw new Error('WebSocket runtime not found. Install dependency "ws" or use a Node.js runtime with global WebSocket.');
+  }
+}
+
+function bindWsEvent(ws: WsLike, event: string, handler: (...args: any[]) => void) {
+  if (typeof ws.on === 'function') {
+    ws.on(event, handler);
+    return;
+  }
+  if (typeof ws.addEventListener === 'function') {
+    ws.addEventListener(event, handler);
+  }
+}
+
 // ─── HTTP API Helpers ───────────────────────────────────────────────
 
 export async function apiGet<T = any>(path: string, port?: number): Promise<T> {
@@ -123,24 +153,31 @@ export function connectTaskStream(
   handlers: WsEventHandler,
   port?: number,
 ): Promise<{ close: () => void }> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(getWsUrl(port));
+  return (async () => {
+    const WebSocketCtor = await resolveWebSocketCtor();
+    return await new Promise<{ close: () => void }>((resolve, reject) => {
+      const ws = new WebSocketCtor(getWsUrl(port));
     let resolved = false;
 
-    ws.on('open', () => {
+      bindWsEvent(ws, 'open', () => {
       resolved = true;
       resolve({ close: () => ws.close() });
     });
 
-    ws.on('error', (err) => {
+      bindWsEvent(ws, 'error', (err: any) => {
       if (!resolved) {
         reject(err);
       }
     });
 
-    ws.on('message', (raw) => {
+      bindWsEvent(ws, 'message', (raw: any) => {
       try {
-        const msg = JSON.parse(raw.toString());
+          const rawText = typeof raw === 'string'
+            ? raw
+            : raw?.data
+              ? String(raw.data)
+              : raw?.toString?.() || '';
+          const msg = JSON.parse(rawText);
         // Only process events for our run
         if (msg.data?.runId && msg.data.runId !== runId) return;
 
@@ -186,5 +223,6 @@ export function connectTaskStream(
         // ignore parse errors
       }
     });
-  });
+    });
+  })();
 }
