@@ -32,6 +32,17 @@ Recommended baseline tool set:
 2. Output must be text-serializable for model feedback in the agentic loop.
 3. Errors must return actionable reasons (selector not found, timeout, navigation blocked).
 
+## Error Taxonomy (Recommended)
+Use stable machine-friendly codes in error text or payload:
+1. `BROWSER_TIMEOUT`: navigation/wait timed out.
+2. `ELEMENT_NOT_FOUND`: selector or role target not found.
+3. `ELEMENT_NOT_INTERACTABLE`: element exists but cannot be clicked/typed.
+4. `NAVIGATION_BLOCKED`: auth, CSP, popup, or policy blocked navigation.
+5. `DOWNLOAD_FAILED`: expected download did not complete.
+6. `UPLOAD_FAILED`: upload input failed or file inaccessible.
+7. `SESSION_CLOSED`: browser/page/context already closed.
+8. `UNKNOWN`: uncategorized error (include original message).
+
 ## Safety Integration
 1. External MCP tools are high risk by default and require confirmation.
 2. Risk signatures should be stable enough for approval memory reuse.
@@ -57,4 +68,3 @@ Skills should not:
 1. Browser MCP tools work through existing agentic loop without special-case code.
 2. Tool names are visible in system prompt for model discoverability.
 3. Task output includes verification evidence.
-

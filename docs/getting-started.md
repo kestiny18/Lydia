@@ -224,6 +224,18 @@ Validate connectivity:
 lydia mcp check --server browser
 ```
 
+Machine-readable health output:
+
+```bash
+lydia mcp check --server browser --timeout-ms 15000 --retries 1 --json
+```
+
+List tools only:
+
+```bash
+lydia mcp tools --server browser
+```
+
 ## Launch Dashboard
 ```bash
 lydia dashboard
