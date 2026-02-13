@@ -9,10 +9,15 @@ import { api } from '../lib/api';
 
 type SettingsTab = 'system' | 'memory' | 'strategy' | 'evolution' | 'replay' | 'approvals' | 'mcp';
 
-export function SettingsLayout() {
-    const [activeTab, setActiveTab] = useState<SettingsTab>('system');
+interface SettingsLayoutProps {
+    mode?: 'all' | 'memory' | 'control';
+}
 
-    const tabs: Array<{ key: SettingsTab; label: string; icon: React.ReactNode }> = [
+export function SettingsLayout({ mode = 'all' }: SettingsLayoutProps) {
+    const initialTab: SettingsTab = mode === 'memory' ? 'memory' : 'system';
+    const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+
+    const allTabs: Array<{ key: SettingsTab; label: string; icon: React.ReactNode }> = [
         { key: 'system', label: 'System', icon: <Settings2 size={16} /> },
         { key: 'memory', label: 'Memory Bank', icon: <Database size={16} /> },
         { key: 'strategy', label: 'Strategy', icon: <ShieldCheck size={16} /> },
@@ -21,6 +26,12 @@ export function SettingsLayout() {
         { key: 'approvals', label: 'Approvals', icon: <ShieldCheck size={16} /> },
         { key: 'mcp', label: 'MCP Health', icon: <Plug size={16} /> },
     ];
+
+    const tabs = allTabs.filter((tab) => {
+        if (mode === 'memory') return tab.key === 'memory' || tab.key === 'replay';
+        if (mode === 'control') return tab.key !== 'memory' && tab.key !== 'replay';
+        return true;
+    });
 
     return (
         <div className="flex h-full">
