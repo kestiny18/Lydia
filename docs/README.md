@@ -24,6 +24,7 @@
 - API Reference (planned)
 - Implementation Details (planned)
 - [Task Execution Chain Plan](./implementation/task-execution-chain-plan.md)
+- [Computer-Use Capability Plan](./implementation/computer-use-capability-plan.md)
 - [Local Installation Plan](./implementation/local-installation-plan.md)
 - [Pre-Release Plan](./implementation/pre-release-plan.md)
 - [Getting Started](./getting-started.md)
