@@ -5,6 +5,7 @@ import { useWebSocket } from '../lib/useWebSocket';
 import { TaskHistoryList } from './TaskHistoryList';
 import { TaskDetailView } from './TaskDetailView';
 import type { AgentEvent, WsMessage } from '../types';
+import { Panel } from './ui/Panel';
 
 export function TaskHome() {
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -162,37 +163,52 @@ export function TaskHome() {
     }, []);
 
     return (
-        <div className="flex h-full">
-            {/* Left Panel: Task History */}
-            <div className="w-72 shrink-0 border-r border-gray-200 p-3 flex flex-col">
-                <TaskHistoryList
-                    selectedId={selectedId}
-                    onSelect={handleSelect}
-                    activeRunId={activeRunId}
-                />
-            </div>
-
-            {/* Right Panel: Task Detail / Input */}
-            <div className="flex-1 min-w-0 overflow-hidden">
-                <TaskDetailView
-                    selectedId={selectedId}
-                    isRunning={isRunning && selectedId === activeRunId}
-                    onSubmitTask={handleSubmitTask}
-                    onResumeTask={handleResumeTask}
-                    activeRunId={activeRunId}
-                    activeInput={activeInput}
-                    activeStartedAt={activeStartedAt}
-                    streamText={streamText}
-                    agentEvents={agentEvents}
-                    activeTools={activeTools}
-                    wsStatus={wsStatus}
-                    pendingPrompt={pendingPrompt}
-                    promptResponse={promptResponse}
-                    onPromptResponseChange={setPromptResponse}
-                    onPromptSubmit={handlePromptSubmit}
-                    lastResult={lastResult}
-                    liveError={error}
-                />
+        <div className="h-full p-6">
+            <div className="h-full grid grid-cols-12 gap-4">
+                <div className="col-span-12 lg:col-span-4 xl:col-span-3 min-h-0">
+                    <Panel
+                        title="Work Queue"
+                        subtitle="New, running, and historical tasks."
+                        className="h-full flex flex-col"
+                    >
+                        <div className="h-[calc(100vh-210px)]">
+                            <TaskHistoryList
+                                selectedId={selectedId}
+                                onSelect={handleSelect}
+                                activeRunId={activeRunId}
+                            />
+                        </div>
+                    </Panel>
+                </div>
+                <div className="col-span-12 lg:col-span-8 xl:col-span-9 min-h-0">
+                    <Panel
+                        title={selectedId ? 'Task Detail' : 'Task Composer'}
+                        subtitle={selectedId ? 'Live execution, reports, and traces.' : 'Create and run a new task.'}
+                        className="h-full flex flex-col"
+                    >
+                        <div className="h-[calc(100vh-210px)]">
+                            <TaskDetailView
+                                selectedId={selectedId}
+                                isRunning={isRunning && selectedId === activeRunId}
+                                onSubmitTask={handleSubmitTask}
+                                onResumeTask={handleResumeTask}
+                                activeRunId={activeRunId}
+                                activeInput={activeInput}
+                                activeStartedAt={activeStartedAt}
+                                streamText={streamText}
+                                agentEvents={agentEvents}
+                                activeTools={activeTools}
+                                wsStatus={wsStatus}
+                                pendingPrompt={pendingPrompt}
+                                promptResponse={promptResponse}
+                                onPromptResponseChange={setPromptResponse}
+                                onPromptSubmit={handlePromptSubmit}
+                                lastResult={lastResult}
+                                liveError={error}
+                            />
+                        </div>
+                    </Panel>
+                </div>
             </div>
         </div>
     );

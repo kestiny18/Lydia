@@ -51,7 +51,7 @@ export function TaskDetailView({
     // Mode A: New task (no selection)
     if (selectedId === null) {
         return (
-            <div className="h-full p-6">
+            <div className="h-full">
                 <TaskInput onSubmit={onSubmitTask} isRunning={!!activeRunId} />
             </div>
         );
@@ -60,7 +60,7 @@ export function TaskDetailView({
     // Mode B: Running task (selected ID matches active run)
     if (selectedId === activeRunId && activeRunId) {
         return (
-            <div className="h-full p-6">
+            <div className="h-full">
                 <TaskLiveView
                     runId={activeRunId}
                     input={activeInput}
@@ -83,7 +83,7 @@ export function TaskDetailView({
 
     // Mode C: Completed/historical task (or resumable)
     return (
-        <div className="h-full p-6">
+        <div className="h-full overflow-auto">
             <TaskReportView taskId={selectedId} onResumeTask={onResumeTask} />
         </div>
     );

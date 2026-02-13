@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { Search, Plus, Loader2, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import type { TaskHistoryItem, TaskStatus } from '../types';
+import { FeedbackState } from './ui/FeedbackState';
+import { StatusPill } from './ui/StatusPill';
 
 interface TaskHistoryListProps {
     selectedId: string | null;
@@ -69,17 +71,11 @@ export function TaskHistoryList({ selectedId, onSelect, activeRunId }: TaskHisto
             {/* Task List */}
             <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-1">
                 {isLoading && items.length === 0 && (
-                    <div className="flex items-center justify-center py-8 text-gray-400">
-                        <Loader2 size={16} className="animate-spin mr-2" />
-                        <span className="text-xs">Loading...</span>
-                    </div>
+                    <FeedbackState type="loading" title="Loading tasks..." />
                 )}
 
                 {!isLoading && items.length === 0 && (
-                    <div className="text-center py-8 text-gray-400">
-                        <p className="text-sm">No tasks yet</p>
-                        <p className="text-xs mt-1">Create a new task to get started</p>
-                    </div>
+                    <FeedbackState type="empty" title="No tasks yet" message="Create a new task to get started." />
                 )}
 
                 {items.map((item) => (
@@ -128,6 +124,10 @@ function TaskHistoryCard({
                         </div>
                     )}
                     <div className="flex items-center gap-2 mt-1">
+                        <StatusPill
+                            tone={item.status === 'running' || isActive ? 'running' : item.status === 'completed' ? 'success' : 'danger'}
+                            label={item.status === 'running' || isActive ? 'running' : item.status}
+                        />
                         <span className="text-[10px] text-gray-400">
                             {formatRelativeTime(item.createdAt)}
                         </span>

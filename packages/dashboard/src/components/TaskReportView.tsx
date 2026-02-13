@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
-import { CheckCircle2, XCircle, ChevronDown, ChevronRight, Clock, RotateCcw, Loader2, AlertCircle } from 'lucide-react';
+import { CheckCircle2, XCircle, ChevronDown, ChevronRight, Clock, RotateCcw, AlertCircle } from 'lucide-react';
 import type { TaskDetail } from '../types';
+import { FeedbackState } from './ui/FeedbackState';
+import { Panel } from './ui/Panel';
 
 interface TaskReportViewProps {
     taskId: string;
@@ -28,9 +30,8 @@ export function TaskReportView({ taskId, onResumeTask }: TaskReportViewProps) {
 
     if (isLoading) {
         return (
-            <div className="flex items-center justify-center h-64 text-gray-400">
-                <Loader2 size={20} className="animate-spin mr-2" />
-                Loading task details...
+            <div className="max-w-3xl">
+                <FeedbackState type="loading" title="Loading task details..." />
             </div>
         );
     }
@@ -67,9 +68,12 @@ export function TaskReportView({ taskId, onResumeTask }: TaskReportViewProps) {
         }
 
         return (
-            <div className="flex items-center justify-center h-64 text-gray-400">
-                <XCircle size={16} className="mr-2" />
-                {error ? String((error as any).message || error) : 'Task not found'}
+            <div className="max-w-3xl">
+                <FeedbackState
+                    type="error"
+                    title="Task detail unavailable"
+                    message={error ? String((error as any).message || error) : 'Task not found'}
+                />
             </div>
         );
     }
@@ -123,9 +127,9 @@ export function TaskReportView({ taskId, onResumeTask }: TaskReportViewProps) {
 
             {/* Summary */}
             {report?.summary && (
-                <div className="bg-gray-50 rounded-lg p-4">
+                <Panel tone="subtle">
                     <p className="text-sm text-gray-700">{report.summary}</p>
-                </div>
+                </Panel>
             )}
 
             {/* Outputs */}
