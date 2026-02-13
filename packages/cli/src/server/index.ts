@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 import type { WSContext } from 'hono/ws';
+import { checkMcpServers } from '../mcp/health.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -108,6 +109,40 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
       ready,
       configPath,
       strategyPath
+    });
+  });
+
+  app.get('/api/mcp/check', async (c) => {
+    const config = await new ConfigLoader().load();
+    const allServers = Object.entries(config.mcpServers || {});
+    const targetServer = c.req.query('server');
+    const timeoutMs = Number(c.req.query('timeoutMs')) || 15000;
+    const retries = Math.max(0, Number(c.req.query('retries')) || 0);
+
+    const targets = targetServer
+      ? allServers.filter(([id]) => id === targetServer)
+      : allServers;
+
+    if (targets.length === 0) {
+      return c.json({
+        ok: false,
+        error: targetServer
+          ? `MCP server "${targetServer}" not found in config.`
+          : 'No external MCP servers configured.',
+        results: [],
+      }, 404);
+    }
+
+    const results = await checkMcpServers(
+      targets.map(([id, s]) => ({ id, command: s.command, args: s.args, env: s.env })),
+      { timeoutMs, retries }
+    );
+
+    return c.json({
+      ok: results.every((r) => r.ok),
+      timeoutMs,
+      retries,
+      results,
     });
   });
 

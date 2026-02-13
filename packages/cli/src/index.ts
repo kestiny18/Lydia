@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, ReplayManager, StrategyRegistry, StrategyReviewer, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager, McpClientManager } from '@lydia/core';
+import { Agent, ReplayManager, StrategyRegistry, StrategyReviewer, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import { reviewCommand } from './commands/review.js';
+import { checkMcpServers, type McpCheckTarget } from './mcp/health.js';
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -46,36 +47,6 @@ function bumpPatchVersion(version: string): string {
   }
   parts[2] += 1;
   return parts.join('.');
-}
-
-async function checkMcpServer(
-  id: string,
-  serverConfig: { command: string; args?: string[]; env?: Record<string, string> }
-): Promise<{ id: string; ok: boolean; tools: string[]; durationMs: number; error?: string }> {
-  const manager = new McpClientManager();
-  const start = Date.now();
-  try {
-    await manager.connect({
-      id,
-      type: 'stdio',
-      command: serverConfig.command,
-      args: serverConfig.args || [],
-      env: serverConfig.env,
-    });
-
-    const tools = manager.getTools().map((t) => t.name);
-    return { id, ok: true, tools, durationMs: Date.now() - start };
-  } catch (error: any) {
-    return {
-      id,
-      ok: false,
-      tools: [],
-      durationMs: Date.now() - start,
-      error: error?.message || String(error),
-    };
-  } finally {
-    await manager.closeAll().catch(() => {});
-  }
 }
 
 async function main() {
@@ -370,6 +341,9 @@ async function main() {
     .command('check')
     .description('Check configured external MCP servers and list discovered tools')
     .option('-s, --server <id>', 'Check only one configured server id (e.g. browser)')
+    .option('--timeout-ms <ms>', 'Connection timeout per server (default: 15000)', '15000')
+    .option('--retries <n>', 'Retry attempts per server (default: 0)', '0')
+    .option('--json', 'Output JSON only')
     .action(async (options) => {
       const config = await new ConfigLoader().load();
       const allServers = Object.entries(config.mcpServers || {});
@@ -384,24 +358,50 @@ async function main() {
         : allServers;
 
       if (targets.length === 0) {
-        console.error(chalk.red(`MCP server "${options.server}" not found in config.`));
+        const message = `MCP server "${options.server}" not found in config.`;
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+        } else {
+          console.error(chalk.red(message));
+        }
         process.exitCode = 1;
+        return;
+      }
+
+      const checkTargets: McpCheckTarget[] = targets.map(([id, serverConfig]) => ({
+        id,
+        command: serverConfig.command,
+        args: serverConfig.args,
+        env: serverConfig.env,
+      }));
+      const timeoutMs = Number(options.timeoutMs) || 15000;
+      const retries = Math.max(0, Number(options.retries) || 0);
+      const results = await checkMcpServers(checkTargets, { timeoutMs, retries });
+
+      if (options.json) {
+        const failed = results.filter((r) => !r.ok).length;
+        console.log(JSON.stringify({
+          ok: failed === 0,
+          timeoutMs,
+          retries,
+          results,
+        }, null, 2));
+        if (failed > 0) process.exitCode = 1;
         return;
       }
 
       console.log(chalk.bold(`\nChecking ${targets.length} MCP server(s)...\n`));
 
       let failed = 0;
-      for (const [id, serverConfig] of targets) {
-        const result = await checkMcpServer(id, serverConfig);
+      for (const result of results) {
         if (!result.ok) {
           failed += 1;
-          console.log(chalk.red(`x ${id} (${result.durationMs}ms)`));
+          console.log(chalk.red(`x ${result.id} (${result.durationMs}ms, attempts=${result.attempts})`));
           console.log(chalk.dim(`  ${result.error}`));
           continue;
         }
 
-        console.log(chalk.green(`* ${id} (${result.durationMs}ms)`));
+        console.log(chalk.green(`* ${result.id} (${result.durationMs}ms, attempts=${result.attempts})`));
         if (result.tools.length === 0) {
           console.log(chalk.dim('  tools: (none discovered)'));
         } else {
@@ -415,6 +415,67 @@ async function main() {
       } else {
         console.log(chalk.green('\nAll checked MCP servers are reachable.'));
       }
+    });
+
+  mcpCmd
+    .command('tools')
+    .description('List discovered tools from configured external MCP servers')
+    .option('-s, --server <id>', 'Inspect one configured server id')
+    .option('--timeout-ms <ms>', 'Connection timeout per server (default: 15000)', '15000')
+    .option('--retries <n>', 'Retry attempts per server (default: 0)', '0')
+    .option('--json', 'Output JSON only')
+    .action(async (options) => {
+      const config = await new ConfigLoader().load();
+      const allServers = Object.entries(config.mcpServers || {});
+      const targets = options.server
+        ? allServers.filter(([id]) => id === options.server)
+        : allServers;
+
+      if (targets.length === 0) {
+        const message = options.server
+          ? `MCP server "${options.server}" not found in config.`
+          : 'No external MCP servers configured in ~/.lydia/config.json';
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+        } else {
+          console.error(chalk.red(message));
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const timeoutMs = Number(options.timeoutMs) || 15000;
+      const retries = Math.max(0, Number(options.retries) || 0);
+      const results = await checkMcpServers(
+        targets.map(([id, s]) => ({ id, command: s.command, args: s.args, env: s.env })),
+        { timeoutMs, retries }
+      );
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          ok: results.every((r) => r.ok),
+          toolsByServer: results.map((r) => ({ id: r.id, ok: r.ok, tools: r.tools, error: r.error })),
+        }, null, 2));
+        if (!results.every((r) => r.ok)) process.exitCode = 1;
+        return;
+      }
+
+      for (const result of results) {
+        if (!result.ok) {
+          console.log(chalk.red(`x ${result.id}: ${result.error}`));
+          continue;
+        }
+        console.log(chalk.green(`${result.id}`));
+        if (result.tools.length === 0) {
+          console.log(chalk.dim('  (no tools)'));
+          continue;
+        }
+        for (const tool of result.tools) {
+          console.log(`  - ${tool}`);
+        }
+      }
+
+      if (!results.every((r) => r.ok)) process.exitCode = 1;
     });
 
   program
