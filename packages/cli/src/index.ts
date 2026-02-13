@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, ReplayManager, StrategyRegistry, StrategyReviewer, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
+import { Agent, ReplayManager, StrategyRegistry, StrategyReviewer, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager, McpClientManager } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +46,36 @@ function bumpPatchVersion(version: string): string {
   }
   parts[2] += 1;
   return parts.join('.');
+}
+
+async function checkMcpServer(
+  id: string,
+  serverConfig: { command: string; args?: string[]; env?: Record<string, string> }
+): Promise<{ id: string; ok: boolean; tools: string[]; durationMs: number; error?: string }> {
+  const manager = new McpClientManager();
+  const start = Date.now();
+  try {
+    await manager.connect({
+      id,
+      type: 'stdio',
+      command: serverConfig.command,
+      args: serverConfig.args || [],
+      env: serverConfig.env,
+    });
+
+    const tools = manager.getTools().map((t) => t.name);
+    return { id, ok: true, tools, durationMs: Date.now() - start };
+  } catch (error: any) {
+    return {
+      id,
+      ok: false,
+      tools: [],
+      durationMs: Date.now() - start,
+      error: error?.message || String(error),
+    };
+  } finally {
+    await manager.closeAll().catch(() => {});
+  }
 }
 
 async function main() {
@@ -331,6 +361,61 @@ async function main() {
     });
 
   program.addCommand(reviewCommand());
+
+  const mcpCmd = program
+    .command('mcp')
+    .description('Inspect external MCP server connectivity');
+
+  mcpCmd
+    .command('check')
+    .description('Check configured external MCP servers and list discovered tools')
+    .option('-s, --server <id>', 'Check only one configured server id (e.g. browser)')
+    .action(async (options) => {
+      const config = await new ConfigLoader().load();
+      const allServers = Object.entries(config.mcpServers || {});
+
+      if (allServers.length === 0) {
+        console.log(chalk.yellow('No external MCP servers configured in ~/.lydia/config.json'));
+        return;
+      }
+
+      const targets = options.server
+        ? allServers.filter(([id]) => id === options.server)
+        : allServers;
+
+      if (targets.length === 0) {
+        console.error(chalk.red(`MCP server "${options.server}" not found in config.`));
+        process.exitCode = 1;
+        return;
+      }
+
+      console.log(chalk.bold(`\nChecking ${targets.length} MCP server(s)...\n`));
+
+      let failed = 0;
+      for (const [id, serverConfig] of targets) {
+        const result = await checkMcpServer(id, serverConfig);
+        if (!result.ok) {
+          failed += 1;
+          console.log(chalk.red(`x ${id} (${result.durationMs}ms)`));
+          console.log(chalk.dim(`  ${result.error}`));
+          continue;
+        }
+
+        console.log(chalk.green(`* ${id} (${result.durationMs}ms)`));
+        if (result.tools.length === 0) {
+          console.log(chalk.dim('  tools: (none discovered)'));
+        } else {
+          console.log(chalk.dim(`  tools (${result.tools.length}): ${result.tools.join(', ')}`));
+        }
+      }
+
+      if (failed > 0) {
+        process.exitCode = 1;
+        console.log(chalk.red(`\n${failed} server(s) failed health check.`));
+      } else {
+        console.log(chalk.green('\nAll checked MCP servers are reachable.'));
+      }
+    });
 
   program
     .command('init')
