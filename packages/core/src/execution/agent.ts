@@ -24,6 +24,7 @@ import { FeedbackCollector } from '../feedback/index.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { LydiaConfig } from '../config/index.js';
+import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
@@ -67,6 +68,9 @@ export class Agent extends EventEmitter {
   private currentInput?: string;
   private currentTaskCreatedAt?: number;
 
+  // Centralized built-in server descriptors keep MCP wiring declarative.
+  private builtinServerSpecs: Array<{ id: string; create: () => Server }> = [];
+
   constructor(llm: ILLMProvider) {
     super();
     this.llm = llm;
@@ -102,26 +106,12 @@ export class Agent extends EventEmitter {
     this.reviewManager = new ReviewManager(this.memoryManager);
 
     const memoryServer = new MemoryServer(this.memoryManager);
-
-    // Connect Memory Server
-    const [memClientTransport, memServerTransport] = InMemoryTransport.createLinkedPair();
-    await memoryServer.server.connect(memServerTransport);
-    await this.mcpClientManager.connect({
-      id: 'internal-memory',
-      type: 'in-memory',
-      transport: memClientTransport
-    });
+    await this.connectInMemoryServer('internal-memory', memoryServer.server);
 
     // 0.6 Interaction Server (ask_user)
     this.interactionServer = new InteractionServer();
     this.interactionServer.on('request', (req) => this.emit('interaction_request', req));
-    const [interactionClientTransport, interactionServerTransport] = InMemoryTransport.createLinkedPair();
-    await this.interactionServer.server.connect(interactionServerTransport);
-    await this.mcpClientManager.connect({
-      id: 'internal-interaction',
-      type: 'in-memory',
-      transport: interactionClientTransport
-    });
+    await this.connectInMemoryServer('internal-interaction', this.interactionServer.server);
 
     // 1. Load Skills (Phase 1: metadata only for progressive disclosure)
     const extraSkillDirs = config.skills?.extraDirs ?? [];
@@ -166,52 +156,16 @@ export class Agent extends EventEmitter {
       throw new Error("Failed to initialize Agent: No strategy loaded.");
     }
 
-    // 2. Initialize Built-in Servers
-    const shellServer = new ShellServer();
-    const fsServer = new FileSystemServer();
-
-    // Connect Shell Server
-    const [shellClientTransport, shellServerTransport] = InMemoryTransport.createLinkedPair();
-    await shellServer.server.connect(shellServerTransport);
-    await this.mcpClientManager.connect({
-      id: 'internal-shell',
-      type: 'in-memory',
-      transport: shellClientTransport
-    });
-
-    // Connect FS Server
-    const [fsClientTransport, fsServerTransport] = InMemoryTransport.createLinkedPair();
-    await fsServer.server.connect(fsServerTransport);
-    await this.mcpClientManager.connect({
-      id: 'internal-fs',
-      type: 'in-memory',
-      transport: fsClientTransport
-    });
-
-    // Connect Git Server
-    const gitServer = new GitServer();
-    const [gitClientTransport, gitServerTransport] = InMemoryTransport.createLinkedPair();
-    await gitServer.server.connect(gitServerTransport);
-    await this.mcpClientManager.connect({
-      id: 'internal-git',
-      type: 'in-memory',
-      transport: gitClientTransport
-    });
+    // 2. Initialize built-in MCP servers (declarative for future capability expansion).
+    this.builtinServerSpecs = [
+      { id: 'internal-shell', create: () => new ShellServer().server },
+      { id: 'internal-fs', create: () => new FileSystemServer().server },
+      { id: 'internal-git', create: () => new GitServer().server },
+    ];
+    await this.connectBuiltinServers();
 
     // 5. Connect External MCP Servers
-    for (const [id, serverConfig] of Object.entries(config.mcpServers)) {
-      try {
-        await this.mcpClientManager.connect({
-          id,
-          type: 'stdio',
-          command: serverConfig.command,
-          args: serverConfig.args,
-          env: serverConfig.env,
-        });
-      } catch (error) {
-        console.warn(`Failed to connect to external MCP server ${id}:`, error);
-      }
-    }
+    await this.connectExternalMcpServers(config.mcpServers);
 
     this.isInitialized = true;
 
@@ -234,6 +188,38 @@ export class Agent extends EventEmitter {
 
   private isDynamicSkillCheck(skill: Skill | SkillMeta): skill is DynamicSkill {
     return isDynamicSkill(skill);
+  }
+
+  private async connectInMemoryServer(id: string, server: Server): Promise<void> {
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    await this.mcpClientManager.connect({
+      id,
+      type: 'in-memory',
+      transport: clientTransport,
+    });
+  }
+
+  private async connectBuiltinServers(): Promise<void> {
+    for (const spec of this.builtinServerSpecs) {
+      await this.connectInMemoryServer(spec.id, spec.create());
+    }
+  }
+
+  private async connectExternalMcpServers(servers: LydiaConfig['mcpServers']): Promise<void> {
+    for (const [id, serverConfig] of Object.entries(servers || {})) {
+      try {
+        await this.mcpClientManager.connect({
+          id,
+          type: 'stdio',
+          command: serverConfig.command,
+          args: serverConfig.args,
+          env: serverConfig.env,
+        });
+      } catch (error) {
+        console.warn(`Failed to connect to external MCP server ${id}:`, error);
+      }
+    }
   }
 
   private getAllToolDefinitions(): ToolDefinition[] {
