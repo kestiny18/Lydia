@@ -15,6 +15,7 @@
 - [Task Results Presentation](./architecture/task-results-presentation.md) - User-facing results UI
 - [Task Input UI](./architecture/task-input-ui.md) - Web task submission flow
 - [Local Installation](./architecture/local-installation.md) - One-click local installer design
+- [Browser Capability Contract](./architecture/browser-capability-contract.md) - Browser MCP tool contract and integration checklist
 - [Safety and Risk Controls](./safety.md)
 - [North Star](./north-star.md) - Strategy evolution roadmap
 - [Strategy Schema](./strategy-schema.md)
