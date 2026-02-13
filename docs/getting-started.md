@@ -201,6 +201,23 @@ The full configuration schema (`~/.lydia/config.json`):
 | `hotReload` | true | Enable file system watching for automatic skill reload |
 | `extraDirs` | [] | Additional directories to scan for skills |
 
+### External MCP Example: Browser Automation
+
+Lydia can use browser computer-use tools through an external MCP server:
+
+```json
+{
+  "mcpServers": {
+    "browser": {
+      "command": "npx",
+      "args": ["-y", "@your-org/mcp-browser-server"]
+    }
+  }
+}
+```
+
+After startup, browser tools from that server are available to the agent through the normal tool-calling path.
+
 ## Launch Dashboard
 ```bash
 lydia dashboard

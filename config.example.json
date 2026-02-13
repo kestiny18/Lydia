@@ -12,6 +12,10 @@
     "filesystem": {
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"]
+    },
+    "browser": {
+      "command": "npx",
+      "args": ["-y", "@your-org/mcp-browser-server"]
     }
   },
   "strategy": {
