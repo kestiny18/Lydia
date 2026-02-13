@@ -26,6 +26,7 @@
 - Implementation Details (planned)
 - [Task Execution Chain Plan](./implementation/task-execution-chain-plan.md)
 - [Computer-Use Capability Plan](./implementation/computer-use-capability-plan.md)
+- [Browser MCP Smoke Runbook](./implementation/browser-mcp-smoke-runbook.md)
 - [Local Installation Plan](./implementation/local-installation-plan.md)
 - [Pre-Release Plan](./implementation/pre-release-plan.md)
 - [Getting Started](./getting-started.md)
