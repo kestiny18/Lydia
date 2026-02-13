@@ -218,6 +218,12 @@ Lydia can use browser computer-use tools through an external MCP server:
 
 After startup, browser tools from that server are available to the agent through the normal tool-calling path.
 
+Validate connectivity:
+
+```bash
+lydia mcp check --server browser
+```
+
 ## Launch Dashboard
 ```bash
 lydia dashboard
