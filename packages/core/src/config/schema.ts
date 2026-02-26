@@ -11,6 +11,11 @@ export const ConfigSchema = z.object({
     provider: z.enum(['anthropic', 'openai', 'ollama', 'mock', 'auto']).default('auto'),
     defaultModel: z.string().default(''),
     fallbackOrder: z.array(z.enum(['ollama', 'openai', 'anthropic', 'mock'])).default([]),
+    openaiApiKey: z.string().default(''),
+    anthropicApiKey: z.string().default(''),
+    openaiBaseUrl: z.string().default(''),
+    anthropicBaseUrl: z.string().default(''),
+    ollamaBaseUrl: z.string().default(''),
   }).default({}),
   mcpServers: z.record(McpServerSchema).default({}),
   strategy: z.object({

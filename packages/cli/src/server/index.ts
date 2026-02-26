@@ -1,10 +1,18 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
-import { MemoryManager, ConfigLoader, Agent, StrategyRegistry, StrategyApprovalService, ShadowRouter, createLLMFromConfig } from '@lydia/core';
+import {
+  MemoryManager,
+  ConfigLoader,
+  Agent,
+  StrategyRegistry,
+  StrategyApprovalService,
+  ShadowRouter,
+  createLLMFromConfig,
+} from '@lydia/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -35,6 +43,60 @@ interface WsMessage {
   type: string;
   data?: any;
   timestamp: number;
+}
+
+function getSetupPaths() {
+  const baseDir = join(homedir(), '.lydia');
+  const strategiesDir = join(baseDir, 'strategies');
+  const skillsDir = join(baseDir, 'skills');
+  const configPath = join(baseDir, 'config.json');
+  const strategyPath = join(strategiesDir, 'default.yml');
+  return { baseDir, strategiesDir, skillsDir, configPath, strategyPath };
+}
+
+function maskSecret(value?: string): string {
+  if (!value) return '';
+  if (value.length <= 8) return '*'.repeat(value.length);
+  return `${value.slice(0, 4)}${'*'.repeat(Math.max(4, value.length - 8))}${value.slice(-4)}`;
+}
+
+function pickString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  return value.trim();
+}
+
+async function ensureLocalWorkspace() {
+  const { strategiesDir, skillsDir, configPath, strategyPath } = getSetupPaths();
+  await mkdir(strategiesDir, { recursive: true });
+  await mkdir(skillsDir, { recursive: true });
+
+  const loader = new ConfigLoader();
+  if (!existsSync(configPath)) {
+    const config = await loader.load();
+    await writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
+  }
+
+  if (!existsSync(strategyPath)) {
+    const registry = new StrategyRegistry();
+    const strategy = await registry.loadDefault();
+    const initial = {
+      ...strategy,
+      metadata: {
+        ...strategy.metadata,
+        id: 'default',
+        version: '1.0.0',
+        name: 'Default Strategy',
+      },
+    };
+    await registry.saveToFile(initial as any, strategyPath);
+  }
+
+  const config = await loader.load();
+  if (!config.strategy.activePath) {
+    await loader.update({ strategy: { activePath: strategyPath } } as any);
+  }
+
+  return getSetupPaths();
 }
 
 export function createServer(port: number = 3000, options?: { silent?: boolean }) {
@@ -106,16 +168,152 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
   });
 
   // Setup status
-  app.get('/api/setup', (c) => {
-    const baseDir = join(homedir(), '.lydia');
-    const configPath = join(baseDir, 'config.json');
-    const strategyPath = join(baseDir, 'strategies', 'default.yml');
+  app.get('/api/setup', async (c) => {
+    const { configPath, strategyPath } = getSetupPaths();
     const ready = existsSync(configPath) && existsSync(strategyPath);
+    const config = await new ConfigLoader().load();
+    const hasConfiguredKey = Boolean(config.llm.openaiApiKey || config.llm.anthropicApiKey);
+    const hasEnvKey = Boolean(process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY);
     return c.json({
       ready,
       configPath,
-      strategyPath
+      strategyPath,
+      llmConfigured: hasConfiguredKey || hasEnvKey,
+      provider: config.llm.provider || 'auto',
     });
+  });
+
+  app.post('/api/setup/init', async (c) => {
+    try {
+      const paths = await ensureLocalWorkspace();
+      return c.json({
+        ok: true,
+        ready: existsSync(paths.configPath) && existsSync(paths.strategyPath),
+        ...paths,
+      });
+    } catch (error: any) {
+      return c.json({ error: error?.message || 'Failed to initialize workspace.' }, 500);
+    }
+  });
+
+  app.get('/api/setup/config', async (c) => {
+    const { configPath, strategyPath } = getSetupPaths();
+    const config = await new ConfigLoader().load();
+
+    const openaiKey = config.llm.openaiApiKey || process.env.OPENAI_API_KEY || '';
+    const anthropicKey = config.llm.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '';
+
+    return c.json({
+      ready: existsSync(configPath) && existsSync(strategyPath),
+      llm: {
+        provider: config.llm.provider,
+        defaultModel: config.llm.defaultModel,
+        fallbackOrder: config.llm.fallbackOrder,
+        openaiBaseUrl: config.llm.openaiBaseUrl,
+        anthropicBaseUrl: config.llm.anthropicBaseUrl,
+        ollamaBaseUrl: config.llm.ollamaBaseUrl,
+        openaiApiKeySet: Boolean(openaiKey),
+        anthropicApiKeySet: Boolean(anthropicKey),
+        openaiApiKeyMasked: maskSecret(openaiKey),
+        anthropicApiKeyMasked: maskSecret(anthropicKey),
+      },
+    });
+  });
+
+  app.post('/api/setup/config', async (c) => {
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+
+    const llmInput = body?.llm || {};
+    const provider = pickString(llmInput.provider);
+    const defaultModel = pickString(llmInput.defaultModel);
+    const openaiBaseUrl = pickString(llmInput.openaiBaseUrl);
+    const anthropicBaseUrl = pickString(llmInput.anthropicBaseUrl);
+    const ollamaBaseUrl = pickString(llmInput.ollamaBaseUrl);
+    const fallbackOrder = Array.isArray(llmInput.fallbackOrder)
+      ? llmInput.fallbackOrder.filter((item: unknown) => typeof item === 'string')
+      : undefined;
+
+    const providerSet = new Set(['anthropic', 'openai', 'ollama', 'mock', 'auto']);
+    if (provider && !providerSet.has(provider)) {
+      return c.json({ error: `Unsupported provider: ${provider}` }, 400);
+    }
+
+    const updateLlm: Record<string, unknown> = {};
+    if (provider !== undefined) updateLlm.provider = provider;
+    if (defaultModel !== undefined) updateLlm.defaultModel = defaultModel;
+    if (fallbackOrder !== undefined) updateLlm.fallbackOrder = fallbackOrder;
+    if (openaiBaseUrl !== undefined) updateLlm.openaiBaseUrl = openaiBaseUrl;
+    if (anthropicBaseUrl !== undefined) updateLlm.anthropicBaseUrl = anthropicBaseUrl;
+    if (ollamaBaseUrl !== undefined) updateLlm.ollamaBaseUrl = ollamaBaseUrl;
+
+    if (Object.prototype.hasOwnProperty.call(llmInput, 'openaiApiKey')) {
+      updateLlm.openaiApiKey = String(llmInput.openaiApiKey || '').trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(llmInput, 'anthropicApiKey')) {
+      updateLlm.anthropicApiKey = String(llmInput.anthropicApiKey || '').trim();
+    }
+
+    try {
+      const next = await new ConfigLoader().update({ llm: updateLlm } as any);
+      return c.json({
+        ok: true,
+        llm: {
+          provider: next.llm.provider,
+          defaultModel: next.llm.defaultModel,
+          fallbackOrder: next.llm.fallbackOrder,
+          openaiBaseUrl: next.llm.openaiBaseUrl,
+          anthropicBaseUrl: next.llm.anthropicBaseUrl,
+          ollamaBaseUrl: next.llm.ollamaBaseUrl,
+          openaiApiKeySet: Boolean(next.llm.openaiApiKey),
+          anthropicApiKeySet: Boolean(next.llm.anthropicApiKey),
+          openaiApiKeyMasked: maskSecret(next.llm.openaiApiKey),
+          anthropicApiKeyMasked: maskSecret(next.llm.anthropicApiKey),
+        },
+      });
+    } catch (error: any) {
+      return c.json({ error: error?.message || 'Failed to update setup config.' }, 400);
+    }
+  });
+
+  app.post('/api/setup/test-llm', async (c) => {
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+    const probe = Boolean(body?.probe);
+
+    try {
+      const llm = await createLLMFromConfig();
+      if (probe) {
+        const timeoutMs = Number(body?.timeoutMs) > 0 ? Number(body.timeoutMs) : 15000;
+        const response = await Promise.race([
+          llm.generate({
+            messages: [{ role: 'user', content: 'Reply with exactly: OK' }],
+            max_tokens: 16,
+            temperature: 0,
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('LLM probe timeout')), timeoutMs)),
+        ]);
+
+        const text = (response as any)?.content
+          ?.filter((block: any) => block.type === 'text')
+          ?.map((block: any) => block.text)
+          ?.join('\n')
+          ?.trim?.() || '';
+        return c.json({ ok: true, provider: llm.id, probeText: text.slice(0, 200) });
+      }
+
+      return c.json({ ok: true, provider: llm.id });
+    } catch (error: any) {
+      return c.json({ ok: false, error: error?.message || 'Failed to initialize provider.' }, 400);
+    }
   });
 
   app.get('/api/mcp/check', async (c) => {

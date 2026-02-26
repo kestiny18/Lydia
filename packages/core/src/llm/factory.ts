@@ -27,6 +27,11 @@ export async function createLLMFromConfig(options?: CreateLLMOptions): Promise<I
   const config = await new ConfigLoader().load();
   const providerChoice = options?.provider || config.llm?.provider || 'auto';
   const defaultModel = options?.model || config.llm?.defaultModel || undefined;
+  const openaiApiKey = config.llm?.openaiApiKey || process.env.OPENAI_API_KEY || '';
+  const anthropicApiKey = config.llm?.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '';
+  const openaiBaseUrl = config.llm?.openaiBaseUrl || process.env.OPENAI_BASE_URL || '';
+  const anthropicBaseUrl = config.llm?.anthropicBaseUrl || process.env.ANTHROPIC_BASE_URL || '';
+  const ollamaBaseUrl = config.llm?.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || '';
   const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm.fallbackOrder.length > 0
     ? config.llm.fallbackOrder
     : ['ollama', 'openai', 'anthropic'];
@@ -36,21 +41,29 @@ export async function createLLMFromConfig(options?: CreateLLMOptions): Promise<I
       return new MockProvider();
     }
     if (name === 'ollama') {
-      return new OllamaProvider({ defaultModel });
+      return new OllamaProvider({ defaultModel, baseURL: ollamaBaseUrl || undefined });
     }
     if (name === 'openai') {
-      if (!process.env.OPENAI_API_KEY) {
+      if (!openaiApiKey) {
         if (strict) throw new Error('OPENAI_API_KEY is not set.');
         return null;
       }
-      return new OpenAIProvider({ defaultModel });
+      return new OpenAIProvider({
+        apiKey: openaiApiKey,
+        baseURL: openaiBaseUrl || undefined,
+        defaultModel,
+      });
     }
     if (name === 'anthropic') {
-      if (!process.env.ANTHROPIC_API_KEY) {
+      if (!anthropicApiKey) {
         if (strict) throw new Error('ANTHROPIC_API_KEY is not set.');
         return null;
       }
-      return new AnthropicProvider({ defaultModel });
+      return new AnthropicProvider({
+        apiKey: anthropicApiKey,
+        baseURL: anthropicBaseUrl || undefined,
+        defaultModel,
+      });
     }
     if (strict) throw new Error(`Unknown LLM provider: ${name}.`);
     return null;
@@ -62,7 +75,7 @@ export async function createLLMFromConfig(options?: CreateLLMOptions): Promise<I
       .filter((p: ILLMProvider | null): p is ILLMProvider => p !== null);
     if (providers.length === 0) {
       throw new Error(
-        'No available LLM providers. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or ensure Ollama is available.'
+        'No available LLM providers. Configure provider API keys (config or env), or ensure Ollama is available.'
       );
     }
     return providers.length === 1 ? providers[0] : new FallbackProvider(providers);
