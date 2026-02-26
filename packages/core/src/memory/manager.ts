@@ -19,6 +19,15 @@ export interface Episode {
   created_at: number;
 }
 
+export interface StrategyEpisodeSummary {
+  strategy_id: string;
+  strategy_version: string;
+  total: number;
+  success: number;
+  failure: number;
+  avg_duration_ms: number;
+}
+
 export interface Trace {
   id?: number;
   episode_id?: number;
@@ -364,6 +373,66 @@ export class MemoryManager extends EventEmitter {
   public listEpisodes(limit: number = 100): Episode[] {
     const stmt = this.db.prepare('SELECT * FROM episodes ORDER BY created_at DESC LIMIT ?');
     return stmt.all(limit) as Episode[];
+  }
+
+  public listEpisodesByStrategy(
+    strategyId: string,
+    strategyVersion: string,
+    options: { limit?: number; sinceMs?: number } = {}
+  ): Episode[] {
+    const limit = options.limit ?? 200;
+    const sinceMs = options.sinceMs ?? 0;
+    const stmt = this.db.prepare(`
+      SELECT * FROM episodes
+      WHERE strategy_id = ? AND strategy_version = ? AND created_at >= ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(strategyId, strategyVersion, sinceMs, limit) as Episode[];
+  }
+
+  public summarizeEpisodesByStrategy(
+    strategyId: string,
+    strategyVersion: string,
+    options: { limit?: number; sinceMs?: number } = {}
+  ): StrategyEpisodeSummary {
+    const episodes = this.listEpisodesByStrategy(strategyId, strategyVersion, options);
+    if (episodes.length === 0) {
+      return {
+        strategy_id: strategyId,
+        strategy_version: strategyVersion,
+        total: 0,
+        success: 0,
+        failure: 0,
+        avg_duration_ms: 0,
+      };
+    }
+
+    let totalDuration = 0;
+    let success = 0;
+    let failure = 0;
+
+    for (const episode of episodes) {
+      if (!episode.id) continue;
+      const traces = this.getTraces(episode.id);
+      const duration = traces.reduce((acc, trace) => acc + (trace.duration || 0), 0);
+      totalDuration += duration;
+      const failed = traces.some((trace) => trace.status === 'failed');
+      if (failed) {
+        failure += 1;
+      } else {
+        success += 1;
+      }
+    }
+
+    return {
+      strategy_id: strategyId,
+      strategy_version: strategyVersion,
+      total: episodes.length,
+      success,
+      failure,
+      avg_duration_ms: Math.round(totalDuration / episodes.length),
+    };
   }
 
   public recordStrategyProposal(proposal: StrategyProposal): number {
