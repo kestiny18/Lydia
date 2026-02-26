@@ -7,36 +7,36 @@ Deliver a reliable, end-to-end task execution chain that integrates with existin
 - [x] Architecture design doc approved.
 
 ## Phase 1: Intent and Context (Week 1)
-1. Extend Intent schema to IntentProfile.
-2. Update IntentAnalyzer to emit IntentProfile.
-3. Add TaskContext builder in Agent.
+- [x] Extend Intent schema to IntentProfile.
+- [x] Update IntentAnalyzer to emit IntentProfile.
+- [x] Add TaskContext builder in Agent.
 
 Deliverables:
 - IntentProfile schema + tests
 - TaskContext building logic
 
 ## Phase 2: Planning and Verification (Week 2)
-1. Extend Plan schema with dependencies, risk tags, and verification.
-2. Update SimplePlanner prompt to enforce these fields.
-3. Add planner validation to enforce minimal verification steps.
+- [x] Extend Plan schema with dependencies, risk tags, and verification.
+- [x] Update SimplePlanner prompt to enforce these fields.
+- [x] Add planner validation to enforce minimal verification steps.
 
 Deliverables:
 - PlanStep schema and mapping
 - Planner tests for required fields
 
 ## Phase 3: Execution and Reporting (Week 3)
-1. Add StepResult tracking in Agent execution loop.
-2. Implement Reporter module to produce TaskReport.
-3. Write TaskReport to MemoryManager.
+- [x] Add StepResult tracking in Agent execution loop.
+- [x] Implement Reporter module to produce TaskReport.
+- [x] Write TaskReport to MemoryManager.
 
 Deliverables:
 - Reporter module
 - TaskReport storage and retrieval
 
 ## Phase 4: Feedback and UX (Week 4)
-1. Implement FeedbackCollector and CLI prompt flow.
-2. Store TaskFeedback in MemoryManager.
-3. Add results presentation UI for TaskReports (summary + steps).
+- [x] Implement FeedbackCollector and CLI prompt flow.
+- [x] Store TaskFeedback in MemoryManager.
+- [x] Add results presentation UI for TaskReports (summary + steps).
 
 Deliverables:
 - FeedbackCollector module
@@ -44,15 +44,15 @@ Deliverables:
 - Task results presentation UI
 
 ## Phase 4b: Task Input UI (Week 4)
-1. Add task input UI in dashboard.
-2. Add API endpoint to run tasks.
-3. Refresh reports on completion.
-4. Add structured prompt assistant (goal/constraints/success criteria).
+- [x] Add task input UI in dashboard.
+- [x] Add API endpoint to run tasks.
+- [x] Refresh reports on completion.
+- [x] Add structured prompt assistant (goal/constraints/success criteria).
 
 ## Phase 5: Hardening (Week 5)
-1. Failure-aware replan for downstream steps.
-2. Update risk gating to include verification failures.
-3. Add integration tests for full chain.
+- [x] Failure-aware replan for downstream steps.
+- [x] Update risk gating to include verification failures.
+- [x] Add integration tests for full chain.
 
 Deliverables:
 - End-to-end chain tests
