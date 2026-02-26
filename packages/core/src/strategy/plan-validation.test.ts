@@ -57,6 +57,8 @@ describe('Planner validation', () => {
     expect(actionSteps.length).toBeGreaterThan(0);
     for (const actionStep of actionSteps) {
       expect(actionStep.verification && actionStep.verification.length > 0).toBe(true);
+      expect(actionStep.riskLevel).toBeDefined();
+      expect(typeof actionStep.requiresConfirmation).toBe('boolean');
     }
     if (actionSteps.length > 1) {
       expect(actionSteps[1].dependsOn && actionSteps[1].dependsOn.length > 0).toBe(true);
