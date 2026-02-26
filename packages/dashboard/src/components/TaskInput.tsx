@@ -67,11 +67,12 @@ export function TaskInput({ onSubmit, isRunning }: TaskInputProps) {
 
     return (
         <div className="flex flex-col h-full">
-            {/* Header */}
             <div className="flex items-center justify-between mb-4">
                 <div>
                     <h2 className="text-lg font-semibold text-gray-900">New Task</h2>
-                    <p className="text-xs text-gray-500 mt-0.5">Describe what you want Lydia to do</p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                        Use Tasks for tracked execution. Use Chat for exploratory discussion.
+                    </p>
                 </div>
                 <button
                     onClick={() => setShowStructured(!showStructured)}
@@ -82,7 +83,6 @@ export function TaskInput({ onSubmit, isRunning }: TaskInputProps) {
                 </button>
             </div>
 
-            {/* Templates */}
             <div className="flex flex-wrap gap-2 mb-3">
                 {templates.map(template => (
                     <button
@@ -95,7 +95,6 @@ export function TaskInput({ onSubmit, isRunning }: TaskInputProps) {
                 ))}
             </div>
 
-            {/* Structured Prompt Assistant */}
             {showStructured && (
                 <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 mb-3">
                     <div className="flex items-center justify-between mb-3">
@@ -144,7 +143,6 @@ export function TaskInput({ onSubmit, isRunning }: TaskInputProps) {
                 </div>
             )}
 
-            {/* Main Input */}
             <div className="flex-1 flex flex-col">
                 <textarea
                     value={input}
@@ -156,7 +154,7 @@ export function TaskInput({ onSubmit, isRunning }: TaskInputProps) {
                 />
                 <div className="flex items-center justify-between mt-3">
                     <span className="text-xs text-gray-400">
-                        {navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+Enter to submit
+                        {navigator.platform.includes('Mac') ? 'Cmd' : 'Ctrl'}+Enter to submit
                     </span>
                     <button
                         onClick={handleSubmit}

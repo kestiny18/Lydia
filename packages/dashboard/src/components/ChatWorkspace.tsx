@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { MessageSquare, Send } from 'lucide-react';
 import { api } from '../lib/api';
@@ -7,10 +7,20 @@ import { FeedbackState } from './ui/FeedbackState';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
-export function ChatWorkspace() {
+interface ChatWorkspaceProps {
+    seedMessage?: string;
+    seedToken?: number;
+}
+
+export function ChatWorkspace({ seedMessage, seedToken }: ChatWorkspaceProps) {
     const [sessionId, setSessionId] = useState<string | null>(null);
     const [input, setInput] = useState('');
     const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+    useEffect(() => {
+        if (!seedMessage || !seedToken) return;
+        setInput(seedMessage);
+    }, [seedMessage, seedToken]);
 
     const sendMutation = useMutation({
         mutationFn: async (text: string) => {
@@ -41,7 +51,7 @@ export function ChatWorkspace() {
         <div className="h-full p-6">
             <Panel
                 title="Chat Workspace"
-                subtitle="Multi-turn assistant session for exploration and follow-up questions."
+                subtitle="Use chat for exploratory discussion; use Tasks for tracked execution and reports."
                 className="h-full flex flex-col"
             >
                 <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
@@ -113,4 +123,3 @@ export function ChatWorkspace() {
         </div>
     );
 }
-

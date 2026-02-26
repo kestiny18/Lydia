@@ -12,6 +12,8 @@ interface TaskDetailViewProps {
     onSubmitTask: (input: string) => void;
     /** Callback to resume an interrupted task from checkpoint */
     onResumeTask?: (taskId: string) => void;
+    /** Callback to move from task workflow to chat workflow with task context */
+    onContinueInChat?: (seedText: string) => void;
 
     // Live task state (passed through from parent)
     activeRunId: string | null;
@@ -34,6 +36,7 @@ export function TaskDetailView({
     isRunning,
     onSubmitTask,
     onResumeTask,
+    onContinueInChat,
     activeRunId,
     activeInput,
     activeStartedAt,
@@ -76,6 +79,7 @@ export function TaskDetailView({
                     onPromptSubmit={onPromptSubmit}
                     lastResult={lastResult}
                     error={liveError}
+                    onContinueInChat={onContinueInChat}
                 />
             </div>
         );
@@ -84,7 +88,11 @@ export function TaskDetailView({
     // Mode C: Completed/historical task (or resumable)
     return (
         <div className="h-full overflow-auto">
-            <TaskReportView taskId={selectedId} onResumeTask={onResumeTask} />
+            <TaskReportView
+                taskId={selectedId}
+                onResumeTask={onResumeTask}
+                onContinueInChat={onContinueInChat}
+            />
         </div>
     );
 }

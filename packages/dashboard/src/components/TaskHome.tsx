@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../lib/api';
 import { useWebSocket } from '../lib/useWebSocket';
@@ -7,11 +7,14 @@ import { TaskDetailView } from './TaskDetailView';
 import type { AgentEvent, WsMessage } from '../types';
 import { Panel } from './ui/Panel';
 
-export function TaskHome() {
+interface TaskHomeProps {
+    onContinueInChat?: (seedText: string) => void;
+}
+
+export function TaskHome({ onContinueInChat }: TaskHomeProps) {
     const [selectedId, setSelectedId] = useState<string | null>(null);
     const queryClient = useQueryClient();
 
-    // ─── Live task state ────────────────────────────────────────────
     const [activeRunId, setActiveRunId] = useState<string | null>(null);
     const [activeInput, setActiveInput] = useState('');
     const [activeStartedAt, setActiveStartedAt] = useState(0);
@@ -21,13 +24,37 @@ export function TaskHome() {
     const [pendingPrompt, setPendingPrompt] = useState<{ id: string; prompt: string } | null>(null);
     const [promptResponse, setPromptResponse] = useState('');
 
-    // Streaming state
     const [streamText, setStreamText] = useState('');
     const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
-    const [activeTools, setActiveTools] = useState<string[]>([]);
+    const [activeToolCounts, setActiveToolCounts] = useState<Record<string, number>>({});
     const streamTextRef = useRef('');
 
-    // ─── WebSocket handler ──────────────────────────────────────────
+    const activeTools = useMemo(
+        () => Object.entries(activeToolCounts).filter(([, count]) => count > 0).map(([name]) => name),
+        [activeToolCounts]
+    );
+
+    const mutateToolCount = useCallback((name: string, delta: number) => {
+        setActiveToolCounts((prev) => {
+            const next = { ...prev };
+            const current = next[name] || 0;
+            const updated = Math.max(0, current + delta);
+            if (updated === 0) {
+                delete next[name];
+            } else {
+                next[name] = updated;
+            }
+            return next;
+        });
+    }, []);
+
+    const refreshTaskQueries = useCallback(() => {
+        queryClient.invalidateQueries({ queryKey: ['task-history'] });
+        queryClient.invalidateQueries({ queryKey: ['task-detail'] });
+        queryClient.invalidateQueries({ queryKey: ['resumable-tasks'] });
+        queryClient.invalidateQueries({ queryKey: ['memory-reports-summary'] });
+    }, [queryClient]);
+
     const handleWsMessage = useCallback((msg: WsMessage) => {
         switch (msg.type) {
             case 'connected':
@@ -38,6 +65,7 @@ export function TaskHome() {
                 break;
             case 'task:start':
                 setActiveRunId(msg.data?.runId || null);
+                setActiveInput(msg.data?.description || activeInput);
                 setIsRunning(true);
                 break;
             case 'task:resume':
@@ -59,27 +87,33 @@ export function TaskHome() {
             case 'message':
                 setAgentEvents(prev => [...prev, { type: 'message', data: msg.data, timestamp: msg.timestamp }]);
                 break;
-            case 'tool:start':
-                setActiveTools(prev => [...prev, msg.data?.name || 'unknown']);
+            case 'tool:start': {
+                const toolName = msg.data?.name || 'unknown';
+                mutateToolCount(toolName, 1);
                 setAgentEvents(prev => [...prev, { type: 'tool:start', data: msg.data, timestamp: msg.timestamp }]);
                 break;
-            case 'tool:complete':
-                setActiveTools(prev => prev.filter((_, i) => i !== 0));
+            }
+            case 'tool:complete': {
+                const toolName = msg.data?.name || 'unknown';
+                mutateToolCount(toolName, -1);
                 setAgentEvents(prev => [...prev, { type: 'tool:complete', data: msg.data, timestamp: msg.timestamp }]);
                 break;
-            case 'tool:error':
-                setActiveTools(prev => prev.filter((_, i) => i !== 0));
+            }
+            case 'tool:error': {
+                const toolName = msg.data?.name || 'unknown';
+                mutateToolCount(toolName, -1);
                 setAgentEvents(prev => [...prev, { type: 'tool:error', data: msg.data, timestamp: msg.timestamp }]);
                 break;
+            }
             case 'task:complete':
                 setLastResult(msg.data?.result || 'Task completed.');
                 setIsRunning(false);
-                queryClient.invalidateQueries({ queryKey: ['task-history'] });
+                refreshTaskQueries();
                 break;
             case 'task:error':
                 setError(msg.data?.error || 'Task failed.');
                 setIsRunning(false);
-                queryClient.invalidateQueries({ queryKey: ['task-history'] });
+                refreshTaskQueries();
                 break;
             case 'interaction_request':
                 setPendingPrompt({ id: msg.data?.id, prompt: msg.data?.prompt });
@@ -87,21 +121,26 @@ export function TaskHome() {
             case 'retry':
                 setAgentEvents(prev => [...prev, { type: 'retry', data: msg.data, timestamp: msg.timestamp }]);
                 break;
+            default:
+                break;
         }
-    }, [queryClient]);
+    }, [activeInput, mutateToolCount, refreshTaskQueries]);
 
     const { status: wsStatus } = useWebSocket({ onMessage: handleWsMessage });
 
-    // ─── Task submission ────────────────────────────────────────────
-    const handleSubmitTask = useCallback(async (input: string) => {
+    const resetLiveState = useCallback(() => {
         setError(null);
         setLastResult(null);
         setStreamText('');
         streamTextRef.current = '';
         setAgentEvents([]);
-        setActiveTools([]);
+        setActiveToolCounts({});
         setPendingPrompt(null);
         setPromptResponse('');
+    }, []);
+
+    const handleSubmitTask = useCallback(async (input: string) => {
+        resetLiveState();
         setActiveInput(input);
         setActiveStartedAt(Date.now());
 
@@ -109,24 +148,15 @@ export function TaskHome() {
             const result = await api.runTask(input);
             setActiveRunId(result.runId);
             setIsRunning(true);
-            // Auto-select the running task
             setSelectedId(result.runId);
         } catch (err: any) {
             setError(err.message || 'Failed to run task.');
             setIsRunning(false);
         }
-    }, []);
+    }, [resetLiveState]);
 
-    // ─── Task resume ──────────────────────────────────────────────
     const handleResumeTask = useCallback(async (taskId: string) => {
-        setError(null);
-        setLastResult(null);
-        setStreamText('');
-        streamTextRef.current = '';
-        setAgentEvents([]);
-        setActiveTools([]);
-        setPendingPrompt(null);
-        setPromptResponse('');
+        resetLiveState();
         setActiveInput('(resumed)');
         setActiveStartedAt(Date.now());
 
@@ -140,9 +170,8 @@ export function TaskHome() {
             setError(err.message || 'Failed to resume task.');
             setIsRunning(false);
         }
-    }, []);
+    }, [resetLiveState]);
 
-    // ─── Interaction response ───────────────────────────────────────
     const handlePromptSubmit = useCallback(async () => {
         if (!activeRunId || !pendingPrompt) return;
         try {
@@ -154,12 +183,8 @@ export function TaskHome() {
         }
     }, [activeRunId, pendingPrompt, promptResponse]);
 
-    // ─── Selection handler ──────────────────────────────────────────
     const handleSelect = useCallback((id: string | null) => {
         setSelectedId(id);
-        // When selecting a non-active, completed/failed task that was the live one,
-        // we should clear live state so it shows as report
-        // (live state is still useful while running)
     }, []);
 
     return (
@@ -167,8 +192,8 @@ export function TaskHome() {
             <div className="h-full grid grid-cols-12 gap-4">
                 <div className="col-span-12 lg:col-span-4 xl:col-span-3 min-h-0">
                     <Panel
-                        title="Work Queue"
-                        subtitle="New, running, and historical tasks."
+                        title="Task Queue"
+                        subtitle="Create, run, and inspect tracked tasks."
                         className="h-full flex flex-col"
                     >
                         <div className="h-[calc(100vh-210px)]">
@@ -183,7 +208,7 @@ export function TaskHome() {
                 <div className="col-span-12 lg:col-span-8 xl:col-span-9 min-h-0">
                     <Panel
                         title={selectedId ? 'Task Detail' : 'Task Composer'}
-                        subtitle={selectedId ? 'Live execution, reports, and traces.' : 'Create and run a new task.'}
+                        subtitle={selectedId ? 'Structured execution, report, and resume flow.' : 'Define what Lydia should execute.'}
                         className="h-full flex flex-col"
                     >
                         <div className="h-[calc(100vh-210px)]">
@@ -192,6 +217,7 @@ export function TaskHome() {
                                 isRunning={isRunning && selectedId === activeRunId}
                                 onSubmitTask={handleSubmitTask}
                                 onResumeTask={handleResumeTask}
+                                onContinueInChat={onContinueInChat}
                                 activeRunId={activeRunId}
                                 activeInput={activeInput}
                                 activeStartedAt={activeStartedAt}

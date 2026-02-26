@@ -9,9 +9,10 @@ import { Panel } from './ui/Panel';
 interface TaskReportViewProps {
     taskId: string;
     onResumeTask?: (taskId: string) => void;
+    onContinueInChat?: (seedText: string) => void;
 }
 
-export function TaskReportView({ taskId, onResumeTask }: TaskReportViewProps) {
+export function TaskReportView({ taskId, onResumeTask, onContinueInChat }: TaskReportViewProps) {
     const { data: detail, isLoading, error } = useQuery({
         queryKey: ['task-detail', taskId],
         queryFn: () => api.getTaskDetail(taskId),
@@ -114,15 +115,30 @@ export function TaskReportView({ taskId, onResumeTask }: TaskReportViewProps) {
                     </div>
                 </div>
                 {/* Resume button for tasks with checkpoint */}
-                {isResumable && onResumeTask && (
-                    <button
-                        onClick={() => onResumeTask(taskId)}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-medium hover:bg-blue-700 transition-colors shrink-0"
-                    >
-                        <RotateCcw size={12} />
-                        Resume
-                    </button>
-                )}
+                <div className="flex items-center gap-2 shrink-0">
+                    {onContinueInChat && (
+                        <button
+                            onClick={() => onContinueInChat(
+                                `Continue helping with task "${report?.intentSummary || detail.input}".` +
+                                `\nStatus: ${detail.status}.` +
+                                `${report?.summary ? `\nSummary: ${report.summary}` : ''}` +
+                                `${report?.followUps?.length ? `\nFollow-ups:\n- ${report.followUps.join('\n- ')}` : ''}`
+                            )}
+                            className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 text-gray-600 rounded-md text-xs font-medium hover:bg-gray-50 transition-colors"
+                        >
+                            Continue In Chat
+                        </button>
+                    )}
+                    {isResumable && onResumeTask && (
+                        <button
+                            onClick={() => onResumeTask(taskId)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-md text-xs font-medium hover:bg-blue-700 transition-colors"
+                        >
+                            <RotateCcw size={12} />
+                            Resume
+                        </button>
+                    )}
+                </div>
             </div>
 
             {/* Summary */}

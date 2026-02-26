@@ -17,6 +17,7 @@ interface TaskLiveViewProps {
     onPromptSubmit: () => void;
     lastResult: string | null;
     error: string | null;
+    onContinueInChat?: (seedText: string) => void;
 }
 
 export function TaskLiveView({
@@ -34,6 +35,7 @@ export function TaskLiveView({
     onPromptSubmit,
     lastResult,
     error,
+    onContinueInChat,
 }: TaskLiveViewProps) {
     const outputRef = useRef<HTMLDivElement>(null);
     const elapsed = useElapsed(startedAt, isRunning);
@@ -88,6 +90,18 @@ export function TaskLiveView({
                             Live
                         </span>
                     )}
+                    {onContinueInChat && (
+                        <button
+                            onClick={() => onContinueInChat(
+                                `Continue helping with task "${input}". Current status: ${isRunning ? 'running' : (error ? 'failed' : 'completed')}.` +
+                                `${streamText ? ` Latest output:\n${streamText.slice(-1200)}` : ''}` +
+                                `${error ? `\nError: ${error}` : ''}`
+                            )}
+                            className="px-2 py-1 rounded-md border border-gray-200 text-xs text-gray-600 hover:bg-gray-50"
+                        >
+                            Continue In Chat
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -98,7 +112,7 @@ export function TaskLiveView({
                     className="flex-1 min-h-0 bg-gray-50 rounded-lg p-3 mb-3 text-sm whitespace-pre-wrap font-mono overflow-y-auto leading-relaxed"
                 >
                     {streamText || lastResult}
-                    {isRunning && !pendingPrompt && <span className="animate-pulse text-blue-500">▌</span>}
+                    {isRunning && !pendingPrompt && <span className="animate-pulse text-blue-500">...</span>}
                 </div>
             )}
 
