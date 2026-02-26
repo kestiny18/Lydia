@@ -37,6 +37,7 @@ export const ConfigSchema = z.object({
   agent: z.object({
     maxIterations: z.number().default(50),
     intentAnalysis: z.boolean().default(false),
+    failureReplan: z.boolean().default(true),
     maxRetries: z.number().default(3),
     retryDelayMs: z.number().default(1000),
     streaming: z.boolean().default(true),

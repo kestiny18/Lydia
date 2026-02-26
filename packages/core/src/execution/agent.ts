@@ -6,8 +6,11 @@ import { isDynamicSkill, hasContent, getSkillContent } from '../skills/types.js'
 import {
   type Task,
   type IntentProfile,
+  type Step,
+  type TaskContext,
   TaskStatusSchema,
   IntentAnalyzer,
+  SimplePlanner,
 } from '../strategy/index.js';
 import { SkillRegistry, SkillLoader } from '../skills/index.js';
 import { SkillWatcher } from '../skills/watcher.js';
@@ -46,6 +49,12 @@ export class Agent extends EventEmitter {
   private traces: Trace[] = [];
   private stepResults: StepResult[] = [];
   private taskApprovals: Set<string> = new Set();
+  private planner?: SimplePlanner;
+  private currentPlan: Step[] = [];
+  private executedPlanStepIds: Set<string> = new Set();
+  private skippedPlanStepIds: Set<string> = new Set();
+  private replannedFailures: Set<string> = new Set();
+  private verificationFailureCount = 0;
 
   // Controlled Evolution components
   private branchManager: StrategyBranchManager;
@@ -161,6 +170,7 @@ export class Agent extends EventEmitter {
     if (!this.activeStrategy) {
       throw new Error("Failed to initialize Agent: No strategy loaded.");
     }
+    this.planner = new SimplePlanner(this.llm, this.activeStrategy);
 
     // 2. Initialize built-in MCP servers (declarative for future capability expansion).
     this.builtinServerSpecs = [
@@ -332,6 +342,11 @@ export class Agent extends EventEmitter {
     this.taskApprovals = new Set();
     this.stepResults = [];
     this.traces = [];
+    this.currentPlan = [];
+    this.executedPlanStepIds = new Set();
+    this.skippedPlanStepIds = new Set();
+    this.replannedFailures = new Set();
+    this.verificationFailureCount = 0;
 
     // 1. Initialize Task
     const task: Task = {
@@ -349,7 +364,7 @@ export class Agent extends EventEmitter {
 
     this.emit('task:start', task);
 
-    let intentProfile: IntentProfile | null = null;
+    let intentProfile: IntentProfile = this.buildFallbackIntentProfile(userInput);
 
     try {
       // 2. Optional: Intent Analysis
@@ -382,14 +397,35 @@ export class Agent extends EventEmitter {
         tools = tools.filter(t => allowedTools.has(t.name));
       }
 
-      // 6. Build System Prompt (progressive: catalog + active details + available tools)
-      const systemPrompt = this.buildSystemPrompt(
+      const taskContext = this.buildTaskContext(
+        tools.map(t => t.name),
+        facts,
+        episodes,
+      );
+
+      this.currentPlan = await this.createExecutionPlan(
+        task,
+        intentProfile,
+        taskContext,
+        matchedSkills,
+        { facts, episodes },
+      );
+      if (this.currentPlan.length > 0) {
+        this.emit('plan', this.currentPlan);
+      }
+
+      // 6. Build System Prompt (progressive: catalog + active details + available tools + plan guidance)
+      const baseSystemPrompt = this.buildSystemPrompt(
         allSkillMetas,
         matchedSkills,
         facts,
         episodes,
         tools.map(t => t.name),
       );
+      const planGuidance = this.buildPlanGuidance();
+      const systemPrompt = planGuidance
+        ? `${baseSystemPrompt}\n\n${planGuidance}`
+        : baseSystemPrompt;
 
       // 7. Initialize conversation messages
       const messages: Message[] = [
@@ -417,7 +453,17 @@ export class Agent extends EventEmitter {
       // Save Episode and Traces
       const episodeId = this.memoryManager.recordEpisode({
         input: userInput,
-        plan: JSON.stringify({ iterations: this.traces.length, traces: this.traces.length }),
+        plan: JSON.stringify({
+          iterations: this.traces.length,
+          traces: this.traces.length,
+          plannedSteps: this.currentPlan.map(step => ({
+            id: step.id,
+            description: step.description,
+            tool: step.tool,
+            dependsOn: step.dependsOn || [],
+            verification: step.verification || [],
+          })),
+        }),
         result: task.result,
         strategy_id: this.activeStrategy?.metadata.id,
         strategy_version: this.activeStrategy?.metadata.version,
@@ -443,32 +489,7 @@ export class Agent extends EventEmitter {
     this.currentTaskId = undefined;
 
     // Post-execution: report and feedback
-    if (intentProfile) {
-      const report = this.reporter.generateReport(task, intentProfile, this.stepResults);
-      this.memoryManager.recordTaskReport(task.id, report);
-    }
-
-    const shouldRequestFeedback = task.status === 'failed' || (this.activeStrategy?.preferences?.userConfirmation ?? 0.8) >= 0.8;
-    const skipFeedback = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
-    if (shouldRequestFeedback && !skipFeedback && this.mcpClientManager.getToolInfo('ask_user')) {
-      try {
-        const feedback = await this.feedbackCollector.collect(task, {} as any, async (prompt) => {
-          const result = await this.mcpClientManager.callTool('ask_user', { prompt });
-          const textContent = (result.content as any[])
-            .filter((c: any) => c.type === 'text')
-            .map((c: any) => c.text)
-            .join('\n')
-            .trim();
-          return textContent;
-        });
-
-        if (feedback) {
-          this.memoryManager.recordTaskFeedback(task.id, feedback);
-        }
-      } catch {
-        // Ignore feedback collection errors
-      }
-    }
+    await this.persistReportAndFeedback(task, intentProfile);
 
     return task;
   }
@@ -491,9 +512,16 @@ export class Agent extends EventEmitter {
     // Restore state from checkpoint
     this.taskApprovals = new Set();
     this.stepResults = [];
+    this.currentPlan = [];
+    this.executedPlanStepIds = new Set();
+    this.skippedPlanStepIds = new Set();
+    this.replannedFailures = new Set();
+    this.verificationFailureCount = 0;
     this.traces = JSON.parse(checkpoint.tracesJson) as Trace[];
+    this.rehydrateStepResultsFromTraces(this.traces);
     const messages: Message[] = JSON.parse(checkpoint.messagesJson) as Message[];
     const tools: ToolDefinition[] = JSON.parse(checkpoint.toolsJson) as ToolDefinition[];
+    const intentProfile = this.buildFallbackIntentProfile(checkpoint.input);
 
     // Reconstruct task object
     const task: Task = {
@@ -561,6 +589,8 @@ export class Agent extends EventEmitter {
       // Ignore cleanup errors
     }
     this.currentTaskId = undefined;
+
+    await this.persistReportAndFeedback(task, intentProfile);
 
     return task;
   }
@@ -636,6 +666,8 @@ export class Agent extends EventEmitter {
       const toolResultBlocks: ContentBlock[] = [];
 
       for (const toolUse of toolUses) {
+        const plannedStep = this.selectPlannedStepForTool(toolUse.name);
+        const stepId = plannedStep?.id ?? `step-tool-${this.stepResults.length + 1}`;
         this.emit('tool:start', { name: toolUse.name, input: toolUse.input });
 
         try {
@@ -652,6 +684,8 @@ export class Agent extends EventEmitter {
               content: result,
             });
 
+            const outputText = this.toDisplayText(result);
+
             this.traces.push({
               step_index: this.traces.length,
               tool_name: toolUse.name,
@@ -660,22 +694,41 @@ export class Agent extends EventEmitter {
               duration,
               status: 'success',
             });
+            this.recordStepResult({
+              stepId,
+              status: 'completed',
+              output: outputText,
+              durationMs: duration,
+              verificationStatus: 'passed',
+            });
+            this.markPlanStepExecuted(plannedStep);
 
             this.emit('tool:complete', { name: toolUse.name, result, duration });
             continue;
           }
 
           // Risk assessment
-          const risk = assessRisk(toolUse.name, toolUse.input, this.mcpClientManager, this.config);
+          let risk = assessRisk(toolUse.name, toolUse.input, this.mcpClientManager, this.config);
+          risk = this.escalateRiskByVerificationState(risk, toolUse.name);
           if (risk.level === 'high') {
             const approved = await this.confirmRisk(risk, toolUse.name);
             if (!approved) {
+              const deniedMsg = 'User denied this high-risk action.';
               toolResultBlocks.push({
                 type: 'tool_result',
                 tool_use_id: toolUse.id,
-                content: 'User denied this high-risk action.',
+                content: deniedMsg,
                 is_error: true,
               });
+              this.traces.push({
+                step_index: this.traces.length,
+                tool_name: toolUse.name,
+                tool_args: JSON.stringify(toolUse.input),
+                tool_output: deniedMsg,
+                duration: 0,
+                status: 'failed',
+              });
+              this.recordFailedStep(stepId, plannedStep, deniedMsg, 0, messages);
               this.emit('tool:error', { name: toolUse.name, error: 'User denied action' });
               continue;
             }
@@ -709,6 +762,20 @@ export class Agent extends EventEmitter {
             status: result.isError ? 'failed' : 'success',
           });
 
+          if (result.isError) {
+            const failMessage = textContent || `Tool ${toolUse.name} returned an error.`;
+            this.recordFailedStep(stepId, plannedStep, failMessage, duration, messages);
+          } else {
+            this.recordStepResult({
+              stepId,
+              status: 'completed',
+              output: textContent,
+              durationMs: duration,
+              verificationStatus: 'passed',
+            });
+            this.markPlanStepExecuted(plannedStep);
+          }
+
           this.emit('tool:complete', { name: toolUse.name, result: textContent, duration });
 
         } catch (error) {
@@ -730,6 +797,7 @@ export class Agent extends EventEmitter {
             duration: 0,
             status: 'failed',
           });
+          this.recordFailedStep(stepId, plannedStep, errMsg, 0, messages);
 
           this.emit('tool:error', { name: toolUse.name, error: errMsg });
         }
@@ -777,6 +845,255 @@ export class Agent extends EventEmitter {
   }
 
   // ─── LLM Call with Retry (P2-5) and Streaming (P1-2) ───────────────
+
+  private buildFallbackIntentProfile(userInput: string): IntentProfile {
+    return {
+      category: 'unknown',
+      summary: userInput,
+      entities: [],
+      complexity: 'medium',
+      goal: userInput,
+      deliverables: [],
+      constraints: [],
+      successCriteria: [],
+      assumptions: [],
+      requiredTools: [],
+    };
+  }
+
+  private buildTaskContext(tools: string[], facts: Fact[], episodes: Episode[]): TaskContext {
+    const mustConfirm = [
+      ...(this.activeStrategy?.execution?.requiresConfirmation || []),
+      ...(this.activeStrategy?.constraints?.mustConfirmBefore || []),
+    ];
+    return {
+      cwd: process.cwd(),
+      tools,
+      strategyId: this.activeStrategy?.metadata.id || 'unknown',
+      strategyVersion: this.activeStrategy?.metadata.version || 'unknown',
+      facts,
+      episodes,
+      riskPolicy: {
+        requiresConfirmation: [...new Set(mustConfirm)],
+        deniedTools: this.activeStrategy?.constraints?.deniedTools || [],
+      },
+    };
+  }
+
+  private async createExecutionPlan(
+    task: Task,
+    intent: IntentProfile,
+    taskContext: TaskContext,
+    matchedSkills: (Skill | SkillMeta)[],
+    memories: { facts: Fact[]; episodes: Episode[] },
+  ): Promise<Step[]> {
+    if (!this.planner) return [];
+    try {
+      const planningSkills = matchedSkills.filter((skill): skill is Skill => hasContent(skill));
+      return await this.planner.createPlan(
+        task,
+        intent,
+        {
+          taskId: task.id,
+          history: [],
+          state: {},
+          taskContext,
+        },
+        planningSkills,
+        memories,
+      );
+    } catch (error) {
+      this.emit('plan:error', error);
+      return [];
+    }
+  }
+
+  private buildPlanGuidance(): string {
+    if (this.currentPlan.length === 0) return '';
+    const steps = this.currentPlan.slice(0, 12).map((step, index) => {
+      const dependsOn = step.dependsOn?.length ? ` deps=[${step.dependsOn.join(', ')}]` : '';
+      const verify = step.verification?.length ? ` verify=[${step.verification.join(' | ')}]` : '';
+      const tool = step.tool ? ` tool=${step.tool}` : '';
+      return `${index + 1}. ${step.id}:${tool} ${step.description}${dependsOn}${verify}`.trim();
+    });
+    return `EXECUTION PLAN (follow this order and verification intent; replan only downstream after failures):\n${steps.join('\n')}`;
+  }
+
+  private selectPlannedStepForTool(toolName: string): Step | undefined {
+    if (this.currentPlan.length === 0) return undefined;
+    const available = this.currentPlan.filter((step) => {
+      if (step.type !== 'action') return false;
+      if (this.executedPlanStepIds.has(step.id) || this.skippedPlanStepIds.has(step.id)) return false;
+      return (step.dependsOn || []).every(dep => this.executedPlanStepIds.has(dep) || this.skippedPlanStepIds.has(dep));
+    });
+    return available.find(step => step.tool === toolName) || available[0];
+  }
+
+  private markPlanStepExecuted(step?: Step): void {
+    if (!step) return;
+    this.executedPlanStepIds.add(step.id);
+  }
+
+  private recordStepResult(result: StepResult): void {
+    const existing = this.stepResults.findIndex(step => step.stepId === result.stepId);
+    if (existing >= 0) {
+      this.stepResults[existing] = { ...this.stepResults[existing], ...result };
+      return;
+    }
+    this.stepResults.push(result);
+  }
+
+  private markDownstreamStepsSkipped(failedStepId: string, reason: string): void {
+    const queue = [failedStepId];
+    while (queue.length > 0) {
+      const sourceId = queue.shift()!;
+      const dependents = this.currentPlan.filter((step) =>
+        (step.dependsOn || []).includes(sourceId)
+      );
+      for (const dependent of dependents) {
+        if (this.executedPlanStepIds.has(dependent.id) || this.skippedPlanStepIds.has(dependent.id)) {
+          continue;
+        }
+        this.skippedPlanStepIds.add(dependent.id);
+        this.recordStepResult({
+          stepId: dependent.id,
+          status: 'skipped',
+          error: `Skipped due to upstream failure (${failedStepId}): ${reason}`,
+          verificationStatus: 'failed',
+        });
+        queue.push(dependent.id);
+      }
+    }
+  }
+
+  private enqueueFailureReplan(messages: Message[], failedStep: Step | undefined, reason: string): void {
+    const enableFailureReplan = this.config?.agent?.failureReplan ?? true;
+    if (!enableFailureReplan) return;
+
+    const failedKey = failedStep?.id || `ad-hoc-${this.replannedFailures.size + 1}`;
+    if (this.replannedFailures.has(failedKey)) return;
+    this.replannedFailures.add(failedKey);
+
+    const downstream = failedStep
+      ? this.currentPlan
+        .filter(step => (step.dependsOn || []).includes(failedStep.id))
+        .map(step => step.id)
+      : [];
+    const downstreamText = downstream.length > 0 ? downstream.join(', ') : 'remaining steps';
+
+    messages.push({
+      role: 'user',
+      content: `Replan request: step ${failedStep?.id || 'unknown'} failed (${reason}). Only replan downstream steps: ${downstreamText}. Keep completed steps unchanged.`,
+    });
+
+    this.recordStepResult({
+      stepId: `replan-${failedKey}`,
+      status: 'completed',
+      output: `Triggered downstream replan due to failure on ${failedStep?.id || 'unknown step'}.`,
+      verificationStatus: 'pending',
+    });
+  }
+
+  private recordFailedStep(
+    stepId: string,
+    plannedStep: Step | undefined,
+    error: string,
+    durationMs: number,
+    messages: Message[],
+  ): void {
+    this.verificationFailureCount += 1;
+    this.recordStepResult({
+      stepId,
+      status: 'failed',
+      error,
+      durationMs,
+      verificationStatus: 'failed',
+    });
+    this.markPlanStepExecuted(plannedStep);
+    if (plannedStep) {
+      this.markDownstreamStepsSkipped(plannedStep.id, error);
+    }
+    this.enqueueFailureReplan(messages, plannedStep, error);
+  }
+
+  private toDisplayText(value: unknown): string {
+    if (typeof value === 'string') return value;
+    if (value == null) return '';
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  private escalateRiskByVerificationState(risk: RiskAssessment, toolName: string): RiskAssessment {
+    if (risk.level === 'high') return risk;
+    if (this.verificationFailureCount <= 0) return risk;
+    const isRiskyTool = toolName === 'shell_execute' || toolName.startsWith('fs_') || toolName.startsWith('git_');
+    if (!isRiskyTool) return risk;
+    return {
+      level: 'high',
+      reason: 'Prior verification failures detected; require explicit confirmation before continuing risky operations',
+      signature: `verification_failure_guard:${toolName}`,
+      details: `verification_failures=${this.verificationFailureCount}`,
+    };
+  }
+
+  private rehydrateStepResultsFromTraces(traces: Trace[]): void {
+    if (traces.length === 0) return;
+    for (const trace of traces) {
+      if (trace.status === 'failed') {
+        this.verificationFailureCount += 1;
+      }
+      this.recordStepResult({
+        stepId: `trace-${trace.step_index + 1}`,
+        status: trace.status === 'failed' ? 'failed' : 'completed',
+        output: trace.status === 'failed' ? undefined : trace.tool_output,
+        error: trace.status === 'failed' ? trace.tool_output : undefined,
+        durationMs: trace.duration,
+        verificationStatus: trace.status === 'failed' ? 'failed' : 'passed',
+      });
+    }
+  }
+
+  private async persistReportAndFeedback(task: Task, intentProfile: IntentProfile): Promise<void> {
+    if (this.stepResults.length === 0) {
+      this.recordStepResult({
+        stepId: 'final',
+        status: task.status === 'completed' ? 'completed' : 'failed',
+        output: task.status === 'completed' ? task.result : undefined,
+        error: task.status === 'failed' ? task.result : undefined,
+        verificationStatus: task.status === 'completed' ? 'passed' : 'failed',
+      });
+    }
+
+    const report = this.reporter.generateReport(task, intentProfile, this.stepResults);
+    this.memoryManager.recordTaskReport(task.id, report);
+
+    const shouldRequestFeedback = task.status === 'failed' || (this.activeStrategy?.preferences?.userConfirmation ?? 0.8) >= 0.8;
+    const skipFeedback = process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
+    if (!shouldRequestFeedback || skipFeedback || !this.mcpClientManager.getToolInfo('ask_user')) {
+      return;
+    }
+
+    try {
+      const feedback = await this.feedbackCollector.collect(task, report, async (prompt) => {
+        const result = await this.mcpClientManager.callTool('ask_user', { prompt });
+        const textContent = (result.content as any[])
+          .filter((c: any) => c.type === 'text')
+          .map((c: any) => c.text)
+          .join('\n')
+          .trim();
+        return textContent;
+      });
+
+      if (feedback) {
+        this.memoryManager.recordTaskFeedback(task.id, feedback);
+      }
+    } catch {
+      // Ignore feedback collection errors
+    }
+  }
 
   private async callLLMWithRetry(request: LLMRequest): Promise<LLMResponse> {
     const maxRetries = this.config?.agent?.maxRetries ?? 3;
