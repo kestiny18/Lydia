@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { ReplayManager, StrategyRegistry, StrategyReviewer, StrategyApprovalService, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate } from '@lydia/core';
+import { ReplayManager, StrategyRegistry, StrategyReviewer, StrategyApprovalService, ShadowRouter, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -839,6 +839,155 @@ async function main() {
       const outPath = path.resolve(file);
       fs.writeFileSync(outPath, proposal.evaluation_json, 'utf-8');
       console.log(chalk.green(`Report saved: ${outPath}`));
+    });
+
+  const shadowCmd = strategyCmd
+    .command('shadow')
+    .description('Manage shadow rollout and auto-promotion settings');
+
+  shadowCmd
+    .command('status')
+    .description('Show current shadow rollout status and recent metrics')
+    .action(async () => {
+      const config = await new ConfigLoader().load();
+      const registry = new StrategyRegistry();
+      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+      const memory = new MemoryManager(dbPath);
+
+      const active = config.strategy?.activePath
+        ? await registry.loadFromFile(config.strategy.activePath)
+        : await registry.loadDefault();
+
+      const windowDays = config.strategy.shadowWindowDays ?? 14;
+      const sinceMs = Date.now() - (windowDays * 24 * 60 * 60 * 1000);
+      const baselineSummary = memory.summarizeEpisodesByStrategy(
+        active.metadata.id,
+        active.metadata.version,
+        { sinceMs, limit: 1000 }
+      );
+
+      console.log(chalk.bold('\nShadow Rollout Status'));
+      console.log(`  Enabled: ${config.strategy.shadowModeEnabled ? chalk.green('yes') : chalk.gray('no')}`);
+      console.log(`  Traffic Ratio: ${(config.strategy.shadowTrafficRatio * 100).toFixed(1)}%`);
+      console.log(`  Auto-Promote: ${config.strategy.autoPromoteEnabled ? chalk.green('yes') : chalk.gray('no')}`);
+      console.log(`  Window: ${windowDays} day(s)`);
+      console.log(`  Baseline: ${active.metadata.id} v${active.metadata.version}`);
+      console.log(
+        `    tasks=${baselineSummary.total} success=${baselineSummary.success} ` +
+        `failure=${baselineSummary.failure} avgDuration=${baselineSummary.avg_duration_ms}ms`
+      );
+
+      const candidates = config.strategy.shadowCandidatePaths || [];
+      if (candidates.length === 0) {
+        console.log(chalk.yellow('\n  No shadow candidates configured.\n'));
+        return;
+      }
+
+      console.log(chalk.bold('\nCandidates:'));
+      for (const candidatePath of candidates) {
+        try {
+          const candidate = await registry.loadFromFile(candidatePath);
+          const summary = memory.summarizeEpisodesByStrategy(
+            candidate.metadata.id,
+            candidate.metadata.version,
+            { sinceMs, limit: 1000 }
+          );
+          console.log(`  - ${candidate.metadata.id} v${candidate.metadata.version}`);
+          console.log(`    path=${candidatePath}`);
+          console.log(
+            `    tasks=${summary.total} success=${summary.success} ` +
+            `failure=${summary.failure} avgDuration=${summary.avg_duration_ms}ms`
+          );
+        } catch (error: any) {
+          console.log(`  - ${candidatePath}`);
+          console.log(chalk.red(`    failed to load: ${error.message || String(error)}`));
+        }
+      }
+      console.log('');
+    });
+
+  shadowCmd
+    .command('enable')
+    .description('Enable shadow routing')
+    .action(async () => {
+      await new ConfigLoader().update({ strategy: { shadowModeEnabled: true } } as any);
+      console.log(chalk.green('Shadow routing enabled.'));
+    });
+
+  shadowCmd
+    .command('disable')
+    .description('Disable shadow routing')
+    .action(async () => {
+      await new ConfigLoader().update({ strategy: { shadowModeEnabled: false } } as any);
+      console.log(chalk.yellow('Shadow routing disabled.'));
+    });
+
+  shadowCmd
+    .command('ratio')
+    .description('Set shadow traffic ratio (0.0 - 1.0)')
+    .argument('<value>', 'Traffic ratio')
+    .action(async (value) => {
+      const ratio = Number(value);
+      if (!Number.isFinite(ratio) || ratio < 0 || ratio > 1) {
+        console.error(chalk.red('ratio must be between 0.0 and 1.0'));
+        return;
+      }
+      await new ConfigLoader().update({ strategy: { shadowTrafficRatio: ratio } } as any);
+      console.log(chalk.green(`Shadow traffic ratio set to ${(ratio * 100).toFixed(1)}%.`));
+    });
+
+  shadowCmd
+    .command('add')
+    .description('Add a shadow candidate strategy file')
+    .argument('<file>', 'Path to strategy file')
+    .action(async (file) => {
+      const absPath = path.resolve(file);
+      const registry = new StrategyRegistry();
+      try {
+        await registry.loadFromFile(absPath);
+      } catch (error: any) {
+        console.error(chalk.red(`Invalid strategy file: ${error.message || String(error)}`));
+        return;
+      }
+
+      const loader = new ConfigLoader();
+      const config = await loader.load();
+      const current = new Set(config.strategy.shadowCandidatePaths || []);
+      current.add(absPath);
+      await loader.update({ strategy: { shadowCandidatePaths: Array.from(current) } } as any);
+      console.log(chalk.green(`Added shadow candidate: ${absPath}`));
+    });
+
+  shadowCmd
+    .command('remove')
+    .description('Remove a shadow candidate strategy file')
+    .argument('<file>', 'Path to strategy file')
+    .action(async (file) => {
+      const absPath = path.resolve(file);
+      const loader = new ConfigLoader();
+      const config = await loader.load();
+      const next = (config.strategy.shadowCandidatePaths || []).filter((item) => path.resolve(item) !== absPath);
+      await loader.update({ strategy: { shadowCandidatePaths: next } } as any);
+      console.log(chalk.yellow(`Removed shadow candidate: ${absPath}`));
+    });
+
+  shadowCmd
+    .command('promote-check')
+    .description('Evaluate whether a candidate should be auto-promoted now')
+    .action(async () => {
+      const config = await new ConfigLoader().load();
+      const router = new ShadowRouter();
+      const decision = await router.evaluateAutoPromotion(config);
+      if (!decision) {
+        console.log(chalk.yellow('No candidate currently meets auto-promotion criteria.'));
+        return;
+      }
+
+      console.log(chalk.green('Auto-promotion candidate ready:'));
+      console.log(`  Candidate: ${decision.candidateId} v${decision.candidateVersion}`);
+      console.log(`  Path: ${decision.candidatePath}`);
+      console.log(`  Improvement: ${(decision.successImprovement * 100).toFixed(2)}%`);
+      console.log(`  p-value: ${decision.pValue.toFixed(6)}`);
     });
 
   // ─── Tasks Command Group (via Server API) ────────────────────────

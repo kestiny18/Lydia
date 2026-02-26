@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
-import { MemoryManager, ConfigLoader, Agent, StrategyApprovalService, createLLMFromConfig } from '@lydia/core';
+import { MemoryManager, ConfigLoader, Agent, StrategyRegistry, StrategyApprovalService, ShadowRouter, createLLMFromConfig } from '@lydia/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFile } from 'node:fs/promises';
@@ -24,6 +24,10 @@ interface RunState {
   completedAt?: number;
   pendingPrompt?: { id: string; prompt: string };
   agent?: Agent;
+  strategyPath?: string;
+  strategyRole?: 'baseline' | 'candidate';
+  strategyId?: string;
+  strategyVersion?: string;
 }
 
 // WebSocket message types for real-time event pushing
@@ -88,6 +92,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
   const dbPath = join(homedir(), '.lydia', 'memory.db');
   const memoryManager = new MemoryManager(dbPath);
   const approvalService = new StrategyApprovalService(memoryManager, new ConfigLoader());
+  const shadowRouter = new ShadowRouter(memoryManager);
 
   // --- API Routes ---
 
@@ -406,13 +411,37 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
     activeRunId = runId;
 
     try {
-      const agent = new Agent(llm);
+      const currentConfig = await new ConfigLoader().load();
+      const routedStrategy = await shadowRouter.selectStrategy(currentConfig);
+      const agent = new Agent(
+        llm,
+        routedStrategy.path ? { strategyPathOverride: routedStrategy.path } : {}
+      );
       runState.agent = agent;
+      runState.strategyPath = routedStrategy.path;
+      runState.strategyRole = routedStrategy.role;
+      runState.strategyId = routedStrategy.strategyId;
+      runState.strategyVersion = routedStrategy.strategyVersion;
 
       // Wire up agent events for WebSocket broadcasting
       agent.on('task:start', (task) => {
         runState.taskId = task.id;
-        broadcastWs({ type: 'task:start', data: { runId, taskId: task.id, description: task.description }, timestamp: Date.now() });
+        broadcastWs({
+          type: 'task:start',
+          data: {
+            runId,
+            taskId: task.id,
+            description: task.description,
+            strategy: {
+              role: routedStrategy.role,
+              path: routedStrategy.path,
+              id: routedStrategy.strategyId,
+              version: routedStrategy.strategyVersion,
+              reason: routedStrategy.reason,
+            }
+          },
+          timestamp: Date.now()
+        });
       });
 
       agent.on('stream:text', (text: string) => {
@@ -453,12 +482,56 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
       });
 
       agent.run(inputText, runId)
-        .then((task) => {
+        .then(async (task) => {
           runState.taskId = task.id;
           runState.status = task.status === 'completed' ? 'completed' : 'failed';
           runState.result = task.result;
           runState.completedAt = Date.now();
           runState.pendingPrompt = undefined;
+
+          try {
+            const latestConfig = await new ConfigLoader().load();
+            const promotion = await shadowRouter.evaluateAutoPromotion(latestConfig);
+            if (promotion) {
+              const nextCandidates = (latestConfig.strategy.shadowCandidatePaths || [])
+                .filter((p) => p !== promotion.candidatePath);
+              await new ConfigLoader().update({
+                strategy: {
+                  activePath: promotion.candidatePath,
+                  shadowCandidatePaths: nextCandidates,
+                }
+              } as any);
+              memoryManager.rememberFact(
+                JSON.stringify({
+                  promotedAt: Date.now(),
+                  candidatePath: promotion.candidatePath,
+                  candidateId: promotion.candidateId,
+                  candidateVersion: promotion.candidateVersion,
+                  baselineId: promotion.baselineId,
+                  baselineVersion: promotion.baselineVersion,
+                  successImprovement: promotion.successImprovement,
+                  pValue: promotion.pValue,
+                }),
+                `strategy.autopromote.${Date.now()}`,
+                ['strategy', 'shadow', 'autopromote']
+              );
+              broadcastWs({
+                type: 'strategy:autopromote',
+                data: {
+                  runId,
+                  candidatePath: promotion.candidatePath,
+                  candidateId: promotion.candidateId,
+                  candidateVersion: promotion.candidateVersion,
+                  successImprovement: promotion.successImprovement,
+                  pValue: promotion.pValue,
+                },
+                timestamp: Date.now()
+              });
+            }
+          } catch {
+            // Ignore auto-promotion failures; task result should still be returned.
+          }
+
           broadcastWs({ type: 'task:complete', data: { runId, taskId: task.id, status: task.status, result: task.result }, timestamp: Date.now() });
         })
         .catch((error: any) => {
@@ -495,6 +568,10 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
       input: run.input,
       status: run.status,
       taskId: run.taskId,
+      strategyPath: run.strategyPath,
+      strategyRole: run.strategyRole,
+      strategyId: run.strategyId,
+      strategyVersion: run.strategyVersion,
       result: run.result,
       error: run.error,
       startedAt: run.startedAt,
@@ -728,6 +805,59 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
       if (message === 'Proposal not found') return c.json({ error: message }, 404);
       return c.json({ error: message }, 400);
     }
+  });
+
+  app.get('/api/strategy/shadow/status', async (c) => {
+    const config = await new ConfigLoader().load();
+    const registry = new StrategyRegistry();
+    const windowDays = config.strategy.shadowWindowDays ?? 14;
+    const sinceMs = Date.now() - (windowDays * 24 * 60 * 60 * 1000);
+
+    const baseline = config.strategy.activePath
+      ? await registry.loadFromFile(config.strategy.activePath)
+      : await registry.loadDefault();
+    const baselineSummary = memoryManager.summarizeEpisodesByStrategy(
+      baseline.metadata.id,
+      baseline.metadata.version,
+      { sinceMs, limit: 1000 }
+    );
+
+    const candidates: any[] = [];
+    for (const candidatePath of config.strategy.shadowCandidatePaths || []) {
+      try {
+        const strategy = await registry.loadFromFile(candidatePath);
+        const summary = memoryManager.summarizeEpisodesByStrategy(
+          strategy.metadata.id,
+          strategy.metadata.version,
+          { sinceMs, limit: 1000 }
+        );
+        candidates.push({
+          path: candidatePath,
+          id: strategy.metadata.id,
+          version: strategy.metadata.version,
+          summary,
+        });
+      } catch (error: any) {
+        candidates.push({
+          path: candidatePath,
+          error: error?.message || String(error),
+        });
+      }
+    }
+
+    return c.json({
+      enabled: config.strategy.shadowModeEnabled,
+      trafficRatio: config.strategy.shadowTrafficRatio,
+      autoPromoteEnabled: config.strategy.autoPromoteEnabled,
+      windowDays,
+      baseline: {
+        path: config.strategy.activePath || null,
+        id: baseline.metadata.id,
+        version: baseline.metadata.version,
+        summary: baselineSummary,
+      },
+      candidates,
+    });
   });
 
   app.post('/api/strategy/proposals/:id/reject', async (c) => {

@@ -26,6 +26,10 @@ import * as os from 'node:os';
 import type { LydiaConfig } from '../config/index.js';
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
+export interface AgentOptions {
+  strategyPathOverride?: string;
+}
+
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
   private intentAnalyzer: IntentAnalyzer;
@@ -70,10 +74,12 @@ export class Agent extends EventEmitter {
 
   // Centralized built-in server descriptors keep MCP wiring declarative.
   private builtinServerSpecs: Array<{ id: string; create: () => Server }> = [];
+  private options: AgentOptions;
 
-  constructor(llm: ILLMProvider) {
+  constructor(llm: ILLMProvider, options: AgentOptions = {}) {
     super();
     this.llm = llm;
+    this.options = options;
     this.intentAnalyzer = new IntentAnalyzer(llm);
     this.mcpClientManager = new McpClientManager();
     this.skillRegistry = new SkillRegistry();
@@ -141,7 +147,7 @@ export class Agent extends EventEmitter {
 
     // 1.5 Load Active Strategy
     try {
-      const customPath = this.config?.strategy?.activePath;
+      const customPath = this.options.strategyPathOverride || this.config?.strategy?.activePath;
       if (customPath) {
         this.activeStrategy = await this.strategyRegistry.loadFromFile(customPath);
         this.strategyRegistry.setActive(this.activeStrategy.metadata.id);
