@@ -3,6 +3,69 @@ import type { StrategyProposal, TaskHistoryItem, TaskDetail } from '../types';
 const API_BASE = ''; // Relative path, assuming served from same origin
 
 export const api = {
+    async getSetupStatus(): Promise<{
+        ready: boolean;
+        configPath: string;
+        strategyPath: string;
+        llmConfigured: boolean;
+        provider: string;
+    }> {
+        const res = await fetch(`${API_BASE}/api/setup`);
+        if (!res.ok) throw new Error('Failed to fetch setup status');
+        return res.json();
+    },
+
+    async initializeSetup(): Promise<any> {
+        const res = await fetch(`${API_BASE}/api/setup/init`, { method: 'POST' });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to initialize setup');
+        }
+        return res.json();
+    },
+
+    async getSetupConfig(): Promise<any> {
+        const res = await fetch(`${API_BASE}/api/setup/config`);
+        if (!res.ok) throw new Error('Failed to fetch setup config');
+        return res.json();
+    },
+
+    async updateSetupConfig(payload: {
+        llm: {
+            provider?: string;
+            defaultModel?: string;
+            fallbackOrder?: string[];
+            openaiApiKey?: string;
+            anthropicApiKey?: string;
+            openaiBaseUrl?: string;
+            anthropicBaseUrl?: string;
+            ollamaBaseUrl?: string;
+        };
+    }): Promise<any> {
+        const res = await fetch(`${API_BASE}/api/setup/config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Failed to update setup config');
+        }
+        return res.json();
+    },
+
+    async testLLM(probe = false): Promise<any> {
+        const res = await fetch(`${API_BASE}/api/setup/test-llm`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ probe }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.ok === false) {
+            throw new Error(data.error || 'LLM test failed');
+        }
+        return data;
+    },
     // ─── Task APIs ──────────────────────────────────────────────────
 
     async getTaskHistory(options?: {
