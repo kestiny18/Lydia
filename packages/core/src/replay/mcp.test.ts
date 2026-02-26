@@ -8,7 +8,7 @@ describe('ReplayMcpClientManager', () => {
       {
         step_index: 0,
         tool_name: 'shell_execute',
-        tool_args: '{"command":"echo test"}',
+        tool_args: '{"command":"custom_cmd"}',
         tool_output: 'plain output text',
         duration: 10,
         status: 'success',
@@ -16,7 +16,7 @@ describe('ReplayMcpClientManager', () => {
     ];
 
     const replay = new ReplayMcpClientManager(traces);
-    const result = await replay.callTool('shell_execute', { command: 'echo test' });
+    const result = await replay.callTool('shell_execute', { command: 'custom_cmd' });
 
     expect(result).toEqual({
       content: [{ type: 'text', text: 'plain output text' }]
@@ -122,5 +122,22 @@ describe('ReplayMcpClientManager', () => {
     const status = await replay.callTool('git_status', {});
     const parsed = JSON.parse(status.content[0].text);
     expect(parsed.modified).toContain('/workspace/src/main.ts');
+  });
+
+  it('supports shell sandbox commands for pwd/ls/cat/echo', async () => {
+    const replay = new ReplayMcpClientManager([]);
+    await replay.callTool('fs_write_file', { path: 'docs/readme.md', content: 'hello' });
+
+    const pwd = await replay.callTool('shell_execute', { command: 'pwd' });
+    expect(pwd.content[0].text).toBe('/workspace');
+
+    const ls = await replay.callTool('shell_execute', { command: 'ls docs' });
+    expect(ls.content[0].text).toContain('[FILE] readme.md');
+
+    const cat = await replay.callTool('shell_execute', { command: 'cat docs/readme.md' });
+    expect(cat.content[0].text).toBe('hello');
+
+    const echo = await replay.callTool('shell_execute', { command: 'echo replay' });
+    expect(echo.content[0].text).toBe('replay');
   });
 });

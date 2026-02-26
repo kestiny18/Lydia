@@ -55,6 +55,13 @@ export class ReplayMcpClientManager extends McpClientManager {
       return this.executeFsTool(name, args);
     }
 
+    if (name === 'shell_execute') {
+      const simulated = this.executeShellTool(args);
+      if (simulated) {
+        return simulated;
+      }
+    }
+
     if (this.isGitTool(name)) {
       return this.executeGitTool(name, args);
     }
@@ -153,6 +160,73 @@ export class ReplayMcpClientManager extends McpClientManager {
     }
 
     return { content: [{ type: 'text', text: `Error: Unknown fs tool '${name}'` }], isError: true };
+  }
+
+  private executeShellTool(args: any): ReplayToolResult | null {
+    const command = typeof args?.command === 'string' ? args.command.trim() : '';
+    if (!command) {
+      return { content: [{ type: 'text', text: 'Error executing command: empty command' }], isError: true };
+    }
+
+    if (command === 'pwd') {
+      this.consumeTrace('shell_execute', args, false);
+      return { content: [{ type: 'text', text: this.virtualRoot }] };
+    }
+
+    if (command === 'ls' || command === 'dir' || command.startsWith('ls ') || command.startsWith('dir ')) {
+      this.consumeTrace('shell_execute', args, false);
+      const tokens = command.split(/\s+/).slice(1).filter((token: string) => token && !token.startsWith('-'));
+      const target = tokens[0] || '.';
+      const entries = this.listDirectoryEntries(this.normalizeFsPath(target));
+      const text = entries.map((entry) => `${entry.type === 'dir' ? '[DIR]' : '[FILE]'} ${entry.name}`).join('\n');
+      return { content: [{ type: 'text', text }] };
+    }
+
+    if (command.startsWith('cat ') || command.startsWith('type ')) {
+      this.consumeTrace('shell_execute', args, false);
+      const filePath = command.replace(/^(cat|type)\s+/, '').trim();
+      const normalized = this.normalizeFsPath(filePath);
+      if (!this.virtualFiles.has(normalized)) {
+        return { content: [{ type: 'text', text: `Error: ENOENT: no such file ${normalized}` }], isError: true };
+      }
+      return { content: [{ type: 'text', text: this.virtualFiles.get(normalized) || '' }] };
+    }
+
+    if (command.startsWith('echo ')) {
+      this.consumeTrace('shell_execute', args, false);
+      const output = command.slice(5);
+      return { content: [{ type: 'text', text: output }] };
+    }
+
+    if (command.startsWith('git ')) {
+      const git = this.mapShellGitCommand(command);
+      if (!git) return null;
+      return this.executeGitTool(git.name, git.args);
+    }
+
+    return null;
+  }
+
+  private mapShellGitCommand(command: string): { name: string; args: Record<string, unknown> } | null {
+    const trimmed = command.trim();
+    if (trimmed === 'git status') return { name: 'git_status', args: {} };
+    if (trimmed === 'git log') return { name: 'git_log', args: {} };
+    if (trimmed.startsWith('git log ')) {
+      const countMatch = trimmed.match(/-n\s+(\d+)/);
+      return { name: 'git_log', args: { maxCount: countMatch ? Number(countMatch[1]) : 10 } };
+    }
+    if (trimmed === 'git diff') return { name: 'git_diff', args: {} };
+    if (trimmed === 'git diff --cached') return { name: 'git_diff', args: { cached: true } };
+    if (trimmed === 'git add .') return { name: 'git_add', args: { files: ['.'] } };
+    if (trimmed.startsWith('git add ')) {
+      const files = trimmed.replace(/^git add\s+/, '').trim().split(/\s+/).filter(Boolean);
+      return { name: 'git_add', args: { files } };
+    }
+    if (trimmed === 'git push') return { name: 'git_push', args: {} };
+    if (trimmed === 'git pull') return { name: 'git_pull', args: {} };
+    const commitMatch = trimmed.match(/^git commit -m\s+["'](.+)["']$/);
+    if (commitMatch) return { name: 'git_commit', args: { message: commitMatch[1] } };
+    return null;
   }
 
   private executeGitTool(name: string, args: any): ReplayToolResult {
