@@ -88,6 +88,11 @@ Launch the dashboard (with real-time WebSocket):
 pnpm tsx packages/cli/src/index.ts dashboard
 ```
 
+First-time dashboard use:
+- Open the `Setup` workspace.
+- Initialize local workspace.
+- Configure provider/API key and run LLM connectivity test.
+
 Manage skills:
 ```bash
 # List all loaded skills

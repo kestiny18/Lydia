@@ -14,6 +14,7 @@
 - [Task Execution Chain](./architecture/task-execution-chain.md) - End-to-end task flow design
 - [Task Results Presentation](./architecture/task-results-presentation.md) - User-facing results UI
 - [Task Input UI](./architecture/task-input-ui.md) - Web task submission flow
+- [Dashboard Information Architecture](./architecture/dashboard-information-architecture.md) - Workspace boundaries and dashboard/CLI parity
 - [Local Installation](./architecture/local-installation.md) - One-click local installer design
 - [Browser Capability Contract](./architecture/browser-capability-contract.md) - Browser MCP tool contract and integration checklist
 - [Safety and Risk Controls](./safety.md)
