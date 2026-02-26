@@ -111,7 +111,7 @@ export class EvolutionLimitValidator implements GateValidator {
 
 export class ReplayPerformanceValidator implements GateValidator {
     name = 'replay_performance_validator';
-    async validate(candidate: Strategy, branch: StrategyBranch, evaluations?: EvaluationResult[]): Promise<ValidationResult> {
+    async validate(_candidate: Strategy, _branch: StrategyBranch, evaluations?: EvaluationResult[]): Promise<ValidationResult> {
         if (!evaluations || evaluations.length === 0) {
             return { status: 'NEEDS_HUMAN', reason: 'No replay evaluations available' };
         }
@@ -120,6 +120,9 @@ export class ReplayPerformanceValidator implements GateValidator {
         const failureRate = failedTasks.length / evaluations.length;
         const averageScore = evaluations.reduce((acc, cur) => acc + (cur.score || 0), 0) / evaluations.length;
         const driftCount = evaluations.filter(e => e.metrics?.driftDetected).length;
+        const averageDuration = evaluations.reduce((acc, cur) => acc + (cur.metrics?.duration || 0), 0) / evaluations.length;
+        const averageRiskEvents = evaluations.reduce((acc, cur) => acc + (cur.metrics?.riskEvents || 0), 0) / evaluations.length;
+        const averageHumanInterrupts = evaluations.reduce((acc, cur) => acc + (cur.metrics?.humanInterrupts || 0), 0) / evaluations.length;
 
         if (failureRate > 0.2) {
             return { status: 'REJECT', reason: `High failure rate: ${(failureRate * 100).toFixed(1)}%` };
@@ -131,6 +134,26 @@ export class ReplayPerformanceValidator implements GateValidator {
 
         if (driftCount > 0) {
             return { status: 'NEEDS_HUMAN', reason: `Replay drift detected in ${driftCount} episode(s)` };
+        }
+
+        if (averageDuration > 60000) {
+            return { status: 'REJECT', reason: `Replay latency too high: ${Math.round(averageDuration)}ms average` };
+        }
+
+        if (averageDuration > 30000) {
+            return { status: 'NEEDS_HUMAN', reason: `Replay latency elevated: ${Math.round(averageDuration)}ms average` };
+        }
+
+        if (averageRiskEvents > 3) {
+            return { status: 'REJECT', reason: `Replay risk exposure too high: ${averageRiskEvents.toFixed(2)} high-risk actions per task` };
+        }
+
+        if (averageRiskEvents > 1.5) {
+            return { status: 'NEEDS_HUMAN', reason: `Replay risk exposure elevated: ${averageRiskEvents.toFixed(2)} high-risk actions per task` };
+        }
+
+        if (averageHumanInterrupts > 2) {
+            return { status: 'NEEDS_HUMAN', reason: `Replay requires heavy human intervention: ${averageHumanInterrupts.toFixed(2)} interruptions per task` };
         }
 
         return { status: 'PASS' };

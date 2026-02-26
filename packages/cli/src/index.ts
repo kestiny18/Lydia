@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { Agent, ReplayManager, StrategyRegistry, StrategyReviewer, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, ReplayLLMProvider, ReplayMcpClientManager } from '@lydia/core';
+import { ReplayManager, StrategyRegistry, StrategyReviewer, StrategyApprovalService, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -503,24 +503,19 @@ async function main() {
         }
 
         if (!fs.existsSync(strategyPath)) {
-          const content = [
-            'id: default',
-            'version: "1.0.0"',
-            'name: Default Strategy',
-            'description: Baseline strategy for safe execution.',
-            'preferences:',
-            '  autonomy_level: assisted',
-            '  confirmation_bias: high',
-            'constraints:',
-            '  must_confirm:',
-            '    - shell_execute',
-            '    - fs_write_file',
-            'evolution_limits:',
-            '  max_delta: 0.1',
-            '  cooldown_days: 7',
-            ''
-          ].join('\n');
-          await fsPromises.writeFile(strategyPath, content, 'utf-8');
+          const registry = new StrategyRegistry();
+          const strategy = await registry.loadDefault();
+          const initial = {
+            ...strategy,
+            metadata: {
+              ...strategy.metadata,
+              id: 'default',
+              version: '1.0.0',
+              name: 'Default Strategy',
+              description: 'Baseline strategy for safe execution.',
+            }
+          };
+          await registry.saveToFile(initial, strategyPath);
           console.log(chalk.green(`Created strategy: ${strategyPath}`));
         } else {
           console.log(chalk.gray(`Strategy already exists: ${strategyPath}`));
@@ -549,7 +544,7 @@ async function main() {
           return;
         }
         strategies.forEach((s) => {
-          console.log(`${chalk.green(s.id)} v${s.version} - ${s.name}`);
+          console.log(`${chalk.green(s.metadata.id)} v${s.metadata.version} - ${s.metadata.name}`);
         });
       } catch (error: any) {
         console.error(chalk.red('Failed to list strategies:'), error.message);
@@ -582,141 +577,82 @@ async function main() {
       const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
       const memory = new MemoryManager(dbPath);
       const registry = new StrategyRegistry();
+      const updateGate = new StrategyUpdateGate();
+      const replayManager = new ReplayManager(memory);
 
       try {
-        const strategy = await registry.loadFromFile(absPath);
-        const gate = BasicStrategyGate.validate(strategy);
-        if (!gate.ok) {
-          const id = memory.recordStrategyProposal({
-            strategy_path: absPath,
-            status: 'invalid',
-            reason: gate.reason,
-            created_at: Date.now(),
-            decided_at: Date.now(),
-          });
-          console.error(chalk.red(`Proposal rejected by gate: ${id}`));
-          console.error(chalk.red(gate.reason || 'Invalid strategy'));
-          return;
-        }
-
-        const episodes = memory.listEpisodes(50);
-
-        const computeMetrics = (s: any) => {
-          const mustConfirm = Array.isArray(s?.constraints?.must_confirm)
-            ? s.constraints.must_confirm
-            : [];
-          let totalTraces = 0;
-          let confirmTraces = 0;
-          let successTraces = 0;
-          let failedTraces = 0;
-          let durationTotal = 0;
-          const toolCounts: Record<string, number> = {};
-
-          for (const ep of episodes) {
-            if (!ep.id) continue;
-            const traces = memory.getTraces(ep.id);
-            for (const t of traces) {
-              totalTraces += 1;
-              toolCounts[t.tool_name] = (toolCounts[t.tool_name] || 0) + 1;
-              durationTotal += t.duration;
-              if (t.status === 'success') successTraces += 1;
-              if (t.status === 'failed') failedTraces += 1;
-              if (mustConfirm.includes(t.tool_name)) {
-                confirmTraces += 1;
-              }
-            }
-          }
-
-          return {
-            traces: totalTraces,
-            confirm_required: confirmTraces,
-            must_confirm: mustConfirm,
-            tool_usage: toolCounts,
-            success: successTraces,
-            failed: failedTraces,
-            success_rate: totalTraces > 0 ? successTraces / totalTraces : 0,
-            avg_duration_ms: totalTraces > 0 ? Math.round(durationTotal / totalTraces) : 0,
-          };
-        };
-
-        let baselineMetrics = null;
-        let baselineMeta: any = null;
-        try {
-          const baselinePath = config.strategy?.activePath;
-          const baseline = baselinePath
-            ? await registry.loadFromFile(baselinePath)
-            : await registry.loadDefault();
-          baselineMetrics = computeMetrics(baseline);
-          baselineMeta = { id: baseline.id, version: baseline.version };
-        } catch {
-          baselineMetrics = null;
-        }
-
-        const candidateMetrics = computeMetrics(strategy);
-
-        const evaluation = {
-          episodes: episodes.length,
-          baseline_strategy: baselineMeta,
-          candidate_strategy: { id: strategy.id, version: strategy.version },
-          baseline: baselineMetrics,
-          candidate: candidateMetrics,
-          delta: baselineMetrics
-            ? {
-              confirm_required: candidateMetrics.confirm_required - baselineMetrics.confirm_required,
-              traces: candidateMetrics.traces - baselineMetrics.traces,
-              success_rate: Number((candidateMetrics.success_rate - baselineMetrics.success_rate).toFixed(4)),
-              avg_duration_ms: candidateMetrics.avg_duration_ms - baselineMetrics.avg_duration_ms
-            }
-            : null,
-          replay: {
-            episodes: 0,
-            drift_episodes: 0,
-            drift_steps: 0,
-          }
-        };
-
         const config = await new ConfigLoader().load();
+        const strategy = await registry.loadFromFile(absPath);
+        const baselinePath = config.strategy?.activePath;
+        const baseline = baselinePath
+          ? await registry.loadFromFile(baselinePath)
+          : await registry.loadDefault();
+
         const replayCount = config.strategy?.replayEpisodes ?? 10;
-        const evalEpisodes = episodes.slice(0, replayCount);
-        for (const ep of evalEpisodes) {
-          if (!ep.id) continue;
-          const traces = memory.getTraces(ep.id);
-          const mockLLM = new ReplayLLMProvider(ep.plan);
-          const mockMcp = new ReplayMcpClientManager(traces);
-          const agent = new Agent(mockLLM);
+        const replayEpisodeIds = memory
+          .listEpisodes(replayCount)
+          .map((ep) => ep.id)
+          .filter((id): id is number => typeof id === 'number');
 
-          const tempDb = path.join(os.tmpdir(), `lydia-replay-eval-${Date.now()}-${ep.id}.db`);
-          (agent as any).mcpClientManager = mockMcp;
-          (agent as any).isInitialized = true;
-          (agent as any).memoryManager = new MemoryManager(tempDb);
-          await (agent as any).skillLoader.loadAll();
+        const replayComparison = replayEpisodeIds.length > 0
+          ? await replayManager.replayCompare(replayEpisodeIds, baseline, strategy)
+          : null;
 
-          try {
-            await agent.run(ep.input);
-          } catch {
-            // ignore replay execution errors for evaluation summary
+        const validation = await updateGate.process(
+          strategy,
+          {
+            name: strategy.metadata.id,
+            version: strategy.metadata.version,
+            path: absPath,
+            parent: strategy.metadata.inheritFrom,
+            createdAt: Date.now(),
+          },
+          replayComparison?.details || [],
+          baseline
+        );
+
+        const proposalStatus = validation.status === 'REJECT' ? 'invalid' : 'pending_human';
+        const evaluation = {
+          validation,
+          replay: replayComparison,
+          sampledEpisodeIds: replayEpisodeIds,
+          baseline: {
+            id: baseline.metadata.id,
+            version: baseline.metadata.version,
+          },
+          candidate: {
+            id: strategy.metadata.id,
+            version: strategy.metadata.version,
           }
-
-          evaluation.replay.episodes += 1;
-          evaluation.replay.drift_steps += mockMcp.drifts.length;
-          if (mockMcp.drifts.length > 0) {
-            evaluation.replay.drift_episodes += 1;
-          }
-
-          try {
-            fs.rmSync(tempDb, { force: true });
-          } catch {
-            // ignore cleanup errors
-          }
-        }
+        };
 
         const id = memory.recordStrategyProposal({
           strategy_path: absPath,
-          status: 'pending_human',
+          status: proposalStatus,
+          reason: validation.reason,
           evaluation_json: JSON.stringify(evaluation),
           created_at: Date.now(),
+          decided_at: proposalStatus === 'invalid' ? Date.now() : undefined,
         });
+
+        if (proposalStatus === 'invalid') {
+          console.error(chalk.red(`Proposal rejected by gate: ${id}`));
+          console.error(chalk.red(validation.reason || 'Rejected by automated validation'));
+          return;
+        }
+
         console.log(chalk.green(`Proposal created: ${id}`));
+        if (replayComparison) {
+          console.log(
+            chalk.gray(
+              `Replay compared ${replayComparison.tasksEvaluated} episodes ` +
+              `(candidate ${(replayComparison.candidateScore * 100).toFixed(1)}%, ` +
+              `baseline ${(replayComparison.baselineScore * 100).toFixed(1)}%).`
+            )
+          );
+        } else {
+          console.log(chalk.yellow('No replay episodes found. Proposal requires manual review.'));
+        }
       } catch (error: any) {
         const id = memory.recordStrategyProposal({
           strategy_path: absPath,
@@ -814,55 +750,15 @@ async function main() {
     .argument('<id>', 'Proposal id')
     .action(async (id) => {
       const proposalId = Number(id);
-      if (Number.isNaN(proposalId)) {
-        console.error(chalk.red('Proposal id must be a number'));
-        return;
-      }
+      const approval = new StrategyApprovalService();
 
-      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
-      const memory = new MemoryManager(dbPath);
-      const proposal = memory.getStrategyProposal(proposalId);
-      if (!proposal) {
-        console.error(chalk.red('Proposal not found'));
-        return;
+      try {
+        const result = await approval.approveProposal(proposalId);
+        console.log(chalk.green(`Approved proposal ${proposalId}`));
+        console.log(chalk.gray(`Active strategy: ${result.activePath}`));
+      } catch (error: any) {
+        console.error(chalk.red(error.message || String(error)));
       }
-      if (proposal.status !== 'pending_human') {
-        console.error(chalk.red(`Proposal is ${proposal.status}`));
-        return;
-      }
-
-      const config = await new ConfigLoader().load();
-      const cooldownDays = config.strategy?.approvalCooldownDays ?? 7;
-      const dailyLimit = config.strategy?.approvalDailyLimit ?? 1;
-      const now = Date.now();
-
-      const lastApproval = memory.getFactByKey('strategy.approval.last');
-      if (lastApproval?.content) {
-        const lastTime = Number(lastApproval.content);
-        if (!Number.isNaN(lastTime)) {
-          const diffDays = (now - lastTime) / (24 * 60 * 60 * 1000);
-          if (diffDays < cooldownDays) {
-            console.error(chalk.red(`Approval cooldown active (${cooldownDays} days).`));
-            return;
-          }
-        }
-      }
-
-      const dateKey = new Date(now).toISOString().slice(0, 10);
-      const dailyKey = `strategy.approval.daily.${dateKey}`;
-      const dailyFact = memory.getFactByKey(dailyKey);
-      const dailyCount = dailyFact?.content ? Number(dailyFact.content) : 0;
-      if (!Number.isNaN(dailyCount) && dailyCount >= dailyLimit) {
-        console.error(chalk.red(`Daily approval limit reached (${dailyLimit}).`));
-        return;
-      }
-
-      const loader = new ConfigLoader();
-      await loader.update({ strategy: { activePath: proposal.strategy_path } } as any);
-      memory.updateStrategyProposal(proposalId, 'approved');
-      memory.rememberFact(String(now), 'strategy.approval.last', ['strategy', 'approval']);
-      memory.rememberFact(String((Number.isNaN(dailyCount) ? 0 : dailyCount) + 1), dailyKey, ['strategy', 'approval']);
-      console.log(chalk.green(`Approved proposal ${proposalId}`));
     });
 
   strategyCmd
@@ -872,25 +768,14 @@ async function main() {
     .option('-r, --reason <reason>', 'Rejection reason')
     .action(async (id, options) => {
       const proposalId = Number(id);
-      if (Number.isNaN(proposalId)) {
-        console.error(chalk.red('Proposal id must be a number'));
-        return;
-      }
+      const approval = new StrategyApprovalService();
 
-      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
-      const memory = new MemoryManager(dbPath);
-      const proposal = memory.getStrategyProposal(proposalId);
-      if (!proposal) {
-        console.error(chalk.red('Proposal not found'));
-        return;
+      try {
+        await approval.rejectProposal(proposalId, options.reason);
+        console.log(chalk.yellow(`Rejected proposal ${proposalId}`));
+      } catch (error: any) {
+        console.error(chalk.red(error.message || String(error)));
       }
-      if (proposal.status !== 'pending_human') {
-        console.error(chalk.red(`Proposal is ${proposal.status}`));
-        return;
-      }
-
-      memory.updateStrategyProposal(proposalId, 'rejected', options.reason);
-      console.log(chalk.yellow(`Rejected proposal ${proposalId}`));
     });
 
   strategyCmd
@@ -907,17 +792,29 @@ async function main() {
         return;
       }
       proposals.forEach((p) => {
-        let delta = '';
+        let details = '';
         if (p.evaluation_json) {
           try {
             const evalData = JSON.parse(p.evaluation_json);
-            if (evalData?.delta?.confirm_required !== undefined) {
-              delta = ` | delta_confirm: ${evalData.delta.confirm_required}`;
+            const replay = evalData?.replay;
+            const validation = evalData?.validation;
+            if (replay?.candidateSummary && replay?.baselineSummary && replay?.delta) {
+              const candidate = replay.candidateSummary;
+              const baseline = replay.baselineSummary;
+              const delta = replay.delta;
+              details =
+                ` | score ${((replay.candidateScore || 0) * 100).toFixed(1)}% vs ${((replay.baselineScore || 0) * 100).toFixed(1)}%` +
+                ` | dur ${Math.round(candidate.averageDuration || 0)}ms (${Math.round(delta.averageDuration || 0)}ms)` +
+                ` | risk ${(candidate.averageRiskEvents || 0).toFixed(2)} (${(delta.averageRiskEvents || 0).toFixed(2)})` +
+                ` | human ${(candidate.averageHumanInterrupts || 0).toFixed(2)} (${(delta.averageHumanInterrupts || 0).toFixed(2)})` +
+                ` | drift ${(candidate.driftRate || 0).toFixed(2)} (${(delta.driftRate || 0).toFixed(2)})`;
+            } else if (validation?.status) {
+              details = ` | validation ${validation.status}${validation.reason ? `: ${validation.reason}` : ''}`;
             }
           } catch { }
         }
         const summary = p.evaluation_json ? 'has_eval' : 'no_eval';
-        console.log(`${p.id} | ${p.status} | ${summary}${delta} | ${p.strategy_path}`);
+        console.log(`${p.id} | ${p.status} | ${summary}${details} | ${p.strategy_path}`);
       });
     });
 

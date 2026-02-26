@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { createNodeWebSocket } from '@hono/node-ws';
-import { MemoryManager, ConfigLoader, Agent, createLLMFromConfig } from '@lydia/core';
+import { MemoryManager, ConfigLoader, Agent, StrategyApprovalService, createLLMFromConfig } from '@lydia/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFile } from 'node:fs/promises';
@@ -87,6 +87,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
   // Initialize MemoryManager
   const dbPath = join(homedir(), '.lydia', 'memory.db');
   const memoryManager = new MemoryManager(dbPath);
+  const approvalService = new StrategyApprovalService(memoryManager, new ConfigLoader());
 
   // --- API Routes ---
 
@@ -186,7 +187,34 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
   // List Strategy Proposals
   app.get('/api/strategy/proposals', (c) => {
     const limit = Number(c.req.query('limit')) || 50;
-    const proposals = memoryManager.listStrategyProposals(limit);
+    const proposals = memoryManager.listStrategyProposals(limit).map((proposal) => {
+      let evaluationSummary: any = null;
+      if (proposal.evaluation_json) {
+        try {
+          const evaluation = JSON.parse(proposal.evaluation_json);
+          const replay = evaluation?.replay;
+          if (replay?.candidateSummary && replay?.baselineSummary && replay?.delta) {
+            evaluationSummary = {
+              candidateScore: replay.candidateScore,
+              baselineScore: replay.baselineScore,
+              tasksEvaluated: replay.tasksEvaluated,
+              candidateSummary: replay.candidateSummary,
+              baselineSummary: replay.baselineSummary,
+              delta: replay.delta,
+              validation: evaluation?.validation || null,
+            };
+          } else if (evaluation?.validation) {
+            evaluationSummary = { validation: evaluation.validation };
+          }
+        } catch {
+          evaluationSummary = null;
+        }
+      }
+      return {
+        ...proposal,
+        evaluationSummary,
+      };
+    });
     return c.json(proposals);
   });
 
@@ -692,36 +720,32 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
 
   app.post('/api/strategy/proposals/:id/approve', async (c) => {
     const id = Number(c.req.param('id'));
-    if (Number.isNaN(id)) return c.json({ error: 'Invalid id' }, 400);
-    const proposal = memoryManager.getStrategyProposal(id);
-    if (!proposal) return c.json({ error: 'Proposal not found' }, 404);
-    if (proposal.status !== 'pending_human') {
-      return c.json({ error: `Proposal is ${proposal.status}` }, 400);
+    try {
+      const result = await approvalService.approveProposal(id);
+      return c.json({ ok: true, activePath: result.activePath });
+    } catch (error: any) {
+      const message = error?.message || 'Approval failed';
+      if (message === 'Proposal not found') return c.json({ error: message }, 404);
+      return c.json({ error: message }, 400);
     }
-
-    const loader = new ConfigLoader();
-    await loader.update({ strategy: { activePath: proposal.strategy_path } } as any);
-    memoryManager.updateStrategyProposal(id, 'approved');
-    return c.json({ ok: true });
   });
 
   app.post('/api/strategy/proposals/:id/reject', async (c) => {
     const id = Number(c.req.param('id'));
-    if (Number.isNaN(id)) return c.json({ error: 'Invalid id' }, 400);
-    const proposal = memoryManager.getStrategyProposal(id);
-    if (!proposal) return c.json({ error: 'Proposal not found' }, 404);
-    if (proposal.status !== 'pending_human') {
-      return c.json({ error: `Proposal is ${proposal.status}` }, 400);
-    }
-
     let reason = '';
     try {
       const body = await c.req.json();
       reason = body?.reason || '';
     } catch { }
 
-    memoryManager.updateStrategyProposal(id, 'rejected', reason);
-    return c.json({ ok: true });
+    try {
+      await approvalService.rejectProposal(id, reason);
+      return c.json({ ok: true });
+    } catch (error: any) {
+      const message = error?.message || 'Rejection failed';
+      if (message === 'Proposal not found') return c.json({ error: message }, 404);
+      return c.json({ error: message }, 400);
+    }
   });
 
   // Get Replay Traces (Episodes)

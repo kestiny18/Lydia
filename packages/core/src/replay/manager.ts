@@ -12,9 +12,13 @@ export class ReplayManager {
   private memoryManager: MemoryManager;
   private evaluator: StrategyEvaluator;
 
-  constructor() {
-    const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
-    this.memoryManager = new MemoryManager(dbPath);
+  constructor(memoryManager?: MemoryManager) {
+    if (memoryManager) {
+      this.memoryManager = memoryManager;
+    } else {
+      const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
+      this.memoryManager = new MemoryManager(dbPath);
+    }
     this.evaluator = new StrategyEvaluator();
   }
 
@@ -86,10 +90,13 @@ export class ReplayManager {
     const duration = Date.now() - start;
 
     // 5. Evaluate
-    const evaluation = this.evaluator.evaluateTask(resultTask, episode.result);
-    evaluation.metrics.duration = duration;
-    evaluation.metrics.steps = traces.length;
-    evaluation.metrics.driftDetected = mockMcp.drifts.length > 0;
+    const evaluation = this.evaluator.evaluateTask(resultTask, episode.result, {
+      duration,
+      steps: mockMcp.getInvocationCount(),
+      driftDetected: mockMcp.drifts.length > 0,
+      riskEvents: mockMcp.getRiskEventCount(),
+      humanInterrupts: mockMcp.getHumanInterruptCount(),
+    });
 
     return evaluation;
   }

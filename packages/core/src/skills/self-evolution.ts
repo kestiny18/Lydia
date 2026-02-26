@@ -5,6 +5,7 @@ import { StrategyUpdateGate } from '../gate/engine.js';
 import { ReviewManager } from '../gate/review-manager.js';
 import { StrategyRegistry } from '../strategy/registry.js';
 import { MemoryManager } from '../memory/manager.js';
+import { ReplayManager } from '../replay/manager.js';
 
 export class SelfEvolutionSkill implements DynamicSkill {
     name = 'self_evolution';
@@ -97,10 +98,26 @@ export class SelfEvolutionSkill implements DynamicSkill {
             const branchInfo = (await this.branchManager.listBranches()).find(b => b.name === branchName);
             if (!branchInfo) return 'Error: Failed to create strategy branch.';
 
-            // 3. Run Gate
-            const validation = await this.gate.process(newStrategy, branchInfo, [], currentStrategy);
+            // 3. Replay candidate strategy on recent episodes before gate evaluation.
+            const replayManager = new ReplayManager(this.memoryManager);
+            const replayEpisodeIds = this.memoryManager
+                .listEpisodes(20)
+                .map((ep) => ep.id)
+                .filter((id): id is number => typeof id === 'number');
 
-            // 4. Act on Result
+            const replayComparison = replayEpisodeIds.length > 0
+                ? await replayManager.replayCompare(replayEpisodeIds, currentStrategy, newStrategy)
+                : null;
+
+            // 4. Run Gate with replay evidence
+            const validation = await this.gate.process(
+                newStrategy,
+                branchInfo,
+                replayComparison?.details || [],
+                currentStrategy
+            );
+
+            // 5. Act on Result
             const reqDetails = {
                 source: 'self_evolution',
                 branchName: branchName,
@@ -119,7 +136,10 @@ export class SelfEvolutionSkill implements DynamicSkill {
             }
 
             if (validation.status === 'NEEDS_HUMAN' || validation.status === 'PASS') {
-                return `Strategy update proposed and queued for review. Request ID: ${reqId}.\nValidation: ${validation.reason || 'Passed auto-checks'}`;
+                const replaySummary = replayComparison
+                    ? `\nReplay: ${replayComparison.tasksEvaluated} episodes, candidate score ${(replayComparison.candidateScore * 100).toFixed(1)}%, baseline score ${(replayComparison.baselineScore * 100).toFixed(1)}%`
+                    : '\nReplay: no episodes available, manual review required.';
+                return `Strategy update proposed and queued for review. Request ID: ${reqId}.\nValidation: ${validation.reason || 'Passed auto-checks'}${replaySummary}`;
             }
 
             return 'Unknown state';
