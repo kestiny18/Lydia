@@ -1045,8 +1045,10 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
 
     return c.json({
       enabled: config.strategy.shadowModeEnabled,
+      mode: config.strategy.shadowRolloutMode,
       trafficRatio: config.strategy.shadowTrafficRatio,
       autoPromoteEnabled: config.strategy.autoPromoteEnabled,
+      autoPromoteEvalInterval: config.strategy.autoPromoteEvalInterval,
       windowDays,
       baseline: {
         path: config.strategy.activePath || null,

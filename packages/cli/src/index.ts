@@ -843,7 +843,7 @@ async function main() {
 
   const shadowCmd = strategyCmd
     .command('shadow')
-    .description('Manage shadow rollout and auto-promotion settings');
+    .description('Manage shadow/canary rollout and auto-promotion settings');
 
   shadowCmd
     .command('status')
@@ -868,8 +868,10 @@ async function main() {
 
       console.log(chalk.bold('\nShadow Rollout Status'));
       console.log(`  Enabled: ${config.strategy.shadowModeEnabled ? chalk.green('yes') : chalk.gray('no')}`);
+      console.log(`  Mode: ${config.strategy.shadowRolloutMode}`);
       console.log(`  Traffic Ratio: ${(config.strategy.shadowTrafficRatio * 100).toFixed(1)}%`);
       console.log(`  Auto-Promote: ${config.strategy.autoPromoteEnabled ? chalk.green('yes') : chalk.gray('no')}`);
+      console.log(`  Promote Check Interval: ${config.strategy.autoPromoteEvalInterval} task(s)`);
       console.log(`  Window: ${windowDays} day(s)`);
       console.log(`  Baseline: ${active.metadata.id} v${active.metadata.version}`);
       console.log(
@@ -908,18 +910,32 @@ async function main() {
 
   shadowCmd
     .command('enable')
-    .description('Enable shadow routing')
+    .description('Enable shadow/canary rollout')
     .action(async () => {
       await new ConfigLoader().update({ strategy: { shadowModeEnabled: true } } as any);
-      console.log(chalk.green('Shadow routing enabled.'));
+      console.log(chalk.green('Shadow rollout enabled.'));
     });
 
   shadowCmd
     .command('disable')
-    .description('Disable shadow routing')
+    .description('Disable shadow/canary rollout')
     .action(async () => {
       await new ConfigLoader().update({ strategy: { shadowModeEnabled: false } } as any);
-      console.log(chalk.yellow('Shadow routing disabled.'));
+      console.log(chalk.yellow('Shadow rollout disabled.'));
+    });
+
+  shadowCmd
+    .command('mode')
+    .description('Set rollout mode: shadow (safe) or canary (real traffic)')
+    .argument('<mode>', 'shadow | canary')
+    .action(async (mode) => {
+      const normalized = String(mode || '').trim().toLowerCase();
+      if (normalized !== 'shadow' && normalized !== 'canary') {
+        console.error(chalk.red('mode must be shadow or canary'));
+        return;
+      }
+      await new ConfigLoader().update({ strategy: { shadowRolloutMode: normalized as 'shadow' | 'canary' } } as any);
+      console.log(chalk.green(`Shadow rollout mode set to ${normalized}.`));
     });
 
   shadowCmd
@@ -934,6 +950,20 @@ async function main() {
       }
       await new ConfigLoader().update({ strategy: { shadowTrafficRatio: ratio } } as any);
       console.log(chalk.green(`Shadow traffic ratio set to ${(ratio * 100).toFixed(1)}%.`));
+    });
+
+  shadowCmd
+    .command('eval-interval')
+    .description('Set auto-promotion evaluation interval in completed tasks')
+    .argument('<value>', 'Positive integer')
+    .action(async (value) => {
+      const interval = Number(value);
+      if (!Number.isInteger(interval) || interval <= 0) {
+        console.error(chalk.red('eval interval must be a positive integer'));
+        return;
+      }
+      await new ConfigLoader().update({ strategy: { autoPromoteEvalInterval: interval } } as any);
+      console.log(chalk.green(`Auto-promotion evaluation interval set to ${interval}.`));
     });
 
   shadowCmd
