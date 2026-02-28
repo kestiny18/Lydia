@@ -48,6 +48,7 @@ export class ShadowRouter {
   async selectStrategy(config: LydiaConfig): Promise<RoutedStrategy> {
     const baseline = await this.loadBaseline(config);
     const candidates = await this.loadCandidates(config);
+    const rolloutMode = config.strategy.shadowRolloutMode ?? 'shadow';
     if (!config.strategy.shadowModeEnabled || candidates.length === 0) {
       return {
         role: 'baseline',
@@ -55,6 +56,16 @@ export class ShadowRouter {
         strategyId: baseline.metadata.id,
         strategyVersion: baseline.metadata.version,
         reason: 'shadow_mode_disabled_or_no_candidates',
+      };
+    }
+
+    if (rolloutMode === 'shadow') {
+      return {
+        role: 'baseline',
+        path: config.strategy.activePath || undefined,
+        strategyId: baseline.metadata.id,
+        strategyVersion: baseline.metadata.version,
+        reason: 'shadow_rollout_mode_baseline_only',
       };
     }
 
@@ -70,7 +81,7 @@ export class ShadowRouter {
     }
 
     const windowMs = Date.now() - (config.strategy.shadowWindowDays * 24 * 60 * 60 * 1000);
-    const bestCandidate = candidates
+    const withSummaries = candidates
       .map((candidate) => {
         const summary = this.memory.summarizeEpisodesByStrategy(
           candidate.strategy.metadata.id,
@@ -80,9 +91,14 @@ export class ShadowRouter {
         return {
           ...candidate,
           summary,
-          score: this.computeUcbScore(summary, candidates.length),
         };
-      })
+      });
+    const totalPulls = withSummaries.reduce((acc, item) => acc + item.summary.total, 0);
+    const bestCandidate = withSummaries
+      .map((candidate) => ({
+        ...candidate,
+        score: this.computeUcbScore(candidate.summary, totalPulls),
+      }))
       .sort((a, b) => b.score - a.score)[0];
 
     if (!bestCandidate) {
@@ -106,6 +122,8 @@ export class ShadowRouter {
 
   async evaluateAutoPromotion(config: LydiaConfig): Promise<ShadowPromotionDecision | null> {
     if (!config.strategy.autoPromoteEnabled) return null;
+    if (!config.strategy.shadowModeEnabled) return null;
+    if ((config.strategy.shadowRolloutMode ?? 'shadow') !== 'canary') return null;
 
     const baseline = await this.loadBaseline(config);
     const candidates = await this.loadCandidates(config);
@@ -117,12 +135,19 @@ export class ShadowRouter {
       baseline.metadata.version,
       { sinceMs, limit: 1000 }
     );
-    if (baselineSummary.total < config.strategy.autoPromoteMinTasks) return null;
+    const minTasks = Math.max(1, Math.floor(config.strategy.autoPromoteMinTasks));
+    if (baselineSummary.total < minTasks) return null;
+
+    const evalInterval = Math.max(
+      1,
+      Math.floor(config.strategy.autoPromoteEvalInterval || minTasks)
+    );
+    if (baselineSummary.total % evalInterval !== 0) return null;
 
     const confidenceTarget = config.strategy.autoPromoteConfidence;
     const maxPValue = 1 - confidenceTarget;
 
-    let selected: ShadowPromotionDecision | null = null;
+    const passingDecisions: ShadowPromotionDecision[] = [];
 
     for (const candidate of candidates) {
       const candidateSummary = this.memory.summarizeEpisodesByStrategy(
@@ -130,7 +155,8 @@ export class ShadowRouter {
         candidate.strategy.metadata.version,
         { sinceMs, limit: 1000 }
       );
-      if (candidateSummary.total < config.strategy.autoPromoteMinTasks) continue;
+      if (candidateSummary.total < minTasks) continue;
+      if (candidateSummary.total % evalInterval !== 0) continue;
 
       const baselineRate = this.safeRate(baselineSummary.success, baselineSummary.total);
       const candidateRate = this.safeRate(candidateSummary.success, candidateSummary.total);
@@ -147,10 +173,9 @@ export class ShadowRouter {
 
       if (
         improvement >= config.strategy.autoPromoteMinImprovement &&
-        pValue <= maxPValue &&
         durationAcceptable
       ) {
-        const decision: ShadowPromotionDecision = {
+        passingDecisions.push({
           candidatePath: candidate.path,
           candidateId: candidate.strategy.metadata.id,
           candidateVersion: candidate.strategy.metadata.version,
@@ -160,15 +185,27 @@ export class ShadowRouter {
           baselineSummary,
           successImprovement: improvement,
           pValue,
-        };
-
-        if (!selected || decision.successImprovement > selected.successImprovement) {
-          selected = decision;
-        }
+        });
       }
     }
 
-    return selected;
+    if (passingDecisions.length === 0) return null;
+
+    // Holm-Bonferroni control for multiple candidate comparisons in the same check window.
+    const sortedByP = [...passingDecisions].sort((a, b) => a.pValue - b.pValue);
+    const accepted: ShadowPromotionDecision[] = [];
+    for (let i = 0; i < sortedByP.length; i += 1) {
+      const remaining = sortedByP.length - i;
+      const threshold = maxPValue / remaining;
+      if (sortedByP[i].pValue <= threshold) {
+        accepted.push(sortedByP[i]);
+      } else {
+        break;
+      }
+    }
+    if (accepted.length === 0) return null;
+
+    return accepted.sort((a, b) => b.successImprovement - a.successImprovement)[0];
   }
 
   private async loadBaseline(config: LydiaConfig): Promise<Strategy> {
@@ -191,10 +228,11 @@ export class ShadowRouter {
     return results;
   }
 
-  private computeUcbScore(summary: StrategyEpisodeSummary, candidateCount: number): number {
+  private computeUcbScore(summary: StrategyEpisodeSummary, globalPulls: number): number {
     if (summary.total === 0) return Number.POSITIVE_INFINITY;
     const successRate = this.safeRate(summary.success, summary.total);
-    const exploration = Math.sqrt((2 * Math.log(candidateCount + summary.total + 1)) / summary.total);
+    const pulls = Math.max(1, globalPulls);
+    const exploration = Math.sqrt((2 * Math.log(pulls + 1)) / summary.total);
     return successRate + exploration;
   }
 

@@ -81,10 +81,12 @@ describe('ShadowRouter', () => {
         approvalCooldownDays: 7,
         approvalDailyLimit: 1,
         shadowModeEnabled: true,
+        shadowRolloutMode: 'canary',
         shadowTrafficRatio: 1,
         shadowCandidatePaths: [candidatePath],
         autoPromoteEnabled: false,
         autoPromoteMinTasks: 20,
+        autoPromoteEvalInterval: 20,
         autoPromoteMinImprovement: 0.05,
         autoPromoteConfidence: 0.95,
         shadowWindowDays: 14,
@@ -94,6 +96,36 @@ describe('ShadowRouter', () => {
     expect(routed.role).toBe('candidate');
     expect(routed.path).toBe(candidatePath);
     expect(routed.strategyId).toBe('candidate-v1');
+  });
+
+  it('keeps user traffic on baseline in true shadow mode', async () => {
+    const memory = createMemory();
+    const registry = new StrategyRegistry();
+    const baselinePath = writeTemp(strategyYaml('baseline-shadow', '1.0.0', 'baseline-shadow'), 'baseline-shadow');
+    const candidatePath = writeTemp(strategyYaml('candidate-shadow', '1.0.0', 'candidate-shadow'), 'candidate-shadow');
+    const router = new ShadowRouter(memory, registry, () => 0.0);
+
+    const routed = await router.selectStrategy({
+      strategy: {
+        activePath: baselinePath,
+        replayEpisodes: 10,
+        approvalCooldownDays: 7,
+        approvalDailyLimit: 1,
+        shadowModeEnabled: true,
+        shadowRolloutMode: 'shadow',
+        shadowTrafficRatio: 1,
+        shadowCandidatePaths: [candidatePath],
+        autoPromoteEnabled: false,
+        autoPromoteMinTasks: 20,
+        autoPromoteEvalInterval: 20,
+        autoPromoteMinImprovement: 0.05,
+        autoPromoteConfidence: 0.95,
+        shadowWindowDays: 14,
+      }
+    } as any);
+
+    expect(routed.role).toBe('baseline');
+    expect(routed.strategyId).toBe('baseline-shadow');
   });
 
   it('returns an auto-promotion decision when candidate significantly outperforms baseline', async () => {
@@ -117,10 +149,12 @@ describe('ShadowRouter', () => {
         approvalCooldownDays: 7,
         approvalDailyLimit: 1,
         shadowModeEnabled: true,
+        shadowRolloutMode: 'canary',
         shadowTrafficRatio: 0.3,
         shadowCandidatePaths: [candidatePath],
         autoPromoteEnabled: true,
         autoPromoteMinTasks: 20,
+        autoPromoteEvalInterval: 10,
         autoPromoteMinImprovement: 0.05,
         autoPromoteConfidence: 0.9,
         shadowWindowDays: 14,
@@ -132,5 +166,38 @@ describe('ShadowRouter', () => {
     expect(decision?.successImprovement).toBeGreaterThan(0.05);
     expect((decision?.pValue || 1)).toBeLessThan(0.1);
   });
-});
 
+  it('skips auto-promotion checks between evaluation boundaries', async () => {
+    const memory = createMemory();
+    const registry = new StrategyRegistry();
+    const baselinePath = writeTemp(strategyYaml('baseline-v3', '3.0.0', 'baseline'), 'baseline-3');
+    const candidatePath = writeTemp(strategyYaml('candidate-v3', '3.0.0', 'candidate'), 'candidate-3');
+    const router = new ShadowRouter(memory, registry, () => 0.5);
+
+    for (let i = 0; i < 21; i += 1) {
+      recordEpisodeWithStatus(memory, 'baseline-v3', '3.0.0', i < 5);
+      recordEpisodeWithStatus(memory, 'candidate-v3', '3.0.0', i < 2);
+    }
+
+    const decision = await router.evaluateAutoPromotion({
+      strategy: {
+        activePath: baselinePath,
+        replayEpisodes: 10,
+        approvalCooldownDays: 7,
+        approvalDailyLimit: 1,
+        shadowModeEnabled: true,
+        shadowRolloutMode: 'canary',
+        shadowTrafficRatio: 0.3,
+        shadowCandidatePaths: [candidatePath],
+        autoPromoteEnabled: true,
+        autoPromoteMinTasks: 20,
+        autoPromoteEvalInterval: 10,
+        autoPromoteMinImprovement: 0.05,
+        autoPromoteConfidence: 0.9,
+        shadowWindowDays: 14,
+      }
+    } as any);
+
+    expect(decision).toBeNull();
+  });
+});
