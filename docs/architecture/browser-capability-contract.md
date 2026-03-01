@@ -15,6 +15,10 @@ Lydia will consume browser computer-use abilities through MCP tools. To keep arc
 ## Contract Design
 Browser capabilities should be exposed as explicit tools with JSON schemas. Names can be prefixed by server id on collision.
 
+Canonical naming reference:
+- `docs/architecture/computer-use-canonical-contract.md`
+- Lydia runtime auto-registers canonical aliases for common browser tool-name variants.
+
 Recommended baseline tool set:
 1. `browser_navigate`
 2. `browser_click`

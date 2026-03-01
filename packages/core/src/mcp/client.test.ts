@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { McpClientManager } from './client.js';
 
 describe('McpClientManager', () => {
@@ -57,6 +57,29 @@ describe('McpClientManager', () => {
       // Calling a prefixed tool that doesn't exist should still throw
       await expect(manager.callTool('server1/read_file', {}))
         .rejects.toThrow("Tool 'server1/read_file' not found.");
+    });
+  });
+
+  describe('computer-use canonical aliases', () => {
+    it('should resolve canonical alias to original MCP tool name at call time', async () => {
+      const manager = new McpClientManager() as any;
+      const callTool = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: 'ok' }] });
+      manager.clients.set('external-browser', { callTool });
+
+      const tool = {
+        name: 'browser.navigate',
+        description: 'navigate',
+        inputSchema: { type: 'object', properties: { url: { type: 'string' } } }
+      } as any;
+
+      manager.registerToolName('browser.navigate', 'external-browser', tool, 'browser.navigate', 'Tool');
+      manager.registerToolName('browser_navigate', 'external-browser', tool, 'browser.navigate', 'Canonical computer-use alias');
+
+      await manager.callTool('browser_navigate', { url: 'https://example.com' });
+      expect(callTool).toHaveBeenCalledWith({
+        name: 'browser.navigate',
+        arguments: { url: 'https://example.com' }
+      });
     });
   });
 });

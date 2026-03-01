@@ -40,6 +40,7 @@ Deliverables:
 - Browser MCP connected through existing external MCP path.
 - One end-to-end browser automation task with verification evidence (text or screenshot path).
 - Contract reference: `docs/architecture/browser-capability-contract.md`.
+- Canonical action reference: `docs/architecture/computer-use-canonical-contract.md`.
 
 ## Phase C2: Desktop Capability (MCP-first)
 1. Define desktop tool contract (window focus, keyboard input, mouse actions, capture).
