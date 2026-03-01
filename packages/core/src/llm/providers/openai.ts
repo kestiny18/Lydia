@@ -269,6 +269,34 @@ export class OpenAIProvider implements ILLMProvider {
 
   private normalizeToolResultContent(content: unknown): string {
     if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      const parts: string[] = [];
+      for (const block of content) {
+        if (block && typeof block === 'object' && (block as any).type === 'text' && typeof (block as any).text === 'string') {
+          parts.push((block as any).text);
+          continue;
+        }
+        if (
+          block &&
+          typeof block === 'object' &&
+          (block as any).type === 'image' &&
+          (block as any).source?.type === 'base64' &&
+          typeof (block as any).source?.media_type === 'string' &&
+          typeof (block as any).source?.data === 'string'
+        ) {
+          const mediaType = (block as any).source.media_type;
+          const length = (block as any).source.data.length;
+          parts.push(`[image:${mediaType};base64(${length} chars)]`);
+          continue;
+        }
+        try {
+          parts.push(JSON.stringify(block));
+        } catch {
+          parts.push(String(block));
+        }
+      }
+      return parts.join('\n');
+    }
     try {
       return JSON.stringify(content);
     } catch {

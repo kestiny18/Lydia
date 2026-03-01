@@ -178,4 +178,18 @@ describe('Agent Agentic Loop (via MockProvider)', () => {
     expect(prompt).toContain('- browser_navigate');
     expect(prompt).toContain('- browser_click');
   });
+
+  it('should preserve image blocks in MCP tool result normalization', () => {
+    const agent = new Agent(provider);
+    const normalized = (agent as any).normalizeMcpResultForLoop({
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAA=' } },
+        { type: 'text', text: 'Screenshot captured.' }
+      ]
+    });
+
+    expect(Array.isArray(normalized.llmContent)).toBe(true);
+    expect((normalized.llmContent as any[]).some((b) => b.type === 'image')).toBe(true);
+    expect(normalized.textSummary).toContain('Screenshot captured.');
+  });
 });

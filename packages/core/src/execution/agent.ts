@@ -1,6 +1,17 @@
 import { EventEmitter } from 'node:events';
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import type { ILLMProvider, Message, ContentBlock, ToolDefinition, ToolUseContent, LLMRequest, LLMResponse, StreamChunk } from '../llm/index.js';
+import type {
+  ILLMProvider,
+  Message,
+  ContentBlock,
+  ToolDefinition,
+  ToolUseContent,
+  LLMRequest,
+  LLMResponse,
+  StreamChunk,
+  TextContent,
+  ImageContent
+} from '../llm/index.js';
 import type { Skill, SkillMeta, DynamicSkill } from '../skills/types.js';
 import { isDynamicSkill, hasContent, getSkillContent } from '../skills/types.js';
 import {
@@ -739,16 +750,13 @@ export class Agent extends EventEmitter {
           const result = await this.mcpClientManager.callTool(toolUse.name, toolUse.input);
           const duration = Date.now() - start;
 
-          // Extract text content from MCP result
-          const textContent = (result.content as any[])
-            .filter((c: any) => c.type === 'text')
-            .map((c: any) => c.text)
-            .join('\n');
+          const normalizedResult = this.normalizeMcpResultForLoop(result);
+          const textContent = normalizedResult.textSummary;
 
           toolResultBlocks.push({
             type: 'tool_result',
             tool_use_id: toolUse.id,
-            content: textContent,
+            content: normalizedResult.llmContent,
             is_error: !!result.isError,
           });
 
@@ -776,7 +784,12 @@ export class Agent extends EventEmitter {
             this.markPlanStepExecuted(plannedStep);
           }
 
-          this.emit('tool:complete', { name: toolUse.name, result: textContent, duration });
+          this.emit('tool:complete', {
+            name: toolUse.name,
+            result: textContent,
+            richResult: normalizedResult.llmContent,
+            duration
+          });
 
         } catch (error) {
           const errMsg = error instanceof Error ? error.message : String(error);
@@ -1024,6 +1037,63 @@ export class Agent extends EventEmitter {
     } catch {
       return String(value);
     }
+  }
+
+  private normalizeMcpResultForLoop(result: any): {
+    llmContent: string | Array<TextContent | ImageContent>;
+    textSummary: string;
+  } {
+    const richBlocks = this.extractMcpRichBlocks(result);
+    if (richBlocks.length === 0) {
+      const fallback = this.toDisplayText(result);
+      return { llmContent: fallback, textSummary: fallback };
+    }
+
+    const textSummary = richBlocks
+      .filter((block): block is TextContent => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+      .trim();
+
+    if (textSummary) {
+      return { llmContent: richBlocks, textSummary };
+    }
+
+    const imageCount = richBlocks.filter((block) => block.type === 'image').length;
+    return {
+      llmContent: richBlocks,
+      textSummary: imageCount > 0 ? `[${imageCount} image result block(s)]` : '',
+    };
+  }
+
+  private extractMcpRichBlocks(result: any): Array<TextContent | ImageContent> {
+    if (!result || !Array.isArray(result.content)) return [];
+    const normalized: Array<TextContent | ImageContent> = [];
+
+    for (const block of result.content) {
+      if (block?.type === 'text' && typeof block.text === 'string') {
+        normalized.push({ type: 'text', text: block.text });
+        continue;
+      }
+
+      if (
+        block?.type === 'image' &&
+        block.source?.type === 'base64' &&
+        typeof block.source.media_type === 'string' &&
+        typeof block.source.data === 'string'
+      ) {
+        normalized.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: block.source.media_type,
+            data: block.source.data,
+          },
+        });
+      }
+    }
+
+    return normalized;
   }
 
   private escalateRiskByVerificationState(risk: RiskAssessment, toolName: string): RiskAssessment {
