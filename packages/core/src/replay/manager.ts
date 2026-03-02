@@ -30,10 +30,10 @@ export class ReplayManager {
     }
 
     const traces = this.memoryManager.getTraces(episodeId);
-    const observationFrames = episode.task_id
+    const sourceObservationFrames = episode.task_id
       ? this.memoryManager.listObservationFramesByTask(episode.task_id)
       : [];
-    const multimodalFrames = observationFrames.filter((frame) =>
+    const sourceMultimodalFrames = sourceObservationFrames.filter((frame) =>
       frame.blocks.some((block) => block.type === 'image' || block.type === 'artifact_ref')
     );
     // console.log(`Replaying Episode #${episodeId}: "${episode.input}" (${traces.length} steps)`);
@@ -94,6 +94,14 @@ export class ReplayManager {
       };
     }
     const duration = Date.now() - start;
+    const replayObservationFrames = (agent as any).memoryManager.listObservationFramesByTask(resultTask.id);
+    const replayMultimodalFrames = replayObservationFrames.filter((frame: any) =>
+      frame.blocks.some((block: any) => block.type === 'image' || block.type === 'artifact_ref')
+    );
+    const effectiveObservationFrames =
+      replayObservationFrames.length > 0 ? replayObservationFrames : sourceObservationFrames;
+    const effectiveMultimodalFrames =
+      replayObservationFrames.length > 0 ? replayMultimodalFrames : sourceMultimodalFrames;
 
     // 5. Evaluate
     const evaluation = this.evaluator.evaluateTask(resultTask, episode.result, {
@@ -102,8 +110,8 @@ export class ReplayManager {
       driftDetected: mockMcp.drifts.length > 0,
       riskEvents: mockMcp.getRiskEventCount(),
       humanInterrupts: mockMcp.getHumanInterruptCount(),
-      observationFrames: observationFrames.length,
-      multimodalFrames: multimodalFrames.length,
+      observationFrames: effectiveObservationFrames.length,
+      multimodalFrames: effectiveMultimodalFrames.length,
     });
 
     return evaluation;

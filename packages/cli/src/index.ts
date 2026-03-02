@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { ReplayManager, StrategyRegistry, StrategyReviewer, StrategyApprovalService, ShadowRouter, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate } from '@lydia/core';
+import { ReplayManager, StrategyRegistry, StrategyReviewer, StrategyApprovalService, ShadowRouter, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, resolveCanonicalComputerUseToolName } from '@lydia/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1346,6 +1346,69 @@ async function main() {
         console.log('');
       } catch (error: any) {
         console.error(chalk.red('Failed to inspect session:'), error.message);
+      }
+    });
+
+  computerUseCmd
+    .command('smoke')
+    .description('Run computer-use MCP smoke checks (health + canonical tool coverage)')
+    .option('-s, --server <id>', 'Configured MCP server id', 'browser')
+    .option('--timeout-ms <ms>', 'Connection timeout per server (default: 15000)', '15000')
+    .option('--retries <n>', 'Retry attempts (default: 1)', '1')
+    .option('--json', 'Output JSON only')
+    .action(async (options) => {
+      const config = await new ConfigLoader().load();
+      const serverId = String(options.server || 'browser');
+      const server = (config.mcpServers || {})[serverId];
+
+      if (!server) {
+        const message = `MCP server "${serverId}" not found in ~/.lydia/config.json`;
+        if (options.json) {
+          console.log(JSON.stringify({ ok: false, error: message }, null, 2));
+        } else {
+          console.error(chalk.red(message));
+        }
+        process.exitCode = 1;
+        return;
+      }
+
+      const timeoutMs = Number(options.timeoutMs) || 15000;
+      const retries = Math.max(0, Number(options.retries) || 1);
+      const [result] = await checkMcpServers(
+        [{ id: serverId, command: server.command, args: server.args, env: server.env } as McpCheckTarget],
+        { timeoutMs, retries },
+      );
+
+      const tools = result?.tools || [];
+      const canonicalTools = tools.filter((name) => Boolean(resolveCanonicalComputerUseToolName(name)));
+      const smoke = {
+        ok: Boolean(result?.ok) && canonicalTools.length > 0,
+        serverId,
+        health: result,
+        totalTools: tools.length,
+        canonicalTools,
+      };
+
+      if (options.json) {
+        console.log(JSON.stringify(smoke, null, 2));
+      } else {
+        if (!result?.ok) {
+          console.log(chalk.red(`x ${serverId}: ${result?.error || 'health check failed'}`));
+        } else {
+          console.log(chalk.green(`* ${serverId}: health check passed (${result.durationMs}ms)`));
+          console.log(chalk.dim(`  discovered tools: ${tools.length}`));
+          console.log(chalk.dim(`  canonical computer-use aliases: ${canonicalTools.length}`));
+          if (canonicalTools.length > 0) {
+            console.log(chalk.dim(`  ${canonicalTools.join(', ')}`));
+          }
+        }
+      }
+
+      if (!smoke.ok) {
+        if (!options.json && result?.ok && canonicalTools.length === 0) {
+          console.log(chalk.red('Smoke failed: no canonical computer-use tools detected.'));
+        }
+        process.exitCode = 1;
       }
     });
 
