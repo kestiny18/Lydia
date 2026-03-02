@@ -35,5 +35,10 @@ Provide stable, model-facing action names for browser and desktop computer-use t
 ## Notes
 1. Canonical aliases are additive: original MCP names remain callable.
 2. Collision handling follows existing server-prefix fallback (for example `server-id/browser_click`).
-3. This contract standardizes naming only; safety and approval gates remain unchanged.
+3. This contract standardizes naming only; safety and approval gates remain unchanged in F0/F1.
 
+## Transitional Safety Alignment (F0-F3)
+1. F0-F1: risk confirmation remains on the existing agent risk gate (`mustConfirmBefore` and approval memory).
+2. F2: canonical dispatch and adapters emit normalized error taxonomy, while safety checks still use existing gate hooks.
+3. F3+: safety policy moves into the session-oriented policy engine; canonical naming contract remains stable and unchanged.
+4. During transition, any newly introduced high-risk canonical action must be added to existing confirmation policy lists before release.

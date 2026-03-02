@@ -31,6 +31,25 @@ Exit Criteria:
 - TaskReport generated for each task.
 - Feedback captured and stored for learning.
 
+## Mainline C: Computer-Use Fusion
+
+Goal: Upgrade computer-use from tactical integration to a unified runtime architecture.
+
+### Phase C0: Architecture Freeze
+Exit Criteria:
+- Canonical action, observation, and checkpoint contracts are documented.
+- ADR approved for session-oriented architecture.
+
+### Phase C1: Session Runtime Foundation
+Exit Criteria:
+- Session lifecycle exists (`start -> action -> observation -> checkpoint -> end`).
+- No regression in existing task/chat paths.
+
+### Phase C2: Evidence and Evaluation Integration
+Exit Criteria:
+- Observation frames are persisted and replay-consumable.
+- Evaluator and promotion logic use upgraded evidence model.
+
 ## Executive Summary
 Status: **On the Right Path**
 

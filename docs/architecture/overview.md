@@ -296,7 +296,10 @@ The schema uses `.passthrough()` so community skills with extra fields (e.g. `li
 
 ---
 
-**Last Updated**: 2026-02-10
+**Last Updated**: 2026-03-01
 
 - [Task Execution Chain](./task-execution-chain.md) - End-to-end task flow design
 - [Local Installation](./local-installation.md) - One-click local installer design
+- [Computer-Use Canonical Contract](./computer-use-canonical-contract.md) - Stable browser/desktop canonical action names
+- [Computer-Use Fusion Architecture](./computer-use-fusion-architecture.md) - Session-oriented computer-use target architecture
+- [Computer-Use Fusion Rollout Plan](../implementation/computer-use-fusion-rollout-plan.md) - F0-F5 gated migration plan

@@ -17,6 +17,8 @@
 - [Dashboard Information Architecture](./architecture/dashboard-information-architecture.md) - Workspace boundaries and dashboard/CLI parity
 - [Local Installation](./architecture/local-installation.md) - One-click local installer design
 - [Browser Capability Contract](./architecture/browser-capability-contract.md) - Browser MCP tool contract and integration checklist
+- [Computer-Use Canonical Contract](./architecture/computer-use-canonical-contract.md) - Stable browser/desktop action names
+- [Computer-Use Fusion Architecture](./architecture/computer-use-fusion-architecture.md) - Unified runtime architecture for computer-use
 - [Safety and Risk Controls](./safety.md)
 - [North Star](./north-star.md) - Strategy evolution roadmap
 - [Strategy Schema](./strategy-schema.md)
@@ -27,13 +29,15 @@
 - Implementation Details (planned)
 - [Task Execution Chain Plan](./implementation/task-execution-chain-plan.md)
 - [Computer-Use Capability Plan](./implementation/computer-use-capability-plan.md)
+- [Computer-Use Fusion Rollout Plan](./implementation/computer-use-fusion-rollout-plan.md)
 - [Browser MCP Smoke Runbook](./implementation/browser-mcp-smoke-runbook.md)
 - [Local Installation Plan](./implementation/local-installation-plan.md)
 - [Pre-Release Plan](./implementation/pre-release-plan.md)
 - [Getting Started](./getting-started.md)
 - [Release Guide](./release.md)
 - [MVP Checklist](./mvp-checklist.md)
-- [Demo Script](./demo.md)\r\n- [Strategy Examples](./strategy-examples.md)\r\n
+- [Demo Script](./demo.md)
+- [Strategy Examples](./strategy-examples.md)
 ### Layer 4: Reference (Lookup)
 - [Decision Records (ADR)](./adr/) - Records of important design decisions
 - FAQ (planned)
@@ -60,6 +64,9 @@
 1. Create a new record in `./adr/`
 2. Record problem, options, decision, and rationale
 3. Keep it for future reference
+
+Recent ADR:
+1. [ADR-007: Computer-Use Architecture Fusion](./adr/007-computer-use-architecture-fusion.md)
 
 ---
 
@@ -141,4 +148,4 @@ Phased delivery plan
 
 ---
 
-**Last Updated**: 2026-02-10
+**Last Updated**: 2026-03-01

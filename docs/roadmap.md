@@ -252,3 +252,20 @@ Exit Criteria:
 - Failures include root cause and recovery hints.
 - One-command local install completes without repo setup.
 
+## Architecture Alignment Focus: Computer-Use Fusion
+Before adding more browser/desktop features, we align architecture and execution contracts.
+
+### Phase F0: Contract and ADR Freeze
+Goal: Lock canonical action + observation + checkpoint contracts.
+- Architecture doc: `docs/architecture/computer-use-fusion-architecture.md`
+- Rollout plan: `docs/implementation/computer-use-fusion-rollout-plan.md`
+- ADR: `docs/adr/007-computer-use-architecture-fusion.md`
+
+### Phase F1-F5: Controlled Migration
+Goal: Migrate runtime, storage, replay, and UI in gated phases.
+- F1: Session orchestrator foundation
+- F2: Canonical dispatch and adapter normalization
+- F3: Evidence persistence + checkpoint upgrade
+- F4: Replay/evaluator upgrade
+- F5: Dashboard evidence timeline
+

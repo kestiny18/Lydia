@@ -6,6 +6,10 @@ Build Lydia computer-use capabilities with a clean architecture:
 - MCP for capabilities, Skills for execution guidance.
 - Incremental delivery without disrupting the current task-execution chain.
 
+Architecture-first alignment reference:
+- `docs/architecture/computer-use-fusion-architecture.md`
+- `docs/implementation/computer-use-fusion-rollout-plan.md`
+
 ## Principles
 1. Single capability path: all executable computer-use actions must enter through ToolDefinition (MCP or DynamicSkill tool), not ad-hoc branches.
 2. Clear layering:
