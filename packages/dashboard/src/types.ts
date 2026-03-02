@@ -112,6 +112,20 @@ export interface TaskDetail {
         strategy_version?: string;
         created_at: number;
     };
+    evidence?: Array<{
+        sessionId: string;
+        actionId: string;
+        frameId: string;
+        createdAt: number;
+        blocks: Array<{
+            type: 'text' | 'image' | 'artifact_ref' | 'structured_json';
+            text?: string;
+            mediaType?: string;
+            dataRef?: string;
+            kind?: string;
+            path?: string;
+        }>;
+    }>;
 }
 
 /** Agent event in the live view */
@@ -138,6 +152,10 @@ export type AgentEventType =
     | 'task:progress'
     | 'task:cancelled'
     | 'checkpoint:saved'
+    | 'computer-use:session.start'
+    | 'computer-use:action.dispatch'
+    | 'computer-use:observation.collect'
+    | 'computer-use:checkpoint.save'
     | 'stream:text'
     | 'stream:thinking'
     | 'message'

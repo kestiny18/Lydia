@@ -211,6 +211,32 @@ export function TaskReportView({ taskId, onResumeTask, onContinueInChat }: TaskR
                     </div>
                 </div>
             )}
+
+            {detail.evidence && detail.evidence.length > 0 && (
+                <div>
+                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                        Evidence Timeline ({detail.evidence.length})
+                    </h3>
+                    <div className="space-y-1">
+                        {detail.evidence.slice(0, 30).map((frame: any, i: number) => {
+                            const blockTypes = Array.isArray(frame.blocks)
+                                ? frame.blocks.map((block: any) => block.type).join(', ')
+                                : 'unknown';
+                            return (
+                                <div key={i} className="text-xs border border-gray-100 rounded-md px-3 py-2 bg-gray-50/60">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="font-medium text-gray-700">{frame.actionId}</span>
+                                        <span className="text-gray-400">{new Date(frame.createdAt).toLocaleTimeString()}</span>
+                                    </div>
+                                    <div className="mt-1 text-gray-500">
+                                        {frame.frameId} · {blockTypes}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
