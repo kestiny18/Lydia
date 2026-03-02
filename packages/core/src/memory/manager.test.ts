@@ -38,6 +38,7 @@ describe('MemoryManager', () => {
 
   it('records and lists episodes', () => {
     const id = memory.recordEpisode({
+      task_id: 'task-1',
       input: 'Test task',
       plan: '{"steps":[]}',
       result: 'ok',
@@ -49,5 +50,45 @@ describe('MemoryManager', () => {
 
     const list = memory.listEpisodes(10);
     expect(list.length).toBeGreaterThanOrEqual(1);
+    expect(list[0].task_id).toBeDefined();
+  });
+
+  it('records observation frames by task and session', () => {
+    memory.recordObservationFrame('task-obs', {
+      sessionId: 'session-obs',
+      actionId: 'action-1',
+      frameId: 'frame-1',
+      blocks: [{ type: 'text', text: 'ok' }],
+      createdAt: Date.now(),
+    });
+
+    const byTask = memory.listObservationFramesByTask('task-obs');
+    const bySession = memory.listObservationFramesBySession('session-obs');
+    expect(byTask).toHaveLength(1);
+    expect(bySession).toHaveLength(1);
+    expect(byTask[0].frameId).toBe('frame-1');
+  });
+
+  it('persists computer-use checkpoint fields', () => {
+    memory.saveCheckpoint({
+      taskId: 'task-cp',
+      runId: 'run-cp',
+      input: 'input',
+      iteration: 2,
+      messagesJson: '[]',
+      tracesJson: '[]',
+      systemPrompt: 'prompt',
+      toolsJson: '[]',
+      computerUseSessionId: 'cus-1',
+      computerUseLastActionId: 'action-2',
+      computerUseLatestFrameIdsJson: JSON.stringify(['frame-1']),
+      computerUseVerificationFailures: 1,
+      taskCreatedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const checkpoint = memory.loadCheckpoint('task-cp');
+    expect(checkpoint?.computerUseSessionId).toBe('cus-1');
+    expect(checkpoint?.computerUseVerificationFailures).toBe(1);
   });
 });

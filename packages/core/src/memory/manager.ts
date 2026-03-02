@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { EventEmitter } from 'node:events';
+import type { ObservationFrame } from '../computer-use/runtime-contract.js';
 
 export interface Fact {
   id?: number;
@@ -11,6 +12,7 @@ export interface Fact {
 
 export interface Episode {
   id?: number;
+  task_id?: string;
   input: string;
   plan: string; // JSON string
   result: string;
@@ -63,6 +65,16 @@ export interface TaskFeedbackRecord {
   created_at: number;
 }
 
+export interface ObservationFrameRecord {
+  id?: number;
+  task_id: string;
+  session_id: string;
+  action_id: string;
+  frame_id: string;
+  frame_json: string;
+  created_at: number;
+}
+
 /**
  * Checkpoint captures the full execution state of an agentic loop iteration,
  * allowing interrupted tasks to be resumed from the last successful checkpoint.
@@ -76,6 +88,10 @@ export interface Checkpoint {
   tracesJson: string;       // JSON-serialized Trace[]
   systemPrompt: string;
   toolsJson: string;        // JSON-serialized ToolDefinition[]
+  computerUseSessionId?: string;
+  computerUseLastActionId?: string;
+  computerUseLatestFrameIdsJson?: string;
+  computerUseVerificationFailures?: number;
   taskCreatedAt: number;
   updatedAt: number;
 }
@@ -135,6 +151,7 @@ export class MemoryManager extends EventEmitter {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS episodes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT,
         input TEXT NOT NULL,
         plan TEXT NOT NULL,
         result TEXT,
@@ -147,8 +164,12 @@ export class MemoryManager extends EventEmitter {
     // Migrate existing DBs if columns are missing
     try {
       const cols = this.db.prepare("PRAGMA table_info(episodes)").all() as any[];
+      const hasTaskId = cols.some(c => c.name === 'task_id');
       const hasStrategyId = cols.some(c => c.name === 'strategy_id');
       const hasStrategyVersion = cols.some(c => c.name === 'strategy_version');
+      if (!hasTaskId) {
+        this.db.exec("ALTER TABLE episodes ADD COLUMN task_id TEXT;");
+      }
       if (!hasStrategyId) {
         this.db.exec("ALTER TABLE episodes ADD COLUMN strategy_id TEXT;");
       }
@@ -231,17 +252,56 @@ export class MemoryManager extends EventEmitter {
         traces_json TEXT NOT NULL,
         system_prompt TEXT NOT NULL,
         tools_json TEXT NOT NULL,
+        computer_use_session_id TEXT,
+        computer_use_last_action_id TEXT,
+        computer_use_latest_frame_ids_json TEXT,
+        computer_use_verification_failures INTEGER NOT NULL DEFAULT 0,
         task_created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       );
     `);
 
-    // Migrate existing DBs if column is missing
+    // 10. Observation Frames Table (multimodal evidence persistence)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS observation_frames (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        action_id TEXT NOT NULL,
+        frame_id TEXT NOT NULL UNIQUE,
+        frame_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+    `);
+
+    // Migrate existing DBs if columns are missing
     try {
       const cols = this.db.prepare("PRAGMA table_info(strategy_proposals)").all() as any[];
       const hasEval = cols.some(c => c.name === 'evaluation_json');
       if (!hasEval) {
         this.db.exec("ALTER TABLE strategy_proposals ADD COLUMN evaluation_json TEXT;");
+      }
+    } catch {
+      // Ignore migration errors to keep startup resilient
+    }
+
+    try {
+      const checkpointCols = this.db.prepare("PRAGMA table_info(checkpoints)").all() as any[];
+      const hasSessionId = checkpointCols.some(c => c.name === 'computer_use_session_id');
+      const hasLastAction = checkpointCols.some(c => c.name === 'computer_use_last_action_id');
+      const hasFrameIds = checkpointCols.some(c => c.name === 'computer_use_latest_frame_ids_json');
+      const hasVerificationFailures = checkpointCols.some(c => c.name === 'computer_use_verification_failures');
+      if (!hasSessionId) {
+        this.db.exec("ALTER TABLE checkpoints ADD COLUMN computer_use_session_id TEXT;");
+      }
+      if (!hasLastAction) {
+        this.db.exec("ALTER TABLE checkpoints ADD COLUMN computer_use_last_action_id TEXT;");
+      }
+      if (!hasFrameIds) {
+        this.db.exec("ALTER TABLE checkpoints ADD COLUMN computer_use_latest_frame_ids_json TEXT;");
+      }
+      if (!hasVerificationFailures) {
+        this.db.exec("ALTER TABLE checkpoints ADD COLUMN computer_use_verification_failures INTEGER NOT NULL DEFAULT 0;");
       }
     } catch {
       // Ignore migration errors to keep startup resilient
@@ -351,10 +411,11 @@ export class MemoryManager extends EventEmitter {
    */
   public recordEpisode(episode: Episode): number {
     const stmt = this.db.prepare(`
-      INSERT INTO episodes (input, plan, result, strategy_id, strategy_version, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO episodes (task_id, input, plan, result, strategy_id, strategy_version, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
+      episode.task_id || null,
       episode.input,
       episode.plan,
       episode.result,
@@ -571,6 +632,60 @@ export class MemoryManager extends EventEmitter {
     return stmt.all(episodeId) as Trace[];
   }
 
+  public recordObservationFrame(taskId: string, frame: ObservationFrame): number {
+    const stmt = this.db.prepare(`
+      INSERT INTO observation_frames (task_id, session_id, action_id, frame_id, frame_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      taskId,
+      frame.sessionId,
+      frame.actionId,
+      frame.frameId,
+      JSON.stringify(frame),
+      frame.createdAt,
+    );
+    return info.lastInsertRowid as number;
+  }
+
+  public listObservationFramesByTask(taskId: string, limit: number = 200): ObservationFrame[] {
+    const stmt = this.db.prepare(`
+      SELECT frame_json FROM observation_frames
+      WHERE task_id = ?
+      ORDER BY created_at ASC
+      LIMIT ?
+    `);
+    const rows = stmt.all(taskId, limit) as Array<{ frame_json: string }>;
+    return rows
+      .map((row) => {
+        try {
+          return JSON.parse(row.frame_json) as ObservationFrame;
+        } catch {
+          return null;
+        }
+      })
+      .filter((frame): frame is ObservationFrame => frame !== null);
+  }
+
+  public listObservationFramesBySession(sessionId: string, limit: number = 200): ObservationFrame[] {
+    const stmt = this.db.prepare(`
+      SELECT frame_json FROM observation_frames
+      WHERE session_id = ?
+      ORDER BY created_at ASC
+      LIMIT ?
+    `);
+    const rows = stmt.all(sessionId, limit) as Array<{ frame_json: string }>;
+    return rows
+      .map((row) => {
+        try {
+          return JSON.parse(row.frame_json) as ObservationFrame;
+        } catch {
+          return null;
+        }
+      })
+      .filter((frame): frame is ObservationFrame => frame !== null);
+  }
+
   // ─── Checkpoint CRUD ──────────────────────────────────────────────
 
   /**
@@ -579,8 +694,23 @@ export class MemoryManager extends EventEmitter {
    */
   public saveCheckpoint(checkpoint: Checkpoint): void {
     const stmt = this.db.prepare(`
-      INSERT INTO checkpoints (task_id, run_id, input, iteration, messages_json, traces_json, system_prompt, tools_json, task_created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO checkpoints (
+        task_id,
+        run_id,
+        input,
+        iteration,
+        messages_json,
+        traces_json,
+        system_prompt,
+        tools_json,
+        computer_use_session_id,
+        computer_use_last_action_id,
+        computer_use_latest_frame_ids_json,
+        computer_use_verification_failures,
+        task_created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(task_id) DO UPDATE SET
         run_id = excluded.run_id,
         iteration = excluded.iteration,
@@ -588,6 +718,10 @@ export class MemoryManager extends EventEmitter {
         traces_json = excluded.traces_json,
         system_prompt = excluded.system_prompt,
         tools_json = excluded.tools_json,
+        computer_use_session_id = excluded.computer_use_session_id,
+        computer_use_last_action_id = excluded.computer_use_last_action_id,
+        computer_use_latest_frame_ids_json = excluded.computer_use_latest_frame_ids_json,
+        computer_use_verification_failures = excluded.computer_use_verification_failures,
         updated_at = excluded.updated_at
     `);
     stmt.run(
@@ -599,6 +733,10 @@ export class MemoryManager extends EventEmitter {
       checkpoint.tracesJson,
       checkpoint.systemPrompt,
       checkpoint.toolsJson,
+      checkpoint.computerUseSessionId || null,
+      checkpoint.computerUseLastActionId || null,
+      checkpoint.computerUseLatestFrameIdsJson || null,
+      checkpoint.computerUseVerificationFailures || 0,
       checkpoint.taskCreatedAt,
       checkpoint.updatedAt,
     );
@@ -620,6 +758,10 @@ export class MemoryManager extends EventEmitter {
       tracesJson: row.traces_json,
       systemPrompt: row.system_prompt,
       toolsJson: row.tools_json,
+      computerUseSessionId: row.computer_use_session_id || undefined,
+      computerUseLastActionId: row.computer_use_last_action_id || undefined,
+      computerUseLatestFrameIdsJson: row.computer_use_latest_frame_ids_json || undefined,
+      computerUseVerificationFailures: row.computer_use_verification_failures || 0,
       taskCreatedAt: row.task_created_at,
       updatedAt: row.updated_at,
     };
@@ -649,6 +791,10 @@ export class MemoryManager extends EventEmitter {
       tracesJson: row.traces_json,
       systemPrompt: row.system_prompt,
       toolsJson: row.tools_json,
+      computerUseSessionId: row.computer_use_session_id || undefined,
+      computerUseLastActionId: row.computer_use_last_action_id || undefined,
+      computerUseLatestFrameIdsJson: row.computer_use_latest_frame_ids_json || undefined,
+      computerUseVerificationFailures: row.computer_use_verification_failures || 0,
       taskCreatedAt: row.task_created_at,
       updatedAt: row.updated_at,
     }));

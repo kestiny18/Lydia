@@ -35,6 +35,15 @@ import { StrategyBranchManager } from '../strategy/branch-manager.js';
 import { SelfEvolutionSkill } from '../skills/self-evolution.js';
 import { TaskReporter, type StepResult } from '../reporting/index.js';
 import { FeedbackCollector } from '../feedback/index.js';
+import {
+  resolveCanonicalComputerUseToolName,
+  McpCanonicalCapabilityAdapter,
+  ComputerUseSessionOrchestrator,
+  type ComputerUseActionEnvelope,
+  type ComputerUseCheckpoint,
+  type ObservationFrame,
+  type ComputerUseDomain,
+} from '../computer-use/index.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import type { LydiaConfig } from '../config/index.js';
@@ -66,6 +75,9 @@ export class Agent extends EventEmitter {
   private skippedPlanStepIds: Set<string> = new Set();
   private replannedFailures: Set<string> = new Set();
   private verificationFailureCount = 0;
+  private computerUseSessionId?: string;
+  private computerUseCheckpoint?: ComputerUseCheckpoint;
+  private computerUseActionCounter = 0;
 
   // Controlled Evolution components
   private branchManager: StrategyBranchManager;
@@ -95,6 +107,8 @@ export class Agent extends EventEmitter {
   // Centralized built-in server descriptors keep MCP wiring declarative.
   private builtinServerSpecs: Array<{ id: string; create: () => Server }> = [];
   private options: AgentOptions;
+  private computerUseAdapter: McpCanonicalCapabilityAdapter;
+  private computerUseOrchestrator: ComputerUseSessionOrchestrator;
 
   constructor(llm: ILLMProvider, options: AgentOptions = {}) {
     super();
@@ -113,6 +127,30 @@ export class Agent extends EventEmitter {
     this.updateGate = new StrategyUpdateGate();
     this.reporter = new TaskReporter();
     this.feedbackCollector = new FeedbackCollector();
+    this.computerUseAdapter = new McpCanonicalCapabilityAdapter();
+    this.computerUseOrchestrator = new ComputerUseSessionOrchestrator();
+    this.bindComputerUseEvents();
+  }
+
+  private bindComputerUseEvents(): void {
+    this.computerUseOrchestrator.on('session.start', (data) => {
+      this.emit('computer-use:session.start', data);
+    });
+    this.computerUseOrchestrator.on('action.dispatch', (data) => {
+      this.emit('computer-use:action.dispatch', data);
+    });
+    this.computerUseOrchestrator.on('observation.collect', (data) => {
+      this.emit('computer-use:observation.collect', data);
+    });
+    this.computerUseOrchestrator.on('checkpoint.save', (data) => {
+      this.emit('computer-use:checkpoint.save', data);
+    });
+    this.computerUseOrchestrator.on('verification', (data) => {
+      this.emit('computer-use:verification', data);
+    });
+    this.computerUseOrchestrator.on('session.end', (data) => {
+      this.emit('computer-use:session.end', data);
+    });
   }
 
   async init() {
@@ -358,6 +396,9 @@ export class Agent extends EventEmitter {
     this.skippedPlanStepIds = new Set();
     this.replannedFailures = new Set();
     this.verificationFailureCount = 0;
+    this.computerUseSessionId = undefined;
+    this.computerUseCheckpoint = undefined;
+    this.computerUseActionCounter = 0;
 
     // 1. Initialize Task
     const task: Task = {
@@ -463,6 +504,7 @@ export class Agent extends EventEmitter {
 
       // Save Episode and Traces
       const episodeId = this.memoryManager.recordEpisode({
+        task_id: task.id,
         input: userInput,
         plan: JSON.stringify({
           iterations: this.traces.length,
@@ -497,6 +539,11 @@ export class Agent extends EventEmitter {
     } catch {
       // Ignore cleanup errors
     }
+    if (this.computerUseSessionId) {
+      this.computerUseOrchestrator.endSession(this.computerUseSessionId);
+      this.computerUseSessionId = undefined;
+      this.computerUseCheckpoint = undefined;
+    }
     this.currentTaskId = undefined;
 
     // Post-execution: report and feedback
@@ -528,6 +575,21 @@ export class Agent extends EventEmitter {
     this.skippedPlanStepIds = new Set();
     this.replannedFailures = new Set();
     this.verificationFailureCount = 0;
+    this.computerUseSessionId = checkpoint.computerUseSessionId;
+    this.computerUseCheckpoint = checkpoint.computerUseSessionId
+      ? {
+          sessionId: checkpoint.computerUseSessionId,
+          taskId: checkpoint.taskId,
+          lastActionId: checkpoint.computerUseLastActionId,
+          latestFrameIds: this.parseCheckpointFrameIds(checkpoint.computerUseLatestFrameIdsJson),
+          verificationFailures: checkpoint.computerUseVerificationFailures || 0,
+          updatedAt: checkpoint.updatedAt,
+        }
+      : undefined;
+    if (this.computerUseCheckpoint) {
+      this.computerUseOrchestrator.restoreCheckpoint(this.computerUseCheckpoint);
+    }
+    this.computerUseActionCounter = 0;
     this.traces = JSON.parse(checkpoint.tracesJson) as Trace[];
     this.rehydrateStepResultsFromTraces(this.traces);
     const messages: Message[] = JSON.parse(checkpoint.messagesJson) as Message[];
@@ -575,6 +637,7 @@ export class Agent extends EventEmitter {
 
       // Save Episode and Traces (includes traces from before + after checkpoint)
       const episodeId = this.memoryManager.recordEpisode({
+        task_id: task.id,
         input: checkpoint.input,
         plan: JSON.stringify({ iterations: this.traces.length, traces: this.traces.length, resumed: true }),
         result: task.result,
@@ -598,6 +661,11 @@ export class Agent extends EventEmitter {
       this.memoryManager.deleteCheckpoint(task.id);
     } catch {
       // Ignore cleanup errors
+    }
+    if (this.computerUseSessionId) {
+      this.computerUseOrchestrator.endSession(this.computerUseSessionId);
+      this.computerUseSessionId = undefined;
+      this.computerUseCheckpoint = undefined;
     }
     this.currentTaskId = undefined;
 
@@ -745,9 +813,12 @@ export class Agent extends EventEmitter {
             }
           }
 
-          // Execute via MCP
+          // Execute via MCP (computer-use tools flow through session orchestrator).
           const start = Date.now();
-          const result = await this.mcpClientManager.callTool(toolUse.name, toolUse.input);
+          const result = await this.executeToolWithComputerUseOrchestration(
+            toolUse.name,
+            (toolUse.input || {}) as Record<string, unknown>,
+          );
           const duration = Date.now() - start;
 
           const normalizedResult = this.normalizeMcpResultForLoop(result);
@@ -792,7 +863,12 @@ export class Agent extends EventEmitter {
           });
 
         } catch (error) {
-          const errMsg = error instanceof Error ? error.message : String(error);
+          const errMsg =
+            error instanceof Error
+              ? error.message
+              : (error && typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string')
+                ? (error as any).message
+                : String(error);
 
           toolResultBlocks.push({
             type: 'tool_result',
@@ -839,6 +915,10 @@ export class Agent extends EventEmitter {
             tracesJson: JSON.stringify(this.traces),
             systemPrompt,
             toolsJson: JSON.stringify(tools),
+            computerUseSessionId: this.computerUseCheckpoint?.sessionId,
+            computerUseLastActionId: this.computerUseCheckpoint?.lastActionId,
+            computerUseLatestFrameIdsJson: JSON.stringify(this.computerUseCheckpoint?.latestFrameIds || []),
+            computerUseVerificationFailures: this.computerUseCheckpoint?.verificationFailures || 0,
             taskCreatedAt: this.currentTaskCreatedAt || Date.now(),
             updatedAt: Date.now(),
           });
@@ -1027,6 +1107,119 @@ export class Agent extends EventEmitter {
       this.markDownstreamStepsSkipped(plannedStep.id, error);
     }
     this.enqueueFailureReplan(messages, plannedStep, error);
+  }
+
+  private parseCheckpointFrameIds(value?: string): string[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item): item is string => typeof item === 'string');
+    } catch {
+      return [];
+    }
+  }
+
+  private async executeToolWithComputerUseOrchestration(
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Promise<any> {
+    const canonical = this.resolveCanonicalComputerUseAction(toolName);
+    if (!canonical || !this.currentTaskId) {
+      return await this.mcpClientManager.callTool(toolName, args);
+    }
+
+    const sessionId =
+      this.computerUseSessionId ||
+      `cus-${this.currentTaskId}-${Date.now().toString(36)}`;
+    this.computerUseSessionId = sessionId;
+
+    const action: ComputerUseActionEnvelope = {
+      sessionId,
+      actionId: `cu-action-${++this.computerUseActionCounter}`,
+      domain: this.inferComputerUseDomain(canonical),
+      canonicalAction: canonical,
+      args,
+      riskLevel: 'medium',
+      requestedAt: Date.now(),
+    };
+
+    const dispatchResult = await this.computerUseOrchestrator.dispatchCanonicalAction({
+      taskId: this.currentTaskId,
+      action,
+      adapter: this.computerUseAdapter,
+      toolName,
+      invokeTool: async (resolvedToolName, resolvedArgs) =>
+        await this.mcpClientManager.callTool(resolvedToolName, resolvedArgs),
+    });
+
+    const frame = this.buildObservationFrame(
+      dispatchResult.checkpoint.sessionId,
+      action.actionId,
+      dispatchResult.frameId,
+      dispatchResult.toolResult,
+    );
+    this.memoryManager.recordObservationFrame(this.currentTaskId, frame);
+    this.computerUseCheckpoint = dispatchResult.checkpoint;
+    return dispatchResult.toolResult;
+  }
+
+  private resolveCanonicalComputerUseAction(toolName: string): string | undefined {
+    const direct = resolveCanonicalComputerUseToolName(toolName);
+    if (direct) return direct;
+    const slashIndex = toolName.indexOf('/');
+    if (slashIndex > 0 && slashIndex < toolName.length - 1) {
+      return resolveCanonicalComputerUseToolName(toolName.slice(slashIndex + 1));
+    }
+    return undefined;
+  }
+
+  private inferComputerUseDomain(canonicalAction: string): ComputerUseDomain {
+    return canonicalAction.startsWith('desktop_') ? 'desktop' : 'browser';
+  }
+
+  private buildObservationFrame(
+    sessionId: string,
+    actionId: string,
+    frameId: string,
+    result: any,
+  ): ObservationFrame {
+    const blocks: ObservationFrame['blocks'] = [];
+
+    if (result && Array.isArray(result.content)) {
+      for (const contentBlock of result.content) {
+        if (contentBlock?.type === 'text' && typeof contentBlock.text === 'string') {
+          blocks.push({ type: 'text', text: contentBlock.text });
+          continue;
+        }
+        if (
+          contentBlock?.type === 'image' &&
+          contentBlock.source?.type === 'base64' &&
+          typeof contentBlock.source.media_type === 'string'
+        ) {
+          blocks.push({
+            type: 'image',
+            mediaType: contentBlock.source.media_type,
+            dataRef: `inline://image/${contentBlock.source.media_type}`,
+          });
+        }
+      }
+    }
+
+    if (blocks.length === 0) {
+      blocks.push({
+        type: 'structured_json',
+        payload: result && typeof result === 'object' ? result : { value: this.toDisplayText(result) },
+      });
+    }
+
+    return {
+      sessionId,
+      actionId,
+      frameId,
+      blocks,
+      createdAt: Date.now(),
+    };
   }
 
   private toDisplayText(value: unknown): string {
