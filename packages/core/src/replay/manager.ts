@@ -30,6 +30,12 @@ export class ReplayManager {
     }
 
     const traces = this.memoryManager.getTraces(episodeId);
+    const observationFrames = episode.task_id
+      ? this.memoryManager.listObservationFramesByTask(episode.task_id)
+      : [];
+    const multimodalFrames = observationFrames.filter((frame) =>
+      frame.blocks.some((block) => block.type === 'image' || block.type === 'artifact_ref')
+    );
     // console.log(`Replaying Episode #${episodeId}: "${episode.input}" (${traces.length} steps)`);
 
     // 2. Setup Mocks
@@ -96,6 +102,8 @@ export class ReplayManager {
       driftDetected: mockMcp.drifts.length > 0,
       riskEvents: mockMcp.getRiskEventCount(),
       humanInterrupts: mockMcp.getHumanInterruptCount(),
+      observationFrames: observationFrames.length,
+      multimodalFrames: multimodalFrames.length,
     });
 
     return evaluation;

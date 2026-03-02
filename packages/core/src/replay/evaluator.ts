@@ -7,6 +7,8 @@ export interface EvaluationMetrics {
     driftDetected: boolean;
     riskEvents: number;
     humanInterrupts: number;
+    observationFrames: number;
+    multimodalFrames: number;
 }
 
 export interface EvaluationResult {
@@ -26,6 +28,8 @@ export interface EvaluationSummary {
     driftRate: number;
     averageRiskEvents: number;
     averageHumanInterrupts: number;
+    averageObservationFrames: number;
+    averageMultimodalFrames: number;
 }
 
 export interface StrategyComparison {
@@ -46,6 +50,8 @@ export interface StrategyComparison {
         driftRate: number;
         averageRiskEvents: number;
         averageHumanInterrupts: number;
+        averageObservationFrames: number;
+        averageMultimodalFrames: number;
     };
 }
 
@@ -64,6 +70,8 @@ export class StrategyEvaluator {
             driftDetected: runtimeMetrics.driftDetected ?? false,
             riskEvents: runtimeMetrics.riskEvents ?? 0,
             humanInterrupts: runtimeMetrics.humanInterrupts ?? 0,
+            observationFrames: runtimeMetrics.observationFrames ?? 0,
+            multimodalFrames: runtimeMetrics.multimodalFrames ?? 0,
         };
         const similarity = this.computeTextSimilarity(task.result || '', originalResult || '');
         const score = this.computeScore(success, similarity, metrics);
@@ -100,7 +108,9 @@ export class StrategyEvaluator {
                 averageCost: candidateSummary.averageCost - baselineSummary.averageCost,
                 driftRate: candidateSummary.driftRate - baselineSummary.driftRate,
                 averageRiskEvents: candidateSummary.averageRiskEvents - baselineSummary.averageRiskEvents,
-                averageHumanInterrupts: candidateSummary.averageHumanInterrupts - baselineSummary.averageHumanInterrupts
+                averageHumanInterrupts: candidateSummary.averageHumanInterrupts - baselineSummary.averageHumanInterrupts,
+                averageObservationFrames: candidateSummary.averageObservationFrames - baselineSummary.averageObservationFrames,
+                averageMultimodalFrames: candidateSummary.averageMultimodalFrames - baselineSummary.averageMultimodalFrames,
             }
         };
     }
@@ -121,7 +131,9 @@ export class StrategyEvaluator {
                 averageCost: 0,
                 driftRate: 0,
                 averageRiskEvents: 0,
-                averageHumanInterrupts: 0
+                averageHumanInterrupts: 0,
+                averageObservationFrames: 0,
+                averageMultimodalFrames: 0,
             };
         }
         const tasks = results.length;
@@ -132,6 +144,8 @@ export class StrategyEvaluator {
         const driftCount = results.filter(r => r.metrics?.driftDetected).length;
         const avgRiskEvents = results.reduce((acc, r) => acc + (r.metrics?.riskEvents || 0), 0) / tasks;
         const avgHumanInterrupts = results.reduce((acc, r) => acc + (r.metrics?.humanInterrupts || 0), 0) / tasks;
+        const avgObservationFrames = results.reduce((acc, r) => acc + (r.metrics?.observationFrames || 0), 0) / tasks;
+        const avgMultimodalFrames = results.reduce((acc, r) => acc + (r.metrics?.multimodalFrames || 0), 0) / tasks;
 
         return {
             tasks,
@@ -141,7 +155,9 @@ export class StrategyEvaluator {
             averageCost: avgCost,
             driftRate: driftCount / tasks,
             averageRiskEvents: avgRiskEvents,
-            averageHumanInterrupts: avgHumanInterrupts
+            averageHumanInterrupts: avgHumanInterrupts,
+            averageObservationFrames: avgObservationFrames,
+            averageMultimodalFrames: avgMultimodalFrames,
         };
     }
 
@@ -158,16 +174,20 @@ export class StrategyEvaluator {
             : 0.5;
         const riskScore = this.lowerIsBetter(metrics.riskEvents, 0, 5);
         const humanScore = this.lowerIsBetter(metrics.humanInterrupts, 0, 5);
+        const evidenceRatio = metrics.observationFrames > 0
+            ? Math.min(1, metrics.multimodalFrames / metrics.observationFrames)
+            : 0;
         const driftPenalty = metrics.driftDetected ? 0.15 : 0;
 
         const weighted =
-            0.45 +
+            0.40 +
             0.15 * similarity +
             0.15 * durationScore +
             0.10 * stepsScore +
             0.05 * costScore +
             0.05 * riskScore +
-            0.05 * humanScore -
+            0.05 * humanScore +
+            0.05 * evidenceRatio -
             driftPenalty;
 
         return this.clamp01(weighted);

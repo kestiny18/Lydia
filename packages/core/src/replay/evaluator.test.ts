@@ -26,6 +26,8 @@ describe('StrategyEvaluator', () => {
         driftDetected: false,
         riskEvents: 0,
         humanInterrupts: 0,
+        observationFrames: 4,
+        multimodalFrames: 2,
       }
     );
 
@@ -38,6 +40,8 @@ describe('StrategyEvaluator', () => {
         driftDetected: true,
         riskEvents: 4,
         humanInterrupts: 3,
+        observationFrames: 1,
+        multimodalFrames: 0,
       }
     );
 
@@ -54,7 +58,7 @@ describe('StrategyEvaluator', () => {
     const failure = evaluator.evaluateTask(
       createTask('failed', 'task done but crashed before completion'),
       'task done and validated',
-      { duration: 1500, steps: 2, driftDetected: true, riskEvents: 2, humanInterrupts: 1 }
+      { duration: 1500, steps: 2, driftDetected: true, riskEvents: 2, humanInterrupts: 1, observationFrames: 0, multimodalFrames: 0 }
     );
 
     expect(success.score).toBeGreaterThan(failure.score);
@@ -71,6 +75,8 @@ describe('StrategyEvaluator', () => {
         driftDetected: false,
         riskEvents: 1,
         humanInterrupts: 0,
+        observationFrames: 3,
+        multimodalFrames: 1,
       }),
       evaluator.evaluateTask(createTask('completed', 'ok', 'b'), 'ok', {
         duration: 3000,
@@ -79,6 +85,8 @@ describe('StrategyEvaluator', () => {
         driftDetected: true,
         riskEvents: 3,
         humanInterrupts: 2,
+        observationFrames: 5,
+        multimodalFrames: 2,
       }),
     ];
 
@@ -88,7 +96,8 @@ describe('StrategyEvaluator', () => {
     expect(summary.averageCost).toBe(200);
     expect(summary.averageRiskEvents).toBe(2);
     expect(summary.averageHumanInterrupts).toBe(1);
+    expect(summary.averageObservationFrames).toBe(4);
+    expect(summary.averageMultimodalFrames).toBe(1.5);
     expect(summary.driftRate).toBe(0.5);
   });
 });
-
