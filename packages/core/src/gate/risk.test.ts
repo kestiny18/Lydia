@@ -5,7 +5,7 @@ import { assessRisk } from './risk.js';
 
 class MockMcpClientManager {
   isToolExternal(name: string) {
-    return name.startsWith('ext-');
+    return name.startsWith('ext-') || name.startsWith('browser_') || name.startsWith('desktop_') || name.includes('/browser_') || name.includes('/desktop_');
   }
 }
 
@@ -19,6 +19,23 @@ describe('Risk Assessment', () => {
     } as any);
     expect(risk.level).toBe('high');
     expect(risk.reason).toContain('External MCP');
+  });
+
+  it('treats external read-only computer-use actions as low risk', () => {
+    const risk = assessRisk('browser_screenshot', {}, mcp, {
+      mcpServers: {},
+      safety: { userDataDirs: [], systemDirs: [], rememberApprovals: true },
+    } as any);
+    expect(risk.level).toBe('low');
+  });
+
+  it('flags high-risk computer-use actions with canonical signature', () => {
+    const risk = assessRisk('browser_upload', { selector: '#file', path: '/tmp/a.txt' }, mcp, {
+      mcpServers: {},
+      safety: { userDataDirs: [], systemDirs: [], rememberApprovals: true },
+    } as any);
+    expect(risk.level).toBe('high');
+    expect(risk.signature).toBe('computer_use:browser_upload');
   });
 
   it('flags protected user data writes as high risk', () => {

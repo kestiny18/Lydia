@@ -4,6 +4,7 @@ import type {
   ComputerUseActionEnvelope,
   ComputerUseCheckpoint,
   ComputerUseError,
+  ObservationFrame,
 } from './runtime-contract.js';
 
 interface SessionState {
@@ -25,6 +26,7 @@ export interface DispatchCanonicalActionRequest {
 export interface DispatchCanonicalActionResult {
   sessionId: string;
   toolResult: any;
+  frame: ObservationFrame;
   frameId: string;
   checkpoint: ComputerUseCheckpoint;
 }
@@ -82,6 +84,7 @@ export class ComputerUseSessionOrchestrator extends EventEmitter {
       return {
         sessionId: state.sessionId,
         toolResult: result.toolResult,
+        frame: result.frame,
         frameId: result.frame.frameId,
         checkpoint,
       };

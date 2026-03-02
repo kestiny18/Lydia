@@ -2,6 +2,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import type { LydiaConfig } from '../config/index.js';
 import type { McpClientManager } from '../mcp/index.js';
+import { resolveCanonicalComputerUseToolName } from '../computer-use/index.js';
 
 export type RiskLevel = 'low' | 'high';
 
@@ -25,6 +26,22 @@ const DEFAULT_SYSTEM_DIRS_WINDOWS = [
   'C:\\Program Files (x86)',
   'C:\\ProgramData',
 ];
+
+const COMPUTER_USE_READ_ONLY_ACTIONS = new Set([
+  'browser_navigate',
+  'browser_wait_for',
+  'browser_extract_text',
+  'browser_screenshot',
+  'desktop_capture',
+  'desktop_move_mouse',
+  'desktop_scroll',
+  'desktop_wait_for',
+]);
+
+const COMPUTER_USE_HIGH_RISK_ACTIONS = new Set([
+  'browser_upload',
+  'desktop_drag',
+]);
 
 function expandHome(p: string): string {
   if (p.startsWith('~/') || p === '~') {
@@ -96,6 +113,53 @@ function isRelativePath(input: string): boolean {
   return !path.isAbsolute(input);
 }
 
+function resolveCanonicalComputerUseAction(toolName: string): string | undefined {
+  const direct = resolveCanonicalComputerUseToolName(toolName);
+  if (direct) return direct;
+  const slashIndex = toolName.indexOf('/');
+  if (slashIndex > 0 && slashIndex < toolName.length - 1) {
+    return resolveCanonicalComputerUseToolName(toolName.slice(slashIndex + 1));
+  }
+  return undefined;
+}
+
+function assessExternalComputerUseRisk(
+  toolName: string,
+  args: Record<string, unknown> | undefined,
+): RiskAssessment | undefined {
+  const canonical = resolveCanonicalComputerUseAction(toolName);
+  if (!canonical) return undefined;
+
+  if (COMPUTER_USE_READ_ONLY_ACTIONS.has(canonical)) {
+    return { level: 'low' };
+  }
+
+  if (canonical === 'desktop_key_press') {
+    const key = typeof args?.key === 'string' ? args.key.toLowerCase() : '';
+    const riskyChord = ['alt+f4', 'cmd+q', 'ctrl+alt+delete', 'meta+q', 'delete', 'backspace'];
+    if (riskyChord.some((item) => key.includes(item))) {
+      return {
+        level: 'high',
+        reason: 'Potentially destructive desktop key chord',
+        signature: `computer_use:${canonical}:${key}`,
+        details: key,
+      };
+    }
+    return { level: 'low' };
+  }
+
+  if (COMPUTER_USE_HIGH_RISK_ACTIONS.has(canonical)) {
+    return {
+      level: 'high',
+      reason: 'High-risk computer-use action',
+      signature: `computer_use:${canonical}`,
+      details: canonical,
+    };
+  }
+
+  return { level: 'low' };
+}
+
 export function assessRisk(
   toolName: string,
   args: Record<string, unknown> | undefined,
@@ -103,6 +167,13 @@ export function assessRisk(
   config?: LydiaConfig
 ): RiskAssessment {
   const protectedDirs = buildProtectedDirs(config);
+
+  if (mcp.isToolExternal(toolName)) {
+    const computerUseRisk = assessExternalComputerUseRisk(toolName, args);
+    if (computerUseRisk) {
+      return computerUseRisk;
+    }
+  }
 
   if (mcp.isToolExternal(toolName)) {
     return {

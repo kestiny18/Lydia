@@ -37,11 +37,11 @@ import { TaskReporter, type StepResult } from '../reporting/index.js';
 import { FeedbackCollector } from '../feedback/index.js';
 import {
   resolveCanonicalComputerUseToolName,
+  isComputerUseErrorCode,
   McpCanonicalCapabilityAdapter,
   ComputerUseSessionOrchestrator,
   type ComputerUseActionEnvelope,
   type ComputerUseCheckpoint,
-  type ObservationFrame,
   type ComputerUseDomain,
 } from '../computer-use/index.js';
 import * as path from 'node:path';
@@ -792,7 +792,11 @@ export class Agent extends EventEmitter {
           if (risk.level === 'high') {
             const approved = await this.confirmRisk(risk, toolUse.name);
             if (!approved) {
-              const deniedMsg = 'User denied this high-risk action.';
+              const deniedMsg = this.formatComputerUseFailure(
+                toolUse.name,
+                'POLICY_DENIED',
+                'User denied this high-risk action.',
+              );
               toolResultBlocks.push({
                 type: 'tool_result',
                 tool_use_id: toolUse.id,
@@ -808,7 +812,11 @@ export class Agent extends EventEmitter {
                 status: 'failed',
               });
               this.recordFailedStep(stepId, plannedStep, deniedMsg, 0, messages);
-              this.emit('tool:error', { name: toolUse.name, error: 'User denied action' });
+              this.emit('tool:error', {
+                name: toolUse.name,
+                error: deniedMsg,
+                code: this.resolveCanonicalComputerUseAction(toolUse.name) ? 'POLICY_DENIED' : undefined,
+              });
               continue;
             }
           }
@@ -863,12 +871,20 @@ export class Agent extends EventEmitter {
           });
 
         } catch (error) {
-          const errMsg =
+          const rawErrMsg =
             error instanceof Error
               ? error.message
               : (error && typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string')
                 ? (error as any).message
                 : String(error);
+          const code =
+            error &&
+            typeof error === 'object' &&
+            typeof (error as any).code === 'string' &&
+            isComputerUseErrorCode((error as any).code)
+              ? (error as any).code
+              : undefined;
+          const errMsg = this.formatComputerUseFailure(toolUse.name, code, rawErrMsg);
 
           toolResultBlocks.push({
             type: 'tool_result',
@@ -888,7 +904,7 @@ export class Agent extends EventEmitter {
           });
           this.recordFailedStep(stepId, plannedStep, errMsg, 0, messages);
 
-          this.emit('tool:error', { name: toolUse.name, error: errMsg });
+          this.emit('tool:error', { name: toolUse.name, error: errMsg, code });
         }
       }
 
@@ -1152,14 +1168,7 @@ export class Agent extends EventEmitter {
       invokeTool: async (resolvedToolName, resolvedArgs) =>
         await this.mcpClientManager.callTool(resolvedToolName, resolvedArgs),
     });
-
-    const frame = this.buildObservationFrame(
-      dispatchResult.checkpoint.sessionId,
-      action.actionId,
-      dispatchResult.frameId,
-      dispatchResult.toolResult,
-    );
-    this.memoryManager.recordObservationFrame(this.currentTaskId, frame);
+    this.memoryManager.recordObservationFrame(this.currentTaskId, dispatchResult.frame);
     this.computerUseCheckpoint = dispatchResult.checkpoint;
     return dispatchResult.toolResult;
   }
@@ -1178,48 +1187,15 @@ export class Agent extends EventEmitter {
     return canonicalAction.startsWith('desktop_') ? 'desktop' : 'browser';
   }
 
-  private buildObservationFrame(
-    sessionId: string,
-    actionId: string,
-    frameId: string,
-    result: any,
-  ): ObservationFrame {
-    const blocks: ObservationFrame['blocks'] = [];
-
-    if (result && Array.isArray(result.content)) {
-      for (const contentBlock of result.content) {
-        if (contentBlock?.type === 'text' && typeof contentBlock.text === 'string') {
-          blocks.push({ type: 'text', text: contentBlock.text });
-          continue;
-        }
-        if (
-          contentBlock?.type === 'image' &&
-          contentBlock.source?.type === 'base64' &&
-          typeof contentBlock.source.media_type === 'string'
-        ) {
-          blocks.push({
-            type: 'image',
-            mediaType: contentBlock.source.media_type,
-            dataRef: `inline://image/${contentBlock.source.media_type}`,
-          });
-        }
-      }
-    }
-
-    if (blocks.length === 0) {
-      blocks.push({
-        type: 'structured_json',
-        payload: result && typeof result === 'object' ? result : { value: this.toDisplayText(result) },
-      });
-    }
-
-    return {
-      sessionId,
-      actionId,
-      frameId,
-      blocks,
-      createdAt: Date.now(),
-    };
+  private formatComputerUseFailure(
+    toolName: string,
+    code: string | undefined,
+    message: string,
+  ): string {
+    const canonical = this.resolveCanonicalComputerUseAction(toolName);
+    if (!canonical) return message;
+    if (!code) return message;
+    return `${code}: ${message}`;
   }
 
   private toDisplayText(value: unknown): string {

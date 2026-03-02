@@ -16,6 +16,23 @@ function createAction(overrides: Partial<ComputerUseActionEnvelope> = {}): Compu
 }
 
 describe('McpCanonicalCapabilityAdapter', () => {
+  it('returns ARG_INVALID when required args are missing', async () => {
+    const adapter = new McpCanonicalCapabilityAdapter();
+
+    await expect(
+      adapter.execute(createAction({
+        canonicalAction: 'browser_navigate',
+        args: {},
+      }), {
+        toolName: 'browser_navigate',
+        invokeTool: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+      }),
+    ).rejects.toMatchObject({
+      code: 'ARG_INVALID',
+      retryable: false,
+    });
+  });
+
   it('extracts text/image observations from MCP output', async () => {
     const adapter = new McpCanonicalCapabilityAdapter();
     const result = await adapter.execute(createAction(), {
@@ -65,6 +82,18 @@ describe('McpCanonicalCapabilityAdapter', () => {
 });
 
 describe('normalizeComputerUseError', () => {
+  it('maps unavailable tools to CAPABILITY_UNAVAILABLE', () => {
+    const error = normalizeComputerUseError(new Error("Tool 'browser_click' not found."));
+    expect(error.code).toBe('CAPABILITY_UNAVAILABLE');
+    expect(error.retryable).toBe(false);
+  });
+
+  it('maps policy denials to POLICY_DENIED', () => {
+    const error = normalizeComputerUseError(new Error('Policy denied by runtime.'));
+    expect(error.code).toBe('POLICY_DENIED');
+    expect(error.retryable).toBe(false);
+  });
+
   it('returns stable execution error for unknown values', () => {
     const error = normalizeComputerUseError('raw-error');
     expect(error.code).toBe('EXECUTION_FAILED');
