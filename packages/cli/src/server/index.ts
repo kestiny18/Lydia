@@ -510,6 +510,9 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
     // Check if it's a live run
     const liveRun = runs.get(id);
     if (liveRun) {
+      const evidence = liveRun.taskId
+        ? memoryManager.listObservationFramesByTask(liveRun.taskId, 100)
+        : [];
       return c.json({
         id: liveRun.runId,
         input: liveRun.input,
@@ -523,6 +526,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
         report: null,
         traces: null,
         episode: null,
+        evidence,
       });
     }
 
@@ -555,6 +559,9 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
           });
         }
       }
+      const evidence = dbReport.task_id
+        ? memoryManager.listObservationFramesByTask(dbReport.task_id, 200)
+        : [];
 
       return c.json({
         id,
@@ -566,6 +573,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
         report,
         traces: traces.length > 0 ? traces : null,
         episode,
+        evidence,
       });
     }
 
@@ -677,6 +685,19 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
 
       agent.on('checkpoint:saved', (data) => {
         broadcastWs({ type: 'checkpoint:saved', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
+      agent.on('computer-use:session.start', (data) => {
+        broadcastWs({ type: 'computer-use:session.start', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('computer-use:action.dispatch', (data) => {
+        broadcastWs({ type: 'computer-use:action.dispatch', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('computer-use:observation.collect', (data) => {
+        broadcastWs({ type: 'computer-use:observation.collect', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('computer-use:checkpoint.save', (data) => {
+        broadcastWs({ type: 'computer-use:checkpoint.save', data: { runId, ...data }, timestamp: Date.now() });
       });
 
       agent.run(inputText, runId)
@@ -903,6 +924,19 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
         broadcastWs({ type: 'checkpoint:saved', data: { runId, ...data }, timestamp: Date.now() });
       });
 
+      agent.on('computer-use:session.start', (data) => {
+        broadcastWs({ type: 'computer-use:session.start', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('computer-use:action.dispatch', (data) => {
+        broadcastWs({ type: 'computer-use:action.dispatch', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('computer-use:observation.collect', (data) => {
+        broadcastWs({ type: 'computer-use:observation.collect', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('computer-use:checkpoint.save', (data) => {
+        broadcastWs({ type: 'computer-use:checkpoint.save', data: { runId, ...data }, timestamp: Date.now() });
+      });
+
       agent.resume(taskId)
         .then((task) => {
           runState.taskId = task.id;
@@ -930,6 +964,47 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
       runs.delete(runId);
       return c.json({ error: error.message || 'Resume failed.' }, 500);
     }
+  });
+
+  app.get('/api/tasks/:id/evidence', (c) => {
+    const taskId = c.req.param('id');
+    const frames = memoryManager.listObservationFramesByTask(taskId);
+    return c.json({
+      taskId,
+      frames,
+      total: frames.length,
+    });
+  });
+
+  app.get('/api/computer-use/sessions/:id', (c) => {
+    const sessionId = c.req.param('id');
+    const frames = memoryManager.listObservationFramesBySession(sessionId);
+    const checkpoint = memoryManager
+      .listCheckpoints()
+      .find((item) => item.computerUseSessionId === sessionId);
+
+    return c.json({
+      sessionId,
+      checkpoint: checkpoint
+        ? {
+            taskId: checkpoint.taskId,
+            lastActionId: checkpoint.computerUseLastActionId,
+            latestFrameIds: (() => {
+              try {
+                return checkpoint.computerUseLatestFrameIdsJson
+                  ? JSON.parse(checkpoint.computerUseLatestFrameIdsJson)
+                  : [];
+              } catch {
+                return [];
+              }
+            })(),
+            verificationFailures: checkpoint.computerUseVerificationFailures || 0,
+            updatedAt: checkpoint.updatedAt,
+          }
+        : null,
+      frames,
+      total: frames.length,
+    });
   });
 
   // ─── Chat Session API (P1-1) ──────────────────────────────────────

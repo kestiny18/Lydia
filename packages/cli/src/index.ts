@@ -307,7 +307,18 @@ async function main() {
         if (isNaN(id)) throw new Error('Episode ID must be a number');
 
         const replayer = new ReplayManager();
-        await replayer.replay(id);
+        const evaluation = await replayer.replay(id);
+        console.log(chalk.bold(`\nReplay Result for Episode #${id}`));
+        console.log(`  Success: ${evaluation.success ? chalk.green('yes') : chalk.red('no')}`);
+        console.log(`  Score: ${evaluation.score.toFixed(3)}`);
+        console.log(`  Duration: ${formatDurationMs(evaluation.metrics.duration)}`);
+        console.log(`  Steps: ${evaluation.metrics.steps}`);
+        console.log(`  Drift: ${evaluation.metrics.driftDetected ? chalk.yellow('detected') : chalk.green('none')}`);
+        console.log(`  Risk events: ${evaluation.metrics.riskEvents}`);
+        console.log(`  Human interrupts: ${evaluation.metrics.humanInterrupts}`);
+        console.log(`  Observation frames: ${evaluation.metrics.observationFrames}`);
+        console.log(`  Multimodal frames: ${evaluation.metrics.multimodalFrames}`);
+        console.log('');
       } catch (error: any) {
         console.error(chalk.red('Replay Error:'), error.message);
       }
@@ -1133,6 +1144,16 @@ async function main() {
           }
         }
 
+        if (detail.evidence?.length) {
+          console.log(`\n  ${chalk.bold(`Evidence Frames (${detail.evidence.length}):`)}`);
+          for (const frame of detail.evidence.slice(0, 10)) {
+            const blockTypes = Array.isArray(frame.blocks)
+              ? frame.blocks.map((block: any) => block.type).join(', ')
+              : 'unknown';
+            console.log(`  - ${frame.frameId} ${chalk.dim(`(${blockTypes})`)}`);
+          }
+        }
+
         console.log('');
       } catch (error: any) {
         console.error(chalk.red('Failed to show task:'), error.message);
@@ -1258,6 +1279,73 @@ async function main() {
         spinner.fail(chalk.red('Resume Error'));
         console.error(chalk.red(error.message || error));
         process.exit(1);
+      }
+    });
+
+  const computerUseCmd = program
+    .command('computer-use')
+    .description('Inspect computer-use sessions and evidence');
+
+  computerUseCmd
+    .command('task-evidence')
+    .description('Inspect observation frames for a task')
+    .argument('<taskId>', 'Task ID')
+    .option('--port <number>', 'Server port', '3000')
+    .action(async (taskId, options) => {
+      try {
+        const port = await ensureServer(parseInt(options.port, 10));
+        const result = await apiGet<{ taskId: string; total: number; frames: any[] }>(
+          `/api/tasks/${encodeURIComponent(taskId)}/evidence`,
+          port,
+        );
+
+        console.log(chalk.bold(`\nTask Evidence: ${result.taskId}`));
+        console.log(`  Frames: ${result.total}`);
+        for (const frame of result.frames) {
+          const blockTypes = Array.isArray(frame.blocks)
+            ? frame.blocks.map((block: any) => block.type).join(', ')
+            : 'unknown';
+          console.log(`  - ${frame.frameId} (${blockTypes})`);
+        }
+        console.log('');
+      } catch (error: any) {
+        console.error(chalk.red('Failed to inspect task evidence:'), error.message);
+      }
+    });
+
+  computerUseCmd
+    .command('session')
+    .description('Inspect a computer-use session timeline')
+    .argument('<sessionId>', 'Computer-use session ID')
+    .option('--port <number>', 'Server port', '3000')
+    .action(async (sessionId, options) => {
+      try {
+        const port = await ensureServer(parseInt(options.port, 10));
+        const result = await apiGet<{
+          sessionId: string;
+          total: number;
+          checkpoint: any;
+          frames: any[];
+        }>(`/api/computer-use/sessions/${encodeURIComponent(sessionId)}`, port);
+
+        console.log(chalk.bold(`\nComputer-Use Session: ${result.sessionId}`));
+        if (result.checkpoint) {
+          console.log(`  Task: ${result.checkpoint.taskId}`);
+          console.log(`  Last action: ${result.checkpoint.lastActionId || 'n/a'}`);
+          console.log(`  Verification failures: ${result.checkpoint.verificationFailures}`);
+        } else {
+          console.log(chalk.yellow('  No active checkpoint found for this session.'));
+        }
+        console.log(`  Frames: ${result.total}`);
+        for (const frame of result.frames) {
+          const blockTypes = Array.isArray(frame.blocks)
+            ? frame.blocks.map((block: any) => block.type).join(', ')
+            : 'unknown';
+          console.log(`  - ${frame.actionId} -> ${frame.frameId} (${blockTypes})`);
+        }
+        console.log('');
+      } catch (error: any) {
+        console.error(chalk.red('Failed to inspect session:'), error.message);
       }
     });
 
