@@ -124,6 +124,7 @@ export interface TaskDetail {
             dataRef?: string;
             kind?: string;
             path?: string;
+            payload?: Record<string, unknown>;
         }>;
     }>;
 }

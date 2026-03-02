@@ -121,6 +121,12 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
             case 'retry':
                 setAgentEvents(prev => [...prev, { type: 'retry', data: msg.data, timestamp: msg.timestamp }]);
                 break;
+            case 'computer-use:session.start':
+            case 'computer-use:action.dispatch':
+            case 'computer-use:observation.collect':
+            case 'computer-use:checkpoint.save':
+                setAgentEvents(prev => [...prev, { type: msg.type, data: msg.data, timestamp: msg.timestamp }]);
+                break;
             default:
                 break;
         }

@@ -223,13 +223,20 @@ export function TaskReportView({ taskId, onResumeTask, onContinueInChat }: TaskR
                                 ? frame.blocks.map((block: any) => block.type).join(', ')
                                 : 'unknown';
                             return (
-                                <div key={i} className="text-xs border border-gray-100 rounded-md px-3 py-2 bg-gray-50/60">
+                                <div key={i} className="text-xs border border-gray-100 rounded-md px-3 py-2 bg-gray-50/60 space-y-1">
                                     <div className="flex items-center justify-between gap-2">
                                         <span className="font-medium text-gray-700">{frame.actionId}</span>
                                         <span className="text-gray-400">{new Date(frame.createdAt).toLocaleTimeString()}</span>
                                     </div>
-                                    <div className="mt-1 text-gray-500">
-                                        {frame.frameId} · {blockTypes}
+                                    <div className="text-gray-500">
+                                        {frame.frameId} | session: {frame.sessionId} | {blockTypes}
+                                    </div>
+                                    <div className="space-y-1">
+                                        {(Array.isArray(frame.blocks) ? frame.blocks : []).map((block: any, idx: number) => (
+                                            <div key={idx} className="rounded bg-white border border-gray-100 px-2 py-1 text-gray-600">
+                                                {renderEvidenceBlock(block)}
+                                            </div>
+                                        ))}
                                     </div>
                                 </div>
                             );
@@ -295,6 +302,26 @@ function formatJson(str: string): string {
 function truncate(str: string, max: number): string {
     if (str.length <= max) return str;
     return str.substring(0, max) + `\n... (${str.length - max} more chars)`;
+}
+
+function renderEvidenceBlock(block: any): string {
+    if (!block || typeof block !== 'object') return 'unknown block';
+    if (block.type === 'text') {
+        return `text: ${truncate(String(block.text || ''), 220)}`;
+    }
+    if (block.type === 'image') {
+        return `image: ${block.mediaType || 'unknown'} (${block.dataRef || 'no-ref'})`;
+    }
+    if (block.type === 'artifact_ref') {
+        return `artifact (${block.kind || 'unknown'}): ${block.path || 'unknown path'}`;
+    }
+    if (block.type === 'structured_json') {
+        const payload = block.payload && typeof block.payload === 'object'
+            ? JSON.stringify(block.payload)
+            : String(block.payload || '');
+        return `json: ${truncate(payload, 220)}`;
+    }
+    return `${block.type}: ${truncate(JSON.stringify(block), 220)}`;
 }
 
 function formatDuration(ms: number): string {

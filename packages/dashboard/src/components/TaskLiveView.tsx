@@ -187,6 +187,24 @@ export function TaskLiveView({
                                 {evt.type === 'retry' && (
                                     <span className="text-yellow-600">&#8635; Retry {evt.data?.attempt}/{evt.data?.maxRetries}</span>
                                 )}
+                                {evt.type === 'computer-use:session.start' && (
+                                    <span className="text-indigo-600">computer-use session started ({evt.data?.sessionId})</span>
+                                )}
+                                {evt.type === 'computer-use:action.dispatch' && (
+                                    <span className="text-indigo-600">
+                                        action {evt.data?.actionId}: {evt.data?.canonicalAction} [{evt.data?.riskLevel}]
+                                    </span>
+                                )}
+                                {evt.type === 'computer-use:observation.collect' && (
+                                    <span className="text-indigo-600">
+                                        frame {evt.data?.frameId} collected ({evt.data?.blocks} block(s))
+                                    </span>
+                                )}
+                                {evt.type === 'computer-use:checkpoint.save' && (
+                                    <span className="text-indigo-600">
+                                        checkpoint saved (failures: {evt.data?.verificationFailures ?? 0})
+                                    </span>
+                                )}
                             </div>
                         ))}
                     </div>
