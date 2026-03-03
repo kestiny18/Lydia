@@ -205,6 +205,16 @@ export function TaskLiveView({
                                         checkpoint saved (failures: {evt.data?.verificationFailures ?? 0})
                                     </span>
                                 )}
+                                {evt.type === 'computer-use:verification' && (
+                                    <span className={evt.data?.ok ? 'text-green-600' : 'text-red-600'}>
+                                        verification: {evt.data?.ok ? 'ok' : 'failed'}{evt.data?.code ? ` (${evt.data.code})` : ''}
+                                    </span>
+                                )}
+                                {evt.type === 'computer-use:session.end' && (
+                                    <span className="text-indigo-600">
+                                        session ended ({evt.data?.sessionId}) with {evt.data?.verificationFailures ?? 0} verification failure(s)
+                                    </span>
+                                )}
                             </div>
                         ))}
                     </div>

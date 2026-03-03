@@ -157,6 +157,8 @@ export type AgentEventType =
     | 'computer-use:action.dispatch'
     | 'computer-use:observation.collect'
     | 'computer-use:checkpoint.save'
+    | 'computer-use:verification'
+    | 'computer-use:session.end'
     | 'stream:text'
     | 'stream:thinking'
     | 'message'

@@ -125,6 +125,8 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
             case 'computer-use:action.dispatch':
             case 'computer-use:observation.collect':
             case 'computer-use:checkpoint.save':
+            case 'computer-use:verification':
+            case 'computer-use:session.end':
                 setAgentEvents(prev => [...prev, { type: msg.type, data: msg.data, timestamp: msg.timestamp }]);
                 break;
             default:
