@@ -115,4 +115,28 @@ describe('MemoryManager', () => {
     expect(checkpoint?.computerUseSessionId).toBe('cus-1');
     expect(checkpoint?.computerUseVerificationFailures).toBe(1);
   });
+
+  it('persists and reads ended computer-use session summaries', () => {
+    const startedAt = Date.now() - 1000;
+    const updatedAt = Date.now();
+    memory.upsertComputerUseSessionSummary({
+      sessionId: 'cus-summary-1',
+      taskId: 'task-summary-1',
+      lastActionId: 'action-3',
+      latestFrameIds: ['frame-3', 'frame-2'],
+      verificationFailures: 1,
+      status: 'ended',
+      startedAt,
+      endedAt: updatedAt,
+      updatedAt,
+    });
+
+    const summary = memory.getComputerUseSessionSummary('cus-summary-1');
+    expect(summary).not.toBeNull();
+    expect(summary?.taskId).toBe('task-summary-1');
+    expect(summary?.lastActionId).toBe('action-3');
+    expect(summary?.latestFrameIds).toEqual(['frame-3', 'frame-2']);
+    expect(summary?.verificationFailures).toBe(1);
+    expect(summary?.status).toBe('ended');
+  });
 });

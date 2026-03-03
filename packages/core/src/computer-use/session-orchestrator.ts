@@ -77,6 +77,11 @@ export class ComputerUseSessionOrchestrator extends EventEmitter {
         frameId: result.frame.frameId,
         blocks: result.frame.blocks.length,
       });
+      this.emit('verification', {
+        sessionId: state.sessionId,
+        actionId: request.action.actionId,
+        ok: true,
+      });
 
       const checkpoint = this.buildCheckpoint(state);
       this.emit('checkpoint.save', checkpoint);

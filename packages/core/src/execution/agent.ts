@@ -543,7 +543,19 @@ export class Agent extends EventEmitter {
       // Ignore cleanup errors
     }
     if (this.computerUseSessionId) {
-      this.computerUseOrchestrator.endSession(this.computerUseSessionId);
+      const terminalCheckpoint = this.computerUseOrchestrator.endSession(this.computerUseSessionId);
+      if (terminalCheckpoint) {
+        this.memoryManager.upsertComputerUseSessionSummary({
+          sessionId: terminalCheckpoint.sessionId,
+          taskId: terminalCheckpoint.taskId,
+          lastActionId: terminalCheckpoint.lastActionId,
+          latestFrameIds: terminalCheckpoint.latestFrameIds,
+          verificationFailures: terminalCheckpoint.verificationFailures,
+          status: 'ended',
+          endedAt: terminalCheckpoint.updatedAt,
+          updatedAt: terminalCheckpoint.updatedAt,
+        });
+      }
       this.computerUseSessionId = undefined;
       this.computerUseCheckpoint = undefined;
     }
@@ -666,7 +678,19 @@ export class Agent extends EventEmitter {
       // Ignore cleanup errors
     }
     if (this.computerUseSessionId) {
-      this.computerUseOrchestrator.endSession(this.computerUseSessionId);
+      const terminalCheckpoint = this.computerUseOrchestrator.endSession(this.computerUseSessionId);
+      if (terminalCheckpoint) {
+        this.memoryManager.upsertComputerUseSessionSummary({
+          sessionId: terminalCheckpoint.sessionId,
+          taskId: terminalCheckpoint.taskId,
+          lastActionId: terminalCheckpoint.lastActionId,
+          latestFrameIds: terminalCheckpoint.latestFrameIds,
+          verificationFailures: terminalCheckpoint.verificationFailures,
+          status: 'ended',
+          endedAt: terminalCheckpoint.updatedAt,
+          updatedAt: terminalCheckpoint.updatedAt,
+        });
+      }
       this.computerUseSessionId = undefined;
       this.computerUseCheckpoint = undefined;
     }
@@ -1163,17 +1187,43 @@ export class Agent extends EventEmitter {
       requestedAt: Date.now(),
     };
 
-    const dispatchResult = await this.computerUseOrchestrator.dispatchCanonicalAction({
-      taskId: this.currentTaskId,
-      action,
-      adapter: this.computerUseAdapter,
-      toolName,
-      invokeTool: async (resolvedToolName, resolvedArgs) =>
-        await this.mcpClientManager.callTool(resolvedToolName, resolvedArgs),
-    });
-    this.memoryManager.recordObservationFrame(this.currentTaskId, dispatchResult.frame);
-    this.computerUseCheckpoint = dispatchResult.checkpoint;
-    return dispatchResult.toolResult;
+    try {
+      const dispatchResult = await this.computerUseOrchestrator.dispatchCanonicalAction({
+        taskId: this.currentTaskId,
+        action,
+        adapter: this.computerUseAdapter,
+        toolName,
+        invokeTool: async (resolvedToolName, resolvedArgs) =>
+          await this.mcpClientManager.callTool(resolvedToolName, resolvedArgs),
+      });
+      this.memoryManager.recordObservationFrame(this.currentTaskId, dispatchResult.frame);
+      this.memoryManager.upsertComputerUseSessionSummary({
+        sessionId: dispatchResult.checkpoint.sessionId,
+        taskId: dispatchResult.checkpoint.taskId,
+        lastActionId: dispatchResult.checkpoint.lastActionId,
+        latestFrameIds: dispatchResult.checkpoint.latestFrameIds,
+        verificationFailures: dispatchResult.checkpoint.verificationFailures,
+        status: 'active',
+        updatedAt: dispatchResult.checkpoint.updatedAt,
+      });
+      this.computerUseCheckpoint = dispatchResult.checkpoint;
+      return dispatchResult.toolResult;
+    } catch (error) {
+      const failedCheckpoint = this.computerUseOrchestrator.getCheckpoint(sessionId);
+      if (failedCheckpoint) {
+        this.memoryManager.upsertComputerUseSessionSummary({
+          sessionId: failedCheckpoint.sessionId,
+          taskId: failedCheckpoint.taskId,
+          lastActionId: failedCheckpoint.lastActionId,
+          latestFrameIds: failedCheckpoint.latestFrameIds,
+          verificationFailures: failedCheckpoint.verificationFailures,
+          status: 'active',
+          updatedAt: failedCheckpoint.updatedAt,
+        });
+        this.computerUseCheckpoint = failedCheckpoint;
+      }
+      throw error;
+    }
   }
 
   private resolveCanonicalComputerUseAction(toolName: string): string | undefined {

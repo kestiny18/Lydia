@@ -1164,27 +1164,42 @@ export function createServer(
   app.get('/api/computer-use/sessions/:id', (c) => {
     const sessionId = c.req.param('id');
     const frames = memoryManager.listObservationFramesBySession(sessionId);
-    const checkpoint = memoryManager
+    const summary = memoryManager.getComputerUseSessionSummary(sessionId);
+    const activeCheckpoint = memoryManager
       .listCheckpoints()
       .find((item) => item.computerUseSessionId === sessionId);
 
     return c.json({
       sessionId,
-      checkpoint: checkpoint
+      checkpoint: summary
         ? {
-            taskId: checkpoint.taskId,
-            lastActionId: checkpoint.computerUseLastActionId,
+            taskId: summary.taskId,
+            lastActionId: summary.lastActionId,
+            latestFrameIds: summary.latestFrameIds,
+            verificationFailures: summary.verificationFailures,
+            updatedAt: summary.updatedAt,
+            status: summary.status,
+            startedAt: summary.startedAt,
+            endedAt: summary.endedAt || null,
+          }
+        : activeCheckpoint
+        ? {
+            taskId: activeCheckpoint.taskId,
+            lastActionId: activeCheckpoint.computerUseLastActionId,
             latestFrameIds: (() => {
               try {
-                return checkpoint.computerUseLatestFrameIdsJson
-                  ? JSON.parse(checkpoint.computerUseLatestFrameIdsJson)
+                return activeCheckpoint.computerUseLatestFrameIdsJson
+                  ? JSON.parse(activeCheckpoint.computerUseLatestFrameIdsJson)
                   : [];
               } catch {
                 return [];
               }
             })(),
-            verificationFailures: checkpoint.computerUseVerificationFailures || 0,
-            updatedAt: checkpoint.updatedAt,
+            verificationFailures: activeCheckpoint.computerUseVerificationFailures || 0,
+            updatedAt: activeCheckpoint.updatedAt,
+            status: 'active',
+            startedAt: null,
+            endedAt: null,
           }
         : null,
       frames,

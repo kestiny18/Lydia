@@ -24,7 +24,9 @@ describe('ComputerUseSessionOrchestrator', () => {
     const orchestrator = new ComputerUseSessionOrchestrator();
     const adapter = new McpCanonicalCapabilityAdapter();
     const checkpoints: any[] = [];
+    const verifications: any[] = [];
     orchestrator.on('checkpoint.save', (payload) => checkpoints.push(payload));
+    orchestrator.on('verification', (payload) => verifications.push(payload));
 
     const result = await orchestrator.dispatchCanonicalAction({
       taskId: 'task-1',
@@ -39,6 +41,11 @@ describe('ComputerUseSessionOrchestrator', () => {
     expect(result.sessionId).toBe('session-1');
     expect(result.checkpoint.latestFrameIds.length).toBe(1);
     expect(checkpoints.length).toBe(1);
+    expect(verifications).toHaveLength(1);
+    expect(verifications[0]).toMatchObject({
+      sessionId: 'session-1',
+      ok: true,
+    });
   });
 
   it('tracks verification failures when adapter throws', async () => {

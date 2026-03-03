@@ -75,6 +75,43 @@ export interface ObservationFrameRecord {
   created_at: number;
 }
 
+export interface ComputerUseSessionSummaryRecord {
+  id?: number;
+  session_id: string;
+  task_id: string;
+  last_action_id?: string;
+  latest_frame_ids_json: string;
+  verification_failures: number;
+  status: 'active' | 'ended';
+  started_at: number;
+  ended_at?: number;
+  updated_at: number;
+}
+
+export interface ComputerUseSessionSummary {
+  sessionId: string;
+  taskId: string;
+  lastActionId?: string;
+  latestFrameIds: string[];
+  verificationFailures: number;
+  status: 'active' | 'ended';
+  startedAt: number;
+  endedAt?: number;
+  updatedAt: number;
+}
+
+export interface UpsertComputerUseSessionSummaryInput {
+  sessionId: string;
+  taskId: string;
+  lastActionId?: string;
+  latestFrameIds: string[];
+  verificationFailures: number;
+  status: 'active' | 'ended';
+  startedAt?: number;
+  endedAt?: number;
+  updatedAt?: number;
+}
+
 /**
  * Checkpoint captures the full execution state of an agentic loop iteration,
  * allowing interrupted tasks to be resumed from the last successful checkpoint.
@@ -280,6 +317,22 @@ export class MemoryManager extends EventEmitter {
         frame_id TEXT NOT NULL UNIQUE,
         frame_json TEXT NOT NULL,
         created_at INTEGER NOT NULL
+      );
+    `);
+
+    // 11. Computer-Use Sessions Table (history-friendly summary for ended sessions)
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS computer_use_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL UNIQUE,
+        task_id TEXT NOT NULL,
+        last_action_id TEXT,
+        latest_frame_ids_json TEXT NOT NULL,
+        verification_failures INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        updated_at INTEGER NOT NULL
       );
     `);
 
@@ -694,6 +747,77 @@ export class MemoryManager extends EventEmitter {
         }
       })
       .filter((frame): frame is ObservationFrame => frame !== null);
+  }
+
+  public upsertComputerUseSessionSummary(input: UpsertComputerUseSessionSummaryInput): void {
+    const now = input.updatedAt ?? Date.now();
+    const startedAt = input.startedAt ?? now;
+    const stmt = this.db.prepare(`
+      INSERT INTO computer_use_sessions (
+        session_id,
+        task_id,
+        last_action_id,
+        latest_frame_ids_json,
+        verification_failures,
+        status,
+        started_at,
+        ended_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET
+        task_id = excluded.task_id,
+        last_action_id = excluded.last_action_id,
+        latest_frame_ids_json = excluded.latest_frame_ids_json,
+        verification_failures = excluded.verification_failures,
+        status = excluded.status,
+        ended_at = excluded.ended_at,
+        updated_at = excluded.updated_at
+    `);
+
+    stmt.run(
+      input.sessionId,
+      input.taskId,
+      input.lastActionId || null,
+      JSON.stringify(input.latestFrameIds || []),
+      input.verificationFailures || 0,
+      input.status,
+      startedAt,
+      input.endedAt || null,
+      now,
+    );
+  }
+
+  public getComputerUseSessionSummary(sessionId: string): ComputerUseSessionSummary | null {
+    const stmt = this.db.prepare(`
+      SELECT * FROM computer_use_sessions
+      WHERE session_id = ?
+      LIMIT 1
+    `);
+    const row = stmt.get(sessionId) as ComputerUseSessionSummaryRecord | undefined;
+    if (!row) return null;
+    return {
+      sessionId: row.session_id,
+      taskId: row.task_id,
+      lastActionId: row.last_action_id || undefined,
+      latestFrameIds: this.parseFrameIdsJson(row.latest_frame_ids_json),
+      verificationFailures: row.verification_failures || 0,
+      status: row.status,
+      startedAt: row.started_at,
+      endedAt: row.ended_at || undefined,
+      updatedAt: row.updated_at,
+    };
+  }
+
+  private parseFrameIdsJson(value: string | undefined): string[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item): item is string => typeof item === 'string');
+    } catch {
+      return [];
+    }
   }
 
   // ─── Checkpoint CRUD ──────────────────────────────────────────────
