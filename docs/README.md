@@ -142,7 +142,7 @@ Phased delivery plan
 - [x] Config: `skills.matchTopK`, `skills.hotReload`, `skills.extraDirs`
 
 **Next**: Production Hardening
-- [ ] API Authentication
+- [x] API Authentication
 - [ ] A/B Testing Framework for strategies
 - [ ] Reflection Mechanism (post-execution summary)
 - [ ] Advanced semantic skill matching (embeddings)

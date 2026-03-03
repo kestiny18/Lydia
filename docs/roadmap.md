@@ -159,7 +159,7 @@ Goal: Safe evolution.
 ### Web API
 - [x] RESTful API Design (Dashboard server)
 - [x] WebSocket Real-time Communication
-- [ ] API Authentication Mechanism
+- [x] API Authentication Mechanism
 
 ### Multi-Model Support
 - [x] OpenAI GPT-4/4o
