@@ -83,6 +83,16 @@ describe('Risk Assessment', () => {
     expect(risk.reason).toContain('File operation');
   });
 
+  it('flags protected unarchive destination as high risk', () => {
+    const userDir = path.join(os.tmpdir(), 'lydia-risk-unarchive');
+    const risk = assessRisk('fs_unarchive', { archivePath: '/tmp/bundle.gz', outputDir: path.join(userDir, 'out') }, mcp, {
+      mcpServers: {},
+      safety: { userDataDirs: [userDir], systemDirs: [], allowPaths: [], denyPaths: [], rememberApprovals: true },
+    } as any);
+    expect(risk.level).toBe('high');
+    expect(risk.reason).toContain('File operation');
+  });
+
   it('flags destructive shell commands in protected paths', () => {
     const userDir = path.join(os.tmpdir(), 'lydia-risk-shell');
     const target = path.join(userDir, 'file.txt');

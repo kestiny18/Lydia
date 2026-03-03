@@ -31,6 +31,7 @@ export class ReplayMcpClientManager extends McpClientManager {
     'fs_copy_file',
     'fs_move_file',
     'fs_archive',
+    'fs_unarchive',
     'fs_delete_file',
     'fs_delete_directory',
     'fs_move',
@@ -109,7 +110,8 @@ export class ReplayMcpClientManager extends McpClientManager {
       name === 'fs_copy_file' ||
       name === 'fs_move_file' ||
       name === 'fs_search' ||
-      name === 'fs_archive'
+      name === 'fs_archive' ||
+      name === 'fs_unarchive'
     );
   }
 
@@ -248,15 +250,81 @@ export class ReplayMcpClientManager extends McpClientManager {
         createdAt: 0,
         totalBytes: sourceFile ? sourceFile.length : sourceEntries.reduce((acc, [, text]) => acc + text.length, 0),
         files: sourceFile
-          ? [{ path: path.posix.basename(source), size: sourceFile.length }]
+          ? [{
+            path: path.posix.basename(source),
+            size: sourceFile.length,
+            encoding: 'base64',
+            data: Buffer.from(sourceFile, 'utf-8').toString('base64'),
+          }]
           : sourceEntries.map(([filePath, text]) => ({
-              path: path.posix.relative(source, filePath),
-              size: text.length,
-            })),
+            path: path.posix.relative(source, filePath),
+            size: text.length,
+            encoding: 'base64',
+            data: Buffer.from(text, 'utf-8').toString('base64'),
+          })),
       };
       this.virtualFiles.set(output, JSON.stringify(bundle));
       return {
         content: [{ type: 'text', text: `Successfully archived ${bundle.files.length} file(s) to ${output}` }],
+      };
+    }
+
+    if (name === 'fs_unarchive') {
+      const rawArchive = typeof args?.archivePath === 'string' ? args.archivePath : '';
+      const rawOutputDir = typeof args?.outputDir === 'string' ? args.outputDir : '';
+      if (!rawArchive || !rawOutputDir) {
+        return { content: [{ type: 'text', text: 'Error: Missing archivePath or outputDir.' }], isError: true };
+      }
+      const archivePath = this.normalizeFsPath(rawArchive);
+      const outputDir = this.normalizeFsPath(rawOutputDir);
+      const raw = this.virtualFiles.get(archivePath);
+      if (!raw) {
+        return { content: [{ type: 'text', text: `Error: ENOENT: no such file ${archivePath}` }], isError: true };
+      }
+
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        return { content: [{ type: 'text', text: 'Error: Invalid archive payload.' }], isError: true };
+      }
+      if (parsed?.format !== 'lydia-archive-v1' || !Array.isArray(parsed?.files)) {
+        return { content: [{ type: 'text', text: 'Error: Unsupported archive format.' }], isError: true };
+      }
+
+      const overwrite = Boolean(args?.overwrite);
+      const prefix = outputDir.endsWith('/') ? outputDir : `${outputDir}/`;
+      const existingEntries = Array.from(this.virtualFiles.keys()).filter((p) => p.startsWith(prefix));
+      if (!overwrite && existingEntries.length > 0) {
+        return {
+          content: [{
+            type: 'text',
+            text: `Error: Output directory is not empty: ${outputDir}. Pass overwrite=true to replace.`,
+          }],
+          isError: true,
+        };
+      }
+      if (overwrite) {
+        for (const existingPath of Array.from(this.virtualFiles.keys())) {
+          if (existingPath.startsWith(prefix)) {
+            this.virtualFiles.delete(existingPath);
+          }
+        }
+      }
+
+      let count = 0;
+      for (const item of parsed.files) {
+        const rel = typeof item?.path === 'string' ? item.path.replace(/\\/g, '/') : '';
+        if (!rel || rel.includes('..') || rel.startsWith('/')) continue;
+        const target = this.normalizeFsPath(path.posix.join(outputDir, rel));
+        const base64 = typeof item?.data === 'string' ? item.data : '';
+        const text = base64 ? Buffer.from(base64, 'base64').toString('utf-8') : '';
+        this.virtualFiles.set(target, text);
+        count += 1;
+      }
+
+      return {
+        content: [{ type: 'text', text: `Successfully extracted ${count} file(s) to ${outputDir}` }],
       };
     }
 

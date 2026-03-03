@@ -2,7 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { gzipSync } from "node:zlib";
+import { gunzipSync, gzipSync } from "node:zlib";
 
 export class FileSystemServer {
   public server: Server;
@@ -126,6 +126,20 @@ export class FileSystemServer {
               required: ["path", "outputPath"],
             },
           },
+          {
+            name: "fs_unarchive",
+            description: "Extract a Lydia archive bundle into a destination directory",
+            inputSchema: {
+              type: "object",
+              properties: {
+                archivePath: { type: "string", description: "Archive file path created by fs_archive" },
+                outputDir: { type: "string", description: "Destination directory for extracted files" },
+                overwrite: { type: "boolean", description: "Replace destination directory if it exists (default false)" },
+                maxBytes: { type: "number", description: "Maximum extracted bytes allowed (default 20MB)" },
+              },
+              required: ["archivePath", "outputDir"],
+            },
+          },
         ],
       };
     });
@@ -201,6 +215,18 @@ export class FileSystemServer {
             await fs.writeFile(outputPath, bundle.buffer);
             return {
               content: [{ type: "text", text: `Successfully archived ${bundle.fileCount} file(s) to ${outputPath}` }],
+            };
+          }
+          case "fs_unarchive": {
+            const archivePath = this.validatePath(args.archivePath);
+            const outputDir = this.validatePath(args.outputDir);
+            const overwrite = Boolean(args.overwrite);
+            const maxBytes = Math.max(1024, Number(args.maxBytes) || 20 * 1024 * 1024);
+            const archiveBuffer = await fs.readFile(archivePath);
+            const bundle = this.parseArchiveBundle(archiveBuffer);
+            const written = await this.extractArchiveBundle(bundle, outputDir, overwrite, maxBytes);
+            return {
+              content: [{ type: "text", text: `Successfully extracted ${written} file(s) to ${outputDir}` }],
             };
           }
           default:
@@ -330,5 +356,97 @@ export class FileSystemServer {
       buffer: gzipSync(Buffer.from(json, 'utf-8')),
       fileCount: files.length,
     };
+  }
+
+  private parseArchiveBundle(buffer: Buffer): {
+    format: string;
+    files: Array<{ path: string; encoding?: string; data?: string }>;
+  } {
+    const parseJson = (text: string) => JSON.parse(text) as any;
+    let parsed: any;
+    try {
+      parsed = parseJson(gunzipSync(buffer).toString('utf-8'));
+    } catch {
+      parsed = parseJson(buffer.toString('utf-8'));
+    }
+
+    if (parsed?.format !== 'lydia-archive-v1' || !Array.isArray(parsed?.files)) {
+      throw new Error('Unsupported archive format. Expected lydia-archive-v1.');
+    }
+    return parsed;
+  }
+
+  private async extractArchiveBundle(
+    bundle: { files: Array<{ path: string; encoding?: string; data?: string }> },
+    outputDir: string,
+    overwrite: boolean,
+    maxBytes: number,
+  ): Promise<number> {
+    await this.prepareOutputDirectory(outputDir, overwrite);
+
+    let totalBytes = 0;
+    let count = 0;
+    for (const file of bundle.files) {
+      const relPath = String(file.path || '').replace(/\\/g, '/');
+      if (!relPath || path.isAbsolute(relPath) || relPath.includes('..')) {
+        throw new Error(`Unsafe archive entry path: ${relPath || '<empty>'}`);
+      }
+      const targetPath = path.resolve(outputDir, relPath);
+      const safeOutputDir = process.platform === 'win32' ? outputDir.toLowerCase() : outputDir;
+      const safeTarget = process.platform === 'win32' ? targetPath.toLowerCase() : targetPath;
+      if (!safeTarget.startsWith(safeOutputDir + path.sep) && safeTarget !== safeOutputDir) {
+        throw new Error(`Archive entry escapes destination: ${relPath}`);
+      }
+
+      const data = this.decodeArchiveEntry(file);
+      totalBytes += data.length;
+      if (totalBytes > maxBytes) {
+        throw new Error(`Unarchive exceeds maxBytes limit (${maxBytes}).`);
+      }
+
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.writeFile(targetPath, data);
+      count += 1;
+    }
+
+    return count;
+  }
+
+  private decodeArchiveEntry(file: { encoding?: string; data?: string }): Buffer {
+    if (typeof file.data !== 'string') {
+      return Buffer.from('', 'utf-8');
+    }
+    const encoding = String(file.encoding || 'base64').toLowerCase();
+    if (encoding === 'base64') {
+      return Buffer.from(file.data, 'base64');
+    }
+    if (encoding === 'utf8' || encoding === 'utf-8') {
+      return Buffer.from(file.data, 'utf-8');
+    }
+    throw new Error(`Unsupported archive entry encoding: ${encoding}`);
+  }
+
+  private async prepareOutputDirectory(outputDir: string, overwrite: boolean): Promise<void> {
+    try {
+      const stat = await fs.stat(outputDir);
+      if (!stat.isDirectory()) {
+        throw new Error(`Output path is not a directory: ${outputDir}`);
+      }
+      if (!overwrite) {
+        const entries = await fs.readdir(outputDir);
+        if (entries.length > 0) {
+          throw new Error(`Output directory is not empty: ${outputDir}. Pass overwrite=true to replace.`);
+        }
+      } else {
+        await fs.rm(outputDir, { recursive: true, force: true });
+        await fs.mkdir(outputDir, { recursive: true });
+      }
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') {
+        await fs.mkdir(outputDir, { recursive: true });
+        return;
+      }
+      throw error;
+    }
   }
 }

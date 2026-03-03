@@ -27,6 +27,7 @@ const HIGH_RISK_TOOLS = new Set([
   'fs_move_file',
   'fs_copy_file',
   'fs_archive',
+  'fs_unarchive',
   'fs_move',
   'fs_copy',
   'git_push'
@@ -77,6 +78,7 @@ export class SimplePlanner {
     - fs_move_file: Move/rename file (args: { from: string, to: string, overwrite?: boolean })
     - fs_search: Search files/directories by name (args: { path: string, pattern: string, maxResults?: number })
     - fs_archive: Archive file/directory to bundle (args: { path: string, outputPath: string, overwrite?: boolean, maxBytes?: number })
+    - fs_unarchive: Extract archive bundle to directory (args: { archivePath: string, outputDir: string, overwrite?: boolean, maxBytes?: number })
     - git_*: Git operations (status, add, commit, etc)
     - remember: Store persistent info (args: { content: string, key?: string })
     - recall: Search memory (args: { query: string })

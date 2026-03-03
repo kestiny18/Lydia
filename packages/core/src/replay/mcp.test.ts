@@ -82,6 +82,15 @@ describe('ReplayMcpClientManager', () => {
 
     const archive = await replay.callTool('fs_archive', { path: 'docs', outputPath: 'artifacts/docs.bundle.gz' });
     expect(archive.content[0].text).toContain('Successfully archived');
+
+    const unarchive = await replay.callTool('fs_unarchive', {
+      archivePath: 'artifacts/docs.bundle.gz',
+      outputDir: 'restore/docs',
+      overwrite: true,
+    });
+    expect(unarchive.content[0].text).toContain('Successfully extracted');
+    const restored = await replay.callTool('fs_read_file', { path: 'restore/docs/c.txt' });
+    expect(restored.content[0].text).toBe('alpha');
   });
 
   it('tracks invocation, risk, and human-interrupt metrics', async () => {

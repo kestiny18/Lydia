@@ -188,11 +188,16 @@ export function assessRisk(
     toolName === 'fs_write_file' ||
     toolName === 'fs_copy_file' ||
     toolName === 'fs_move_file' ||
-    toolName === 'fs_archive';
+    toolName === 'fs_archive' ||
+    toolName === 'fs_unarchive';
   if (isWriteLikeFsTool) {
     const opLabel = toolName === 'fs_write_file' ? 'File write' : 'File operation';
-    const targetPath = toolName === 'fs_archive'
-      ? (typeof args?.outputPath === 'string' ? args.outputPath : '')
+    const targetPath = (toolName === 'fs_archive' || toolName === 'fs_unarchive')
+      ? (
+        toolName === 'fs_archive'
+          ? (typeof args?.outputPath === 'string' ? args.outputPath : '')
+          : (typeof args?.outputDir === 'string' ? args.outputDir : '')
+      )
       : (
         typeof args?.path === 'string'
           ? args.path
