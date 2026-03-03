@@ -49,6 +49,14 @@ export const ConfigSchema = z.object({
     retryDelayMs: z.number().default(1000),
     streaming: z.boolean().default(true),
   }).default({}),
+  server: z.object({
+    apiToken: z.string().default(''),
+    sessionTtlHours: z.number().default(24),
+  }).default({}),
+  memory: z.object({
+    checkpointTtlHours: z.number().default(24),
+    observationFrameTtlHours: z.number().default(24 * 7),
+  }).default({}),
   skills: z.object({
     /** Maximum number of skills whose full content is injected into the prompt (default: 3) */
     matchTopK: z.number().default(3),

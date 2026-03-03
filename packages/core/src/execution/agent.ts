@@ -166,7 +166,10 @@ export class Agent extends EventEmitter {
 
     // 0.5 Initialize Memory
     const dbPath = path.join(os.homedir(), '.lydia', 'memory.db');
-    this.memoryManager = new MemoryManager(dbPath);
+    this.memoryManager = new MemoryManager(dbPath, {
+      checkpointTtlMs: Math.max(1, config.memory?.checkpointTtlHours ?? 24) * 60 * 60 * 1000,
+      observationFrameTtlMs: Math.max(1, config.memory?.observationFrameTtlHours ?? (24 * 7)) * 60 * 60 * 1000,
+    });
     this.reviewManager = new ReviewManager(this.memoryManager);
 
     const memoryServer = new MemoryServer(this.memoryManager);

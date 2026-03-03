@@ -74,6 +74,15 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function buildAuthHeaders(base: Record<string, string> = {}): Record<string, string> {
+  const token = (process.env.LYDIA_API_TOKEN || '').trim();
+  if (!token) return base;
+  return {
+    ...base,
+    Authorization: `Bearer ${token}`,
+  };
+}
+
 type WsLike = {
   close: () => void;
   send: (data: string) => void;
@@ -108,7 +117,9 @@ function bindWsEvent(ws: WsLike, event: string, handler: (...args: any[]) => voi
 // ─── HTTP API Helpers ───────────────────────────────────────────────
 
 export async function apiGet<T = any>(path: string, port?: number): Promise<T> {
-  const res = await fetch(`${getServerUrl(port)}${path}`);
+  const res = await fetch(`${getServerUrl(port)}${path}`, {
+    headers: buildAuthHeaders(),
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error((err as any).error || `GET ${path} failed: ${res.status}`);
@@ -117,9 +128,10 @@ export async function apiGet<T = any>(path: string, port?: number): Promise<T> {
 }
 
 export async function apiPost<T = any>(path: string, body?: any, port?: number): Promise<T> {
+  const headers = buildAuthHeaders(body ? { 'Content-Type': 'application/json' } : {});
   const res = await fetch(`${getServerUrl(port)}${path}`, {
     method: 'POST',
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers,
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) {

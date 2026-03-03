@@ -96,12 +96,21 @@ export interface Checkpoint {
   updatedAt: number;
 }
 
+export interface MemoryManagerOptions {
+  checkpointTtlMs?: number;
+  observationFrameTtlMs?: number;
+}
+
 export class MemoryManager extends EventEmitter {
   private db: Database.Database;
+  private checkpointTtlMs: number;
+  private observationFrameTtlMs: number;
 
-  constructor(dbPath: string) {
+  constructor(dbPath: string, options: MemoryManagerOptions = {}) {
     super();
     this.db = new Database(dbPath);
+    this.checkpointTtlMs = options.checkpointTtlMs ?? (24 * 60 * 60 * 1000);
+    this.observationFrameTtlMs = options.observationFrameTtlMs ?? (24 * 7 * 60 * 60 * 1000);
     // PRAGMA for performance and reliability
     this.db.pragma('journal_mode = WAL');
     this.init();
@@ -307,8 +316,9 @@ export class MemoryManager extends EventEmitter {
       // Ignore migration errors to keep startup resilient
     }
 
-    // Clean up stale checkpoints (older than 24 hours)
-    this.cleanupStaleCheckpoints();
+    // Clean up stale persisted runtime state.
+    this.cleanupStaleCheckpoints(this.checkpointTtlMs);
+    this.cleanupStaleObservationFrames(this.observationFrameTtlMs);
   }
 
   /**
@@ -806,6 +816,16 @@ export class MemoryManager extends EventEmitter {
   public cleanupStaleCheckpoints(ttlMs: number = 24 * 60 * 60 * 1000): number {
     const cutoff = Date.now() - ttlMs;
     const stmt = this.db.prepare('DELETE FROM checkpoints WHERE updated_at < ?');
+    const info = stmt.run(cutoff);
+    return info.changes;
+  }
+
+  /**
+   * Remove observation frames older than the TTL (default: 7 days).
+   */
+  public cleanupStaleObservationFrames(ttlMs: number = 24 * 7 * 60 * 60 * 1000): number {
+    const cutoff = Date.now() - ttlMs;
+    const stmt = this.db.prepare('DELETE FROM observation_frames WHERE created_at < ?');
     const info = stmt.run(cutoff);
     return info.changes;
   }

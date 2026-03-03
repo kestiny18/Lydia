@@ -48,6 +48,22 @@ export class ConfigLoader {
         ...(current.safety || {}),
         ...(partial as any).safety
       },
+      agent: {
+        ...(current.agent || {}),
+        ...(partial as any).agent
+      },
+      server: {
+        ...(current.server || {}),
+        ...(partial as any).server
+      },
+      memory: {
+        ...(current.memory || {}),
+        ...(partial as any).memory
+      },
+      skills: {
+        ...(current.skills || {}),
+        ...(partial as any).skills
+      },
       mcpServers: {
         ...(current.mcpServers || {}),
         ...(partial as any).mcpServers

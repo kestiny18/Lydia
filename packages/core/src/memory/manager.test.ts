@@ -69,6 +69,30 @@ describe('MemoryManager', () => {
     expect(byTask[0].frameId).toBe('frame-1');
   });
 
+  it('cleans stale observation frames by TTL', () => {
+    const old = Date.now() - (10 * 24 * 60 * 60 * 1000);
+    const fresh = Date.now();
+    memory.recordObservationFrame('task-old', {
+      sessionId: 'session-old',
+      actionId: 'action-old',
+      frameId: 'frame-old',
+      blocks: [{ type: 'text', text: 'old' }],
+      createdAt: old,
+    });
+    memory.recordObservationFrame('task-new', {
+      sessionId: 'session-new',
+      actionId: 'action-new',
+      frameId: 'frame-new',
+      blocks: [{ type: 'text', text: 'new' }],
+      createdAt: fresh,
+    });
+
+    const deleted = memory.cleanupStaleObservationFrames(24 * 60 * 60 * 1000);
+    expect(deleted).toBe(1);
+    expect(memory.listObservationFramesByTask('task-old')).toHaveLength(0);
+    expect(memory.listObservationFramesByTask('task-new')).toHaveLength(1);
+  });
+
   it('persists computer-use checkpoint fields', () => {
     memory.saveCheckpoint({
       taskId: 'task-cp',

@@ -6,6 +6,14 @@ Lydia loads configuration from `~/.lydia/config.json`.
 
 ```json
 {
+  "server": {
+    "apiToken": "",
+    "sessionTtlHours": 24
+  },
+  "memory": {
+    "checkpointTtlHours": 24,
+    "observationFrameTtlHours": 168
+  },
   "mcpServers": {
     "server-id": {
       "command": "executable-name",
@@ -17,6 +25,18 @@ Lydia loads configuration from `~/.lydia/config.json`.
   }
 }
 ```
+
+## Runtime Security
+
+- `server.apiToken`: Optional API token. When set, server APIs require either:
+  - `Authorization: Bearer <token>`, or
+  - a session header from `POST /api/auth/session`.
+- `server.sessionTtlHours`: Expiration time for issued API sessions.
+
+## Memory Retention
+
+- `memory.checkpointTtlHours`: TTL for resumable checkpoints.
+- `memory.observationFrameTtlHours`: TTL for persisted computer-use observation frames.
 
 ## External MCP Servers
 

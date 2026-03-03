@@ -16,6 +16,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import type { WSContext } from 'hono/ws';
 import { checkMcpServers } from '../mcp/health.js';
 
@@ -43,6 +44,12 @@ interface WsMessage {
   type: string;
   data?: any;
   timestamp: number;
+}
+
+interface AuthRuntimeState {
+  required: boolean;
+  apiToken: string;
+  sessionTtlMs: number;
 }
 
 function getSetupPaths() {
@@ -99,9 +106,13 @@ async function ensureLocalWorkspace() {
   return getSetupPaths();
 }
 
-export function createServer(port: number = 3000, options?: { silent?: boolean }) {
+export function createServer(
+  port: number = 3000,
+  options?: { silent?: boolean; memoryManager?: MemoryManager }
+) {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
+  const configLoader = new ConfigLoader();
 
   // Multi-run tracking: keep history of all runs in this session
   const runs: Map<string, RunState> = new Map();
@@ -109,6 +120,13 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
 
   // WebSocket clients
   const wsClients: Set<WSContext> = new Set();
+  const apiSessions: Map<string, number> = new Map();
+  let authState: AuthRuntimeState = {
+    required: false,
+    apiToken: '',
+    sessionTtlMs: 24 * 60 * 60 * 1000,
+  };
+  let lastConfigRefreshAt = 0;
 
   function broadcastWs(message: WsMessage) {
     const data = JSON.stringify(message);
@@ -119,6 +137,37 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
         wsClients.delete(ws);
       }
     }
+  }
+
+  function isPublicApiPath(path: string): boolean {
+    return path === '/api/status' || path.startsWith('/api/setup') || path === '/api/auth/session';
+  }
+
+  function extractBearerToken(headerValue: string | undefined): string {
+    if (!headerValue) return '';
+    const lower = headerValue.toLowerCase();
+    if (!lower.startsWith('bearer ')) return '';
+    return headerValue.slice(7).trim();
+  }
+
+  function pruneExpiredSessions(now: number): void {
+    for (const [id, expiresAt] of apiSessions.entries()) {
+      if (expiresAt <= now) {
+        apiSessions.delete(id);
+      }
+    }
+  }
+
+  function isValidSession(sessionId: string | undefined): boolean {
+    if (!sessionId) return false;
+    const now = Date.now();
+    pruneExpiredSessions(now);
+    const expiresAt = apiSessions.get(sessionId);
+    if (!expiresAt || expiresAt <= now) {
+      apiSessions.delete(sessionId);
+      return false;
+    }
+    return true;
   }
 
   // WebSocket endpoint for real-time agent events (P2-4)
@@ -152,9 +201,85 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
 
   // Initialize MemoryManager
   const dbPath = join(homedir(), '.lydia', 'memory.db');
-  const memoryManager = new MemoryManager(dbPath);
-  const approvalService = new StrategyApprovalService(memoryManager, new ConfigLoader());
+  const memoryManager = options?.memoryManager || new MemoryManager(dbPath);
+  const approvalService = new StrategyApprovalService(memoryManager, configLoader);
   const shadowRouter = new ShadowRouter(memoryManager);
+
+  async function refreshRuntimeConfig(force: boolean = false): Promise<void> {
+    const now = Date.now();
+    if (!force && now - lastConfigRefreshAt < 5000) return;
+
+    const config = await configLoader.load();
+    lastConfigRefreshAt = now;
+
+    const configuredToken = String(config.server?.apiToken || '').trim();
+    const envToken = String(process.env.LYDIA_API_TOKEN || '').trim();
+    const apiToken = envToken || configuredToken;
+    const sessionTtlHours = Math.max(1, Number(config.server?.sessionTtlHours || 24));
+    authState = {
+      required: apiToken.length > 0,
+      apiToken,
+      sessionTtlMs: sessionTtlHours * 60 * 60 * 1000,
+    };
+
+    const checkpointTtlHours = Math.max(1, Number(config.memory?.checkpointTtlHours || 24));
+    const observationTtlHours = Math.max(1, Number(config.memory?.observationFrameTtlHours || 24 * 7));
+    memoryManager.cleanupStaleCheckpoints(checkpointTtlHours * 60 * 60 * 1000);
+    memoryManager.cleanupStaleObservationFrames(observationTtlHours * 60 * 60 * 1000);
+  }
+
+  // Best-effort initial runtime policy refresh.
+  refreshRuntimeConfig(true).catch(() => {});
+
+  app.use('/api/*', async (c, next) => {
+    await refreshRuntimeConfig();
+    if (!authState.required || isPublicApiPath(c.req.path)) {
+      await next();
+      return;
+    }
+
+    const bearer = extractBearerToken(c.req.header('authorization'));
+    const sessionId = c.req.header('x-lydia-session');
+    if (bearer === authState.apiToken || isValidSession(sessionId)) {
+      await next();
+      return;
+    }
+
+    return c.json({ error: 'Unauthorized' }, 401);
+  });
+
+  app.post('/api/auth/session', async (c) => {
+    await refreshRuntimeConfig();
+    if (!authState.required) {
+      return c.json({
+        ok: true,
+        authRequired: false,
+        message: 'API token auth is disabled.',
+      });
+    }
+
+    let body: any;
+    try {
+      body = await c.req.json();
+    } catch {
+      body = {};
+    }
+    const providedToken = typeof body?.token === 'string' ? body.token.trim() : '';
+    if (!providedToken || providedToken !== authState.apiToken) {
+      return c.json({ error: 'Invalid API token' }, 401);
+    }
+
+    const sessionId = `lsess-${randomUUID()}`;
+    const expiresAt = Date.now() + authState.sessionTtlMs;
+    apiSessions.set(sessionId, expiresAt);
+
+    return c.json({
+      ok: true,
+      authRequired: true,
+      sessionId,
+      expiresAt,
+    });
+  });
 
   // --- API Routes ---
 
@@ -171,7 +296,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
   app.get('/api/setup', async (c) => {
     const { configPath, strategyPath } = getSetupPaths();
     const ready = existsSync(configPath) && existsSync(strategyPath);
-    const config = await new ConfigLoader().load();
+    const config = await configLoader.load();
     const hasConfiguredKey = Boolean(config.llm.openaiApiKey || config.llm.anthropicApiKey);
     const hasEnvKey = Boolean(process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY);
     return c.json({
@@ -198,7 +323,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
 
   app.get('/api/setup/config', async (c) => {
     const { configPath, strategyPath } = getSetupPaths();
-    const config = await new ConfigLoader().load();
+    const config = await configLoader.load();
 
     const openaiKey = config.llm.openaiApiKey || process.env.OPENAI_API_KEY || '';
     const anthropicKey = config.llm.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '';
@@ -217,6 +342,14 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
         openaiApiKeyMasked: maskSecret(openaiKey),
         anthropicApiKeyMasked: maskSecret(anthropicKey),
       },
+      server: {
+        hasApiToken: Boolean(config.server.apiToken || process.env.LYDIA_API_TOKEN),
+        sessionTtlHours: config.server.sessionTtlHours,
+      },
+      memory: {
+        checkpointTtlHours: config.memory.checkpointTtlHours,
+        observationFrameTtlHours: config.memory.observationFrameTtlHours,
+      },
     });
   });
 
@@ -229,6 +362,8 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
     }
 
     const llmInput = body?.llm || {};
+    const serverInput = body?.server || {};
+    const memoryInput = body?.memory || {};
     const provider = pickString(llmInput.provider);
     const defaultModel = pickString(llmInput.defaultModel);
     const openaiBaseUrl = pickString(llmInput.openaiBaseUrl);
@@ -258,8 +393,38 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
       updateLlm.anthropicApiKey = String(llmInput.anthropicApiKey || '').trim();
     }
 
+    const updateServer: Record<string, unknown> = {};
+    if (Object.prototype.hasOwnProperty.call(serverInput, 'apiToken')) {
+      updateServer.apiToken = String(serverInput.apiToken || '').trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(serverInput, 'sessionTtlHours')) {
+      const sessionTtlHours = Number(serverInput.sessionTtlHours);
+      if (!Number.isNaN(sessionTtlHours) && sessionTtlHours > 0) {
+        updateServer.sessionTtlHours = sessionTtlHours;
+      }
+    }
+
+    const updateMemory: Record<string, unknown> = {};
+    if (Object.prototype.hasOwnProperty.call(memoryInput, 'checkpointTtlHours')) {
+      const checkpointTtlHours = Number(memoryInput.checkpointTtlHours);
+      if (!Number.isNaN(checkpointTtlHours) && checkpointTtlHours > 0) {
+        updateMemory.checkpointTtlHours = checkpointTtlHours;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(memoryInput, 'observationFrameTtlHours')) {
+      const observationFrameTtlHours = Number(memoryInput.observationFrameTtlHours);
+      if (!Number.isNaN(observationFrameTtlHours) && observationFrameTtlHours > 0) {
+        updateMemory.observationFrameTtlHours = observationFrameTtlHours;
+      }
+    }
+
     try {
-      const next = await new ConfigLoader().update({ llm: updateLlm } as any);
+      const next = await configLoader.update({
+        llm: updateLlm,
+        server: updateServer,
+        memory: updateMemory,
+      } as any);
+      await refreshRuntimeConfig(true);
       return c.json({
         ok: true,
         llm: {
@@ -273,6 +438,14 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
           anthropicApiKeySet: Boolean(next.llm.anthropicApiKey),
           openaiApiKeyMasked: maskSecret(next.llm.openaiApiKey),
           anthropicApiKeyMasked: maskSecret(next.llm.anthropicApiKey),
+        },
+        server: {
+          hasApiToken: Boolean(next.server.apiToken),
+          sessionTtlHours: next.server.sessionTtlHours,
+        },
+        memory: {
+          checkpointTtlHours: next.memory.checkpointTtlHours,
+          observationFrameTtlHours: next.memory.observationFrameTtlHours,
         },
       });
     } catch (error: any) {
@@ -317,7 +490,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
   });
 
   app.get('/api/mcp/check', async (c) => {
-    const config = await new ConfigLoader().load();
+    const config = await configLoader.load();
     const allServers = Object.entries(config.mcpServers || {});
     const targetServer = c.req.query('server');
     const timeoutMs = Number(c.req.query('timeoutMs')) || 15000;
@@ -617,7 +790,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
     activeRunId = runId;
 
     try {
-      const currentConfig = await new ConfigLoader().load();
+      const currentConfig = await configLoader.load();
       const routedStrategy = await shadowRouter.selectStrategy(currentConfig);
       const agent = new Agent(
         llm,
@@ -699,6 +872,12 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
       agent.on('computer-use:checkpoint.save', (data) => {
         broadcastWs({ type: 'computer-use:checkpoint.save', data: { runId, ...data }, timestamp: Date.now() });
       });
+      agent.on('computer-use:verification', (data) => {
+        broadcastWs({ type: 'computer-use:verification', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('computer-use:session.end', (data) => {
+        broadcastWs({ type: 'computer-use:session.end', data: { runId, ...data }, timestamp: Date.now() });
+      });
 
       agent.run(inputText, runId)
         .then(async (task) => {
@@ -709,12 +888,12 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
           runState.pendingPrompt = undefined;
 
           try {
-            const latestConfig = await new ConfigLoader().load();
+            const latestConfig = await configLoader.load();
             const promotion = await shadowRouter.evaluateAutoPromotion(latestConfig);
             if (promotion) {
               const nextCandidates = (latestConfig.strategy.shadowCandidatePaths || [])
                 .filter((p) => p !== promotion.candidatePath);
-              await new ConfigLoader().update({
+              await configLoader.update({
                 strategy: {
                   activePath: promotion.candidatePath,
                   shadowCandidatePaths: nextCandidates,
@@ -936,6 +1115,12 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
       agent.on('computer-use:checkpoint.save', (data) => {
         broadcastWs({ type: 'computer-use:checkpoint.save', data: { runId, ...data }, timestamp: Date.now() });
       });
+      agent.on('computer-use:verification', (data) => {
+        broadcastWs({ type: 'computer-use:verification', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('computer-use:session.end', (data) => {
+        broadcastWs({ type: 'computer-use:session.end', data: { runId, ...data }, timestamp: Date.now() });
+      });
 
       agent.resume(taskId)
         .then((task) => {
@@ -1052,8 +1237,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
 
   // Get Active Strategy Content
   app.get('/api/strategy/active', async (c) => {
-    const loader = new ConfigLoader();
-    const config = await loader.load();
+    const config = await configLoader.load();
     const fallbackPath = join(homedir(), '.lydia', 'strategies', 'default.yml');
     const activePath = config.strategy?.activePath || fallbackPath;
 
@@ -1081,7 +1265,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
   });
 
   app.get('/api/strategy/shadow/status', async (c) => {
-    const config = await new ConfigLoader().load();
+    const config = await configLoader.load();
     const registry = new StrategyRegistry();
     const windowDays = config.strategy.shadowWindowDays ?? 14;
     const sinceMs = Date.now() - (windowDays * 24 * 60 * 60 * 1000);
@@ -1248,6 +1432,7 @@ export function createServer(port: number = 3000, options?: { silent?: boolean }
   });
 
   return {
+    app,
     start: () => {
       if (!options?.silent) {
         console.log(`Starting server on port ${port}...`);

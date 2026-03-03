@@ -40,5 +40,13 @@
     "allowPaths": [],
     "denyPaths": [],
     "rememberApprovals": true
+  },
+  "server": {
+    "apiToken": "",
+    "sessionTtlHours": 24
+  },
+  "memory": {
+    "checkpointTtlHours": 24,
+    "observationFrameTtlHours": 168
   }
 }
