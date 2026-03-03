@@ -30,6 +30,7 @@ export class ReplayMcpClientManager extends McpClientManager {
     'fs_write_file',
     'fs_copy_file',
     'fs_move_file',
+    'fs_archive',
     'fs_delete_file',
     'fs_delete_directory',
     'fs_move',
@@ -107,7 +108,8 @@ export class ReplayMcpClientManager extends McpClientManager {
       name === 'fs_list_directory' ||
       name === 'fs_copy_file' ||
       name === 'fs_move_file' ||
-      name === 'fs_search'
+      name === 'fs_search' ||
+      name === 'fs_archive'
     );
   }
 
@@ -220,6 +222,42 @@ export class ReplayMcpClientManager extends McpClientManager {
         }
       }
       return { content: [{ type: 'text', text: Array.from(names).join('\n') }] };
+    }
+
+    if (name === 'fs_archive') {
+      const rawSource = typeof args?.path === 'string' ? args.path : '';
+      const rawOutput = typeof args?.outputPath === 'string' ? args.outputPath : '';
+      if (!rawSource || !rawOutput) {
+        return { content: [{ type: 'text', text: 'Error: Missing source or output path.' }], isError: true };
+      }
+
+      const source = this.normalizeFsPath(rawSource);
+      const output = this.normalizeFsPath(rawOutput);
+      const sourceFile = this.virtualFiles.get(source);
+      const sourceEntries = Array.from(this.virtualFiles.entries()).filter(([filePath]) =>
+        filePath === source || filePath.startsWith(`${source}/`)
+      );
+
+      if (!sourceFile && sourceEntries.length === 0) {
+        return { content: [{ type: 'text', text: `Error: ENOENT: no such file or directory ${source}` }], isError: true };
+      }
+
+      const bundle = {
+        format: 'lydia-archive-v1',
+        source,
+        createdAt: 0,
+        totalBytes: sourceFile ? sourceFile.length : sourceEntries.reduce((acc, [, text]) => acc + text.length, 0),
+        files: sourceFile
+          ? [{ path: path.posix.basename(source), size: sourceFile.length }]
+          : sourceEntries.map(([filePath, text]) => ({
+              path: path.posix.relative(source, filePath),
+              size: text.length,
+            })),
+      };
+      this.virtualFiles.set(output, JSON.stringify(bundle));
+      return {
+        content: [{ type: 'text', text: `Successfully archived ${bundle.files.length} file(s) to ${output}` }],
+      };
     }
 
     return { content: [{ type: 'text', text: `Error: Unknown fs tool '${name}'` }], isError: true };

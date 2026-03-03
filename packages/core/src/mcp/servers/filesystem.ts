@@ -2,6 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { gzipSync } from "node:zlib";
 
 export class FileSystemServer {
   public server: Server;
@@ -111,6 +112,20 @@ export class FileSystemServer {
               required: ["path", "pattern"],
             },
           },
+          {
+            name: "fs_archive",
+            description: "Create a gzipped archive bundle for a file or directory",
+            inputSchema: {
+              type: "object",
+              properties: {
+                path: { type: "string", description: "Source file or directory path" },
+                outputPath: { type: "string", description: "Archive output path (for example artifacts/workspace.bundle.gz)" },
+                overwrite: { type: "boolean", description: "Overwrite output if it exists (default false)" },
+                maxBytes: { type: "number", description: "Maximum source bytes to pack (default 20MB)" },
+              },
+              required: ["path", "outputPath"],
+            },
+          },
         ],
       };
     });
@@ -173,6 +188,19 @@ export class FileSystemServer {
             const matches = await this.searchByName(basePath, pattern, maxResults);
             return {
               content: [{ type: "text", text: matches.join('\n') }],
+            };
+          }
+          case "fs_archive": {
+            const sourcePath = this.validatePath(args.path);
+            const outputPath = this.validatePath(args.outputPath);
+            const overwrite = Boolean(args.overwrite);
+            const maxBytes = Math.max(1024, Number(args.maxBytes) || 20 * 1024 * 1024);
+            await this.ensureDestWritable(outputPath, overwrite);
+            await fs.mkdir(path.dirname(outputPath), { recursive: true });
+            const bundle = await this.createArchiveBundle(sourcePath, maxBytes);
+            await fs.writeFile(outputPath, bundle.buffer);
+            return {
+              content: [{ type: "text", text: `Successfully archived ${bundle.fileCount} file(s) to ${outputPath}` }],
             };
           }
           default:
@@ -245,5 +273,62 @@ export class FileSystemServer {
     }
     const lowered = pattern.toLowerCase();
     return (name: string) => name.toLowerCase().includes(lowered);
+  }
+
+  private async createArchiveBundle(sourcePath: string, maxBytes: number): Promise<{ buffer: Buffer; fileCount: number }> {
+    const stat = await fs.stat(sourcePath);
+    const files: Array<{ path: string; size: number; encoding: 'base64'; data: string }> = [];
+    let totalBytes = 0;
+
+    const readAndAppend = async (absolutePath: string, relativePath: string) => {
+      const data = await fs.readFile(absolutePath);
+      totalBytes += data.length;
+      if (totalBytes > maxBytes) {
+        throw new Error(`Archive exceeds maxBytes limit (${maxBytes}).`);
+      }
+      files.push({
+        path: relativePath,
+        size: data.length,
+        encoding: 'base64',
+        data: data.toString('base64'),
+      });
+    };
+
+    if (stat.isFile()) {
+      await readAndAppend(sourcePath, path.basename(sourcePath));
+    } else if (stat.isDirectory()) {
+      const queue: string[] = [sourcePath];
+      while (queue.length > 0) {
+        const current = queue.shift();
+        if (!current) break;
+        const entries = await fs.readdir(current, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = path.join(current, entry.name);
+          if (entry.isDirectory()) {
+            queue.push(fullPath);
+            continue;
+          }
+          if (!entry.isFile()) continue;
+          const relativePath = path.relative(sourcePath, fullPath) || entry.name;
+          await readAndAppend(fullPath, relativePath.replace(/\\/g, '/'));
+        }
+      }
+    } else {
+      throw new Error('Only files and directories can be archived.');
+    }
+
+    const sourceRelative = path.relative(this.allowedRootDir, sourcePath).replace(/\\/g, '/');
+    const bundle = {
+      format: 'lydia-archive-v1',
+      source: sourceRelative || '.',
+      createdAt: Date.now(),
+      totalBytes,
+      files,
+    };
+    const json = JSON.stringify(bundle);
+    return {
+      buffer: gzipSync(Buffer.from(json, 'utf-8')),
+      fileCount: files.length,
+    };
   }
 }

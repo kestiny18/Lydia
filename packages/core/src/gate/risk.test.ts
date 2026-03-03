@@ -73,6 +73,16 @@ describe('Risk Assessment', () => {
     expect(risk.reason).toContain('File operation');
   });
 
+  it('flags protected archive output as high risk', () => {
+    const userDir = path.join(os.tmpdir(), 'lydia-risk-archive');
+    const risk = assessRisk('fs_archive', { path: '/tmp/src', outputPath: path.join(userDir, 'bundle.gz') }, mcp, {
+      mcpServers: {},
+      safety: { userDataDirs: [userDir], systemDirs: [], allowPaths: [], denyPaths: [], rememberApprovals: true },
+    } as any);
+    expect(risk.level).toBe('high');
+    expect(risk.reason).toContain('File operation');
+  });
+
   it('flags destructive shell commands in protected paths', () => {
     const userDir = path.join(os.tmpdir(), 'lydia-risk-shell');
     const target = path.join(userDir, 'file.txt');

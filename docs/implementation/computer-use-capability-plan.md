@@ -65,6 +65,7 @@ Deliverables:
 Deliverables:
 - Reduced reliance on opaque shell commands for common file workflows.
 - Better report observability for computer-use failures.
+- Internal filesystem MCP includes `fs_copy_file`, `fs_move_file`, `fs_search`, and `fs_archive` primitives.
 
 ## Role Split: Skill vs MCP
 - MCP:

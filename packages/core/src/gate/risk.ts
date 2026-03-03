@@ -187,12 +187,17 @@ export function assessRisk(
   const isWriteLikeFsTool =
     toolName === 'fs_write_file' ||
     toolName === 'fs_copy_file' ||
-    toolName === 'fs_move_file';
+    toolName === 'fs_move_file' ||
+    toolName === 'fs_archive';
   if (isWriteLikeFsTool) {
     const opLabel = toolName === 'fs_write_file' ? 'File write' : 'File operation';
-    const targetPath = typeof args?.path === 'string'
-      ? args.path
-      : (typeof args?.to === 'string' ? args.to : '');
+    const targetPath = toolName === 'fs_archive'
+      ? (typeof args?.outputPath === 'string' ? args.outputPath : '')
+      : (
+        typeof args?.path === 'string'
+          ? args.path
+          : (typeof args?.to === 'string' ? args.to : '')
+      );
     if (targetPath) {
       if (isRelativePath(targetPath) && hasRelativePathTraversal(targetPath)) {
         return {

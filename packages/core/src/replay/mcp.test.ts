@@ -79,6 +79,9 @@ describe('ReplayMcpClientManager', () => {
 
     const search = await replay.callTool('fs_search', { path: 'docs', pattern: 'c.txt' });
     expect(search.content[0].text).toContain('c.txt');
+
+    const archive = await replay.callTool('fs_archive', { path: 'docs', outputPath: 'artifacts/docs.bundle.gz' });
+    expect(archive.content[0].text).toContain('Successfully archived');
   });
 
   it('tracks invocation, risk, and human-interrupt metrics', async () => {
