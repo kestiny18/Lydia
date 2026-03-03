@@ -8,6 +8,21 @@ import { StrategyEvaluator, EvaluationResult, StrategyComparison } from './evalu
 import * as path from 'node:path';
 import * as os from 'node:os';
 
+export interface ReplayDeterminismMismatch {
+  run: number;
+  signature: string;
+}
+
+export interface ReplayDeterminismResult {
+  episodeId: number;
+  runs: number;
+  consistentRuns: number;
+  consistencyRate: number;
+  ok: boolean;
+  baselineSignature: string;
+  mismatches: ReplayDeterminismMismatch[];
+}
+
 export class ReplayManager {
   private memoryManager: MemoryManager;
   private evaluator: StrategyEvaluator;
@@ -93,7 +108,9 @@ export class ReplayManager {
         createdAt: Date.now()
       };
     }
-    const duration = Date.now() - start;
+    const _duration = Date.now() - start;
+    // Use trace-derived duration for deterministic replay scoring.
+    const duration = traces.reduce((acc, trace) => acc + (trace.duration || 0), 0) || _duration;
     const replayObservationFrames = (agent as any).memoryManager.listObservationFramesByTask(resultTask.id);
     const replayMultimodalFrames = replayObservationFrames.filter((frame: any) =>
       frame.blocks.some((block: any) => block.type === 'image' || block.type === 'artifact_ref')
@@ -117,6 +134,40 @@ export class ReplayManager {
     return evaluation;
   }
 
+  async replayDeterminism(
+    episodeId: number,
+    options: { runs?: number; minConsistencyRate?: number; strategy?: Strategy } = {},
+  ): Promise<ReplayDeterminismResult> {
+    const runs = Math.max(1, options.runs ?? 10);
+    const minConsistencyRate = Math.min(1, Math.max(0, options.minConsistencyRate ?? 0.99));
+    const mismatches: ReplayDeterminismMismatch[] = [];
+
+    const first = await this.replay(episodeId, options.strategy);
+    const baselineSignature = this.buildDeterminismSignature(first);
+    let consistentRuns = 1;
+
+    for (let run = 2; run <= runs; run += 1) {
+      const evaluation = await this.replay(episodeId, options.strategy);
+      const signature = this.buildDeterminismSignature(evaluation);
+      if (signature === baselineSignature) {
+        consistentRuns += 1;
+      } else {
+        mismatches.push({ run, signature });
+      }
+    }
+
+    const consistencyRate = consistentRuns / runs;
+    return {
+      episodeId,
+      runs,
+      consistentRuns,
+      consistencyRate,
+      ok: consistencyRate >= minConsistencyRate,
+      baselineSignature,
+      mismatches,
+    };
+  }
+
   async replayBatch(episodeIds: number[], strategy?: Strategy): Promise<EvaluationResult[]> {
     const results: EvaluationResult[] = [];
     for (const id of episodeIds) {
@@ -138,5 +189,23 @@ export class ReplayManager {
     const baselineResults = await this.replayBatch(episodeIds, baseline);
     const candidateResults = await this.replayBatch(episodeIds, candidate);
     return this.evaluator.compareResults(baselineResults, candidateResults);
+  }
+
+  private buildDeterminismSignature(result: EvaluationResult): string {
+    const roundedScore = Number(result.score.toFixed(6));
+    const metrics = {
+      steps: result.metrics.steps,
+      driftDetected: result.metrics.driftDetected,
+      riskEvents: result.metrics.riskEvents,
+      humanInterrupts: result.metrics.humanInterrupts,
+      observationFrames: result.metrics.observationFrames,
+      multimodalFrames: result.metrics.multimodalFrames,
+    };
+    return JSON.stringify({
+      success: result.success,
+      score: roundedScore,
+      metrics,
+      details: result.details || '',
+    });
   }
 }

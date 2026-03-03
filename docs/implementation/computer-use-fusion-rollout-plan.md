@@ -67,6 +67,9 @@ Execute computer-use as a full architecture migration, not incremental glue patc
 3. Deterministic replay consistency >= 99/100 repeated runs on fixed input/action traces.
 4. Multimodal evaluation fields covered by API contract tests and replay snapshots.
 
+Validation command example:
+`lydia replay <episodeId> --runs 100 --min-consistency 0.99`
+
 ## Phase F5: Dashboard and Ops Tooling
 ### Scope
 1. Evidence-first task views (text + screenshots + artifacts).

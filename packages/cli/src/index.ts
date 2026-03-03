@@ -310,10 +310,14 @@ async function main() {
     .command('replay')
     .description('Replay a past episode')
     .argument('<episodeId>', 'The ID of the episode to replay')
-    .action(async (episodeId) => {
+    .option('--runs <n>', 'Run replay determinism check N times (default: 1)', '1')
+    .option('--min-consistency <n>', 'Minimum consistency rate for determinism check [0,1] (default: 0.99)', '0.99')
+    .action(async (episodeId, options) => {
       try {
         const id = parseInt(episodeId, 10);
         if (isNaN(id)) throw new Error('Episode ID must be a number');
+        const runs = Math.max(1, Number(options.runs) || 1);
+        const minConsistency = Math.min(1, Math.max(0, Number(options.minConsistency) || 0.99));
 
         const replayer = new ReplayManager();
         const evaluation = await replayer.replay(id);
@@ -327,6 +331,19 @@ async function main() {
         console.log(`  Human interrupts: ${evaluation.metrics.humanInterrupts}`);
         console.log(`  Observation frames: ${evaluation.metrics.observationFrames}`);
         console.log(`  Multimodal frames: ${evaluation.metrics.multimodalFrames}`);
+
+        if (runs > 1) {
+          const det = await replayer.replayDeterminism(id, {
+            runs,
+            minConsistencyRate: minConsistency,
+          });
+          const rateText = `${(det.consistencyRate * 100).toFixed(1)}% (${det.consistentRuns}/${det.runs})`;
+          console.log(`  Determinism: ${det.ok ? chalk.green(rateText) : chalk.red(rateText)}`);
+          console.log(`  Determinism threshold: ${(minConsistency * 100).toFixed(1)}%`);
+          if (!det.ok) {
+            process.exitCode = 1;
+          }
+        }
         console.log('');
       } catch (error: any) {
         console.error(chalk.red('Replay Error:'), error.message);
