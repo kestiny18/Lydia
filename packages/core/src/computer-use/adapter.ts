@@ -27,6 +27,7 @@ export interface ComputerUseCapabilityAdapter {
 
 export class McpCanonicalCapabilityAdapter implements ComputerUseCapabilityAdapter {
   public readonly id = 'mcp-canonical-adapter';
+  private readonly maxInlineImageBase64Length = 256 * 1024;
 
   async execute(
     action: ComputerUseActionEnvelope,
@@ -97,11 +98,16 @@ export class McpCanonicalCapabilityAdapter implements ComputerUseCapabilityAdapt
           typeof contentBlock.source.media_type === 'string' &&
           typeof contentBlock.source.data === 'string'
         ) {
-          // Keep image payload out of checkpoint rows by using a synthetic reference.
+          const mediaType = contentBlock.source.media_type;
+          const base64Data = contentBlock.source.data;
+          const dataRef = base64Data.length <= this.maxInlineImageBase64Length
+            ? `data:${mediaType};base64,${base64Data}`
+            : `inline://image/${mediaType}/${base64Data.length}`;
+          // Keep large image payload out of checkpoint rows by switching to a synthetic reference.
           blocks.push({
             type: 'image',
-            mediaType: contentBlock.source.media_type,
-            dataRef: `inline://image/${contentBlock.source.media_type}/${contentBlock.source.data.length}`,
+            mediaType,
+            dataRef,
           });
           continue;
         }

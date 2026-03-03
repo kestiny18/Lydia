@@ -304,13 +304,27 @@ function truncate(str: string, max: number): string {
     return str.substring(0, max) + `\n... (${str.length - max} more chars)`;
 }
 
-function renderEvidenceBlock(block: any): string {
+function renderEvidenceBlock(block: any): any {
     if (!block || typeof block !== 'object') return 'unknown block';
     if (block.type === 'text') {
         return `text: ${truncate(String(block.text || ''), 220)}`;
     }
     if (block.type === 'image') {
-        return `image: ${block.mediaType || 'unknown'} (${block.dataRef || 'no-ref'})`;
+        const dataRef = String(block.dataRef || '');
+        const canPreview = dataRef.startsWith('data:image/');
+        if (!canPreview) {
+            return `image: ${block.mediaType || 'unknown'} (${dataRef || 'no-ref'})`;
+        }
+        return (
+            <div className="space-y-1">
+                <div>{`image: ${block.mediaType || 'unknown'} (inline preview)`}</div>
+                <img
+                    src={dataRef}
+                    alt="evidence preview"
+                    className="max-h-40 rounded border border-gray-200"
+                />
+            </div>
+        );
     }
     if (block.type === 'artifact_ref') {
         return `artifact (${block.kind || 'unknown'}): ${block.path || 'unknown path'}`;
