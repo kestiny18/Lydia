@@ -28,6 +28,8 @@ export class ReplayMcpClientManager extends McpClientManager {
   private readonly highRiskTools = new Set([
     'shell_execute',
     'fs_write_file',
+    'fs_copy_file',
+    'fs_move_file',
     'fs_delete_file',
     'fs_delete_directory',
     'fs_move',
@@ -99,7 +101,14 @@ export class ReplayMcpClientManager extends McpClientManager {
   }
 
   private isFsTool(name: string): boolean {
-    return name === 'fs_read_file' || name === 'fs_write_file' || name === 'fs_list_directory';
+    return (
+      name === 'fs_read_file' ||
+      name === 'fs_write_file' ||
+      name === 'fs_list_directory' ||
+      name === 'fs_copy_file' ||
+      name === 'fs_move_file' ||
+      name === 'fs_search'
+    );
   }
 
   private isGitTool(name: string): boolean {
@@ -157,6 +166,60 @@ export class ReplayMcpClientManager extends McpClientManager {
       const entries = this.listDirectoryEntries(normalized);
       const text = entries.map((entry) => `${entry.type === 'dir' ? '[DIR]' : '[FILE]'} ${entry.name}`).join('\n');
       return { content: [{ type: 'text', text }] };
+    }
+
+    if (name === 'fs_copy_file') {
+      const fromPath = typeof args?.from === 'string' ? args.from : '';
+      const toPath = typeof args?.to === 'string' ? args.to : '';
+      if (!fromPath || !toPath) {
+        return { content: [{ type: 'text', text: 'Error: Missing source or destination path.' }], isError: true };
+      }
+      const from = this.normalizeFsPath(fromPath);
+      const to = this.normalizeFsPath(toPath);
+      if (!this.virtualFiles.has(from)) {
+        return { content: [{ type: 'text', text: `Error: ENOENT: no such file ${from}` }], isError: true };
+      }
+      this.virtualFiles.set(to, this.virtualFiles.get(from) || '');
+      return { content: [{ type: 'text', text: `Successfully copied ${from} -> ${to}` }] };
+    }
+
+    if (name === 'fs_move_file') {
+      const fromPath = typeof args?.from === 'string' ? args.from : '';
+      const toPath = typeof args?.to === 'string' ? args.to : '';
+      if (!fromPath || !toPath) {
+        return { content: [{ type: 'text', text: 'Error: Missing source or destination path.' }], isError: true };
+      }
+      const from = this.normalizeFsPath(fromPath);
+      const to = this.normalizeFsPath(toPath);
+      if (!this.virtualFiles.has(from)) {
+        return { content: [{ type: 'text', text: `Error: ENOENT: no such file ${from}` }], isError: true };
+      }
+      this.virtualFiles.set(to, this.virtualFiles.get(from) || '');
+      this.virtualFiles.delete(from);
+      return { content: [{ type: 'text', text: `Successfully moved ${from} -> ${to}` }] };
+    }
+
+    if (name === 'fs_search') {
+      const rawPath = typeof args?.path === 'string' ? args.path : '.';
+      const rawPattern = typeof args?.pattern === 'string' ? args.pattern : '';
+      if (!rawPattern) {
+        return { content: [{ type: 'text', text: 'Error: pattern is required.' }], isError: true };
+      }
+      const normalized = this.normalizeFsPath(rawPath);
+      const loweredPattern = rawPattern.toLowerCase();
+      const names = new Set<string>();
+      for (const storedPath of this.virtualFiles.keys()) {
+        const rel = path.relative(normalized, storedPath);
+        if (rel.startsWith('..')) continue;
+        const parts = rel.split('/').filter(Boolean);
+        for (const part of parts) {
+          if (part.toLowerCase().includes(loweredPattern)) {
+            names.add(`[FILE] ${path.posix.join(path.posix.relative(this.virtualRoot, normalized), rel)}`);
+            break;
+          }
+        }
+      }
+      return { content: [{ type: 'text', text: Array.from(names).join('\n') }] };
     }
 
     return { content: [{ type: 'text', text: `Error: Unknown fs tool '${name}'` }], isError: true };

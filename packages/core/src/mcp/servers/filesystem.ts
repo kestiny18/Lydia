@@ -72,6 +72,45 @@ export class FileSystemServer {
               required: ["path"],
             },
           },
+          {
+            name: "fs_copy_file",
+            description: "Copy one file to another path",
+            inputSchema: {
+              type: "object",
+              properties: {
+                from: { type: "string", description: "Source file path" },
+                to: { type: "string", description: "Destination file path" },
+                overwrite: { type: "boolean", description: "Overwrite destination if it exists (default false)" },
+              },
+              required: ["from", "to"],
+            },
+          },
+          {
+            name: "fs_move_file",
+            description: "Move or rename a file",
+            inputSchema: {
+              type: "object",
+              properties: {
+                from: { type: "string", description: "Source file path" },
+                to: { type: "string", description: "Destination file path" },
+                overwrite: { type: "boolean", description: "Overwrite destination if it exists (default false)" },
+              },
+              required: ["from", "to"],
+            },
+          },
+          {
+            name: "fs_search",
+            description: "Search files and directories by name under a base path",
+            inputSchema: {
+              type: "object",
+              properties: {
+                path: { type: "string", description: "Base directory path" },
+                pattern: { type: "string", description: "Case-insensitive substring or regex pattern (/.../)" },
+                maxResults: { type: "number", description: "Maximum number of matches (default 100)" },
+              },
+              required: ["path", "pattern"],
+            },
+          },
         ],
       };
     });
@@ -104,6 +143,38 @@ export class FileSystemServer {
               content: [{ type: "text", text: list }],
             };
           }
+          case "fs_copy_file": {
+            const fromPath = this.validatePath(args.from);
+            const toPath = this.validatePath(args.to);
+            const overwrite = Boolean(args.overwrite);
+            await this.ensureDestWritable(toPath, overwrite);
+            await fs.mkdir(path.dirname(toPath), { recursive: true });
+            await fs.copyFile(fromPath, toPath);
+            return {
+              content: [{ type: "text", text: `Successfully copied ${fromPath} -> ${toPath}` }],
+            };
+          }
+          case "fs_move_file": {
+            const fromPath = this.validatePath(args.from);
+            const toPath = this.validatePath(args.to);
+            const overwrite = Boolean(args.overwrite);
+            await this.ensureDestWritable(toPath, overwrite);
+            await fs.mkdir(path.dirname(toPath), { recursive: true });
+            await this.moveFile(fromPath, toPath);
+            return {
+              content: [{ type: "text", text: `Successfully moved ${fromPath} -> ${toPath}` }],
+            };
+          }
+          case "fs_search": {
+            const basePath = this.validatePath(args.path);
+            const pattern = String(args.pattern || '').trim();
+            const maxResults = Math.max(1, Number(args.maxResults) || 100);
+            if (!pattern) throw new Error('pattern is required');
+            const matches = await this.searchByName(basePath, pattern, maxResults);
+            return {
+              content: [{ type: "text", text: matches.join('\n') }],
+            };
+          }
           default:
             throw new Error(`Unknown tool: ${request.params.name}`);
         }
@@ -114,5 +185,65 @@ export class FileSystemServer {
         };
       }
     });
+  }
+
+  private async ensureDestWritable(destPath: string, overwrite: boolean): Promise<void> {
+    try {
+      await fs.access(destPath);
+      if (!overwrite) {
+        throw new Error(`Destination already exists: ${destPath}. Pass overwrite=true to replace.`);
+      }
+      await fs.rm(destPath, { recursive: true, force: true });
+    } catch (error: any) {
+      if (error?.code === 'ENOENT') return;
+      throw error;
+    }
+  }
+
+  private async moveFile(fromPath: string, toPath: string): Promise<void> {
+    try {
+      await fs.rename(fromPath, toPath);
+    } catch (error: any) {
+      if (error?.code !== 'EXDEV') throw error;
+      await fs.copyFile(fromPath, toPath);
+      await fs.unlink(fromPath);
+    }
+  }
+
+  private async searchByName(basePath: string, pattern: string, maxResults: number): Promise<string[]> {
+    const matcher = this.buildMatcher(pattern);
+    const results: string[] = [];
+    const queue: string[] = [basePath];
+
+    while (queue.length > 0 && results.length < maxResults) {
+      const current = queue.shift();
+      if (!current) break;
+      const entries = await fs.readdir(current, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(current, entry.name);
+        const relative = path.relative(this.allowedRootDir, fullPath) || '.';
+        if (matcher(entry.name)) {
+          results.push(`${entry.isDirectory() ? '[DIR]' : '[FILE]'} ${relative}`);
+          if (results.length >= maxResults) break;
+        }
+        if (entry.isDirectory()) {
+          queue.push(fullPath);
+        }
+      }
+    }
+
+    return results;
+  }
+
+  private buildMatcher(pattern: string): (name: string) => boolean {
+    const regexMatch = pattern.match(/^\/(.+)\/([a-z]*)$/i);
+    if (regexMatch) {
+      const body = regexMatch[1];
+      const flags = regexMatch[2];
+      const regex = new RegExp(body, flags);
+      return (name: string) => regex.test(name);
+    }
+    const lowered = pattern.toLowerCase();
+    return (name: string) => name.toLowerCase().includes(lowered);
   }
 }

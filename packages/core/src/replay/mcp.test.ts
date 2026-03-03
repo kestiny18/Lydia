@@ -67,6 +67,20 @@ describe('ReplayMcpClientManager', () => {
     expect(text).toContain('[DIR] nested');
   });
 
+  it('supports fs copy/move/search primitives in replay sandbox', async () => {
+    const replay = new ReplayMcpClientManager([]);
+
+    await replay.callTool('fs_write_file', { path: 'docs/a.txt', content: 'alpha' });
+    const copied = await replay.callTool('fs_copy_file', { from: 'docs/a.txt', to: 'docs/b.txt' });
+    expect(copied.content[0].text).toContain('Successfully copied');
+
+    const moved = await replay.callTool('fs_move_file', { from: 'docs/b.txt', to: 'docs/c.txt' });
+    expect(moved.content[0].text).toContain('Successfully moved');
+
+    const search = await replay.callTool('fs_search', { path: 'docs', pattern: 'c.txt' });
+    expect(search.content[0].text).toContain('c.txt');
+  });
+
   it('tracks invocation, risk, and human-interrupt metrics', async () => {
     const traces: Trace[] = [
       {

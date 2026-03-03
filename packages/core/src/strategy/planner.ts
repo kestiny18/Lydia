@@ -24,6 +24,8 @@ const HIGH_RISK_TOOLS = new Set([
   'fs_write_file',
   'fs_delete_file',
   'fs_delete_directory',
+  'fs_move_file',
+  'fs_copy_file',
   'fs_move',
   'fs_copy',
   'git_push'
@@ -70,6 +72,9 @@ export class SimplePlanner {
     - fs_read_file: Read file content (args: { path: string })
     - fs_write_file: Write file content (args: { path: string, content: string })
     - fs_list_directory: List files and directories (args: { path: string })
+    - fs_copy_file: Copy file to another path (args: { from: string, to: string, overwrite?: boolean })
+    - fs_move_file: Move/rename file (args: { from: string, to: string, overwrite?: boolean })
+    - fs_search: Search files/directories by name (args: { path: string, pattern: string, maxResults?: number })
     - git_*: Git operations (status, add, commit, etc)
     - remember: Store persistent info (args: { content: string, key?: string })
     - recall: Search memory (args: { query: string })

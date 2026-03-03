@@ -184,13 +184,20 @@ export function assessRisk(
     };
   }
 
-  if (toolName === 'fs_write_file') {
-    const targetPath = typeof args?.path === 'string' ? args.path : '';
+  const isWriteLikeFsTool =
+    toolName === 'fs_write_file' ||
+    toolName === 'fs_copy_file' ||
+    toolName === 'fs_move_file';
+  if (isWriteLikeFsTool) {
+    const opLabel = toolName === 'fs_write_file' ? 'File write' : 'File operation';
+    const targetPath = typeof args?.path === 'string'
+      ? args.path
+      : (typeof args?.to === 'string' ? args.to : '');
     if (targetPath) {
       if (isRelativePath(targetPath) && hasRelativePathTraversal(targetPath)) {
         return {
           level: 'high',
-          reason: 'File write with relative path traversal',
+          reason: `${opLabel} with relative path traversal`,
           signature: `fs_write_rel:${normalizePath(path.resolve(targetPath))}`,
           details: targetPath,
         };
@@ -212,7 +219,7 @@ export function assessRisk(
         const scope = inSystem ? 'system_dir' : 'user_data_dir';
         return {
           level: 'high',
-          reason: `File write in protected ${scope}`,
+          reason: `${opLabel} in protected ${scope}`,
           signature: `fs_write:${normalizePath(targetPath)}`,
           details: targetPath,
         };

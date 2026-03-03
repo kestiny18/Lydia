@@ -63,6 +63,16 @@ describe('Risk Assessment', () => {
     expect(risk.level).toBe('low');
   });
 
+  it('flags protected destination for fs copy as high risk', () => {
+    const userDir = path.join(os.tmpdir(), 'lydia-risk-copy');
+    const risk = assessRisk('fs_copy_file', { from: '/tmp/a.txt', to: path.join(userDir, 'b.txt') }, mcp, {
+      mcpServers: {},
+      safety: { userDataDirs: [userDir], systemDirs: [], allowPaths: [], denyPaths: [], rememberApprovals: true },
+    } as any);
+    expect(risk.level).toBe('high');
+    expect(risk.reason).toContain('File operation');
+  });
+
   it('flags destructive shell commands in protected paths', () => {
     const userDir = path.join(os.tmpdir(), 'lydia-risk-shell');
     const target = path.join(userDir, 'file.txt');
