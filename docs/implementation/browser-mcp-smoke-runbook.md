@@ -15,6 +15,11 @@ Preferred single-command smoke:
 lydia computer-use smoke --server browser
 ```
 
+Stability run (10 attempts, require >=95% pass rate):
+```bash
+lydia computer-use smoke --server browser --runs 10 --min-success-rate 0.95
+```
+
 Or run checks manually:
 ```bash
 lydia mcp check --server browser --timeout-ms 15000 --retries 1

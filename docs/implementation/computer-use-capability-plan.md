@@ -45,6 +45,7 @@ Deliverables:
 - One end-to-end browser automation task with verification evidence (text or screenshot path).
 - Contract reference: `docs/architecture/browser-capability-contract.md`.
 - Canonical action reference: `docs/architecture/computer-use-canonical-contract.md`.
+- Smoke runbook: `docs/implementation/browser-mcp-smoke-runbook.md`.
 
 ## Phase C2: Desktop Capability (MCP-first)
 1. Define desktop tool contract (window focus, keyboard input, mouse actions, capture).
@@ -54,6 +55,7 @@ Deliverables:
 Deliverables:
 - Desktop MCP tools visible in ToolDefinition list.
 - High-risk desktop actions trigger confirmation flow.
+- Smoke runbook: `docs/implementation/desktop-mcp-smoke-runbook.md`.
 
 ## Phase C3: File and App Operations Hardening
 1. Expand file operation primitives (copy/move/search/archive) via MCP tools instead of ad-hoc shell scripts.

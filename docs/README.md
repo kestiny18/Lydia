@@ -31,6 +31,7 @@
 - [Computer-Use Capability Plan](./implementation/computer-use-capability-plan.md)
 - [Computer-Use Fusion Rollout Plan](./implementation/computer-use-fusion-rollout-plan.md)
 - [Browser MCP Smoke Runbook](./implementation/browser-mcp-smoke-runbook.md)
+- [Desktop MCP Smoke Runbook](./implementation/desktop-mcp-smoke-runbook.md)
 - [Local Installation Plan](./implementation/local-installation-plan.md)
 - [Pre-Release Plan](./implementation/pre-release-plan.md)
 - [Getting Started](./getting-started.md)

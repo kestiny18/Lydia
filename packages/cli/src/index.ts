@@ -49,6 +49,12 @@ function bumpPatchVersion(version: string): string {
   return parts.join('.');
 }
 
+function buildLocalApiAuthHeaders(base: Record<string, string> = {}): Record<string, string> {
+  const token = (process.env.LYDIA_API_TOKEN || '').trim();
+  if (!token) return base;
+  return { ...base, Authorization: `Bearer ${token}` };
+}
+
 async function main() {
   const program = new Command();
   const version = await getVersion();
@@ -219,7 +225,10 @@ async function main() {
 
           if (trimmed === '/reset') {
             // Delete old session, start new one
-            await fetch(`http://localhost:${port}/api/chat/${sessionId}`, { method: 'DELETE' }).catch(() => {});
+            await fetch(`http://localhost:${port}/api/chat/${sessionId}`, {
+              method: 'DELETE',
+              headers: buildLocalApiAuthHeaders(),
+            }).catch(() => {});
             sessionId = (await apiPost<{ sessionId: string }>('/api/chat/start', {}, port)).sessionId;
             console.log(chalk.dim('Session reset.\n'));
             continue;
@@ -1351,10 +1360,12 @@ async function main() {
 
   computerUseCmd
     .command('smoke')
-    .description('Run computer-use MCP smoke checks (health + canonical tool coverage)')
+    .description('Run computer-use MCP smoke checks (health + canonical tool coverage + success rate)')
     .option('-s, --server <id>', 'Configured MCP server id', 'browser')
     .option('--timeout-ms <ms>', 'Connection timeout per server (default: 15000)', '15000')
     .option('--retries <n>', 'Retry attempts (default: 1)', '1')
+    .option('--runs <n>', 'Number of repeated smoke attempts (default: 1)', '1')
+    .option('--min-success-rate <n>', 'Minimum pass ratio in [0,1] (default: 0.95)', '0.95')
     .option('--json', 'Output JSON only')
     .action(async (options) => {
       const config = await new ConfigLoader().load();
@@ -1374,38 +1385,65 @@ async function main() {
 
       const timeoutMs = Number(options.timeoutMs) || 15000;
       const retries = Math.max(0, Number(options.retries) || 1);
-      const [result] = await checkMcpServers(
-        [{ id: serverId, command: server.command, args: server.args, env: server.env } as McpCheckTarget],
-        { timeoutMs, retries },
-      );
+      const runs = Math.max(1, Number(options.runs) || 1);
+      const minSuccessRate = Math.min(1, Math.max(0, Number(options.minSuccessRate) || 0.95));
+      const attempts: Array<{
+        ok: boolean;
+        health: any;
+        totalTools: number;
+        canonicalTools: string[];
+      }> = [];
 
-      const tools = result?.tools || [];
-      const canonicalTools = tools.filter((name) => Boolean(resolveCanonicalComputerUseToolName(name)));
+      for (let i = 0; i < runs; i += 1) {
+        const [result] = await checkMcpServers(
+          [{ id: serverId, command: server.command, args: server.args, env: server.env } as McpCheckTarget],
+          { timeoutMs, retries },
+        );
+        const tools = result?.tools || [];
+        const canonicalTools = tools.filter((name) => Boolean(resolveCanonicalComputerUseToolName(name)));
+        attempts.push({
+          ok: Boolean(result?.ok) && canonicalTools.length > 0,
+          health: result,
+          totalTools: tools.length,
+          canonicalTools,
+        });
+      }
+
+      const passed = attempts.filter((item) => item.ok).length;
+      const successRate = runs > 0 ? passed / runs : 0;
+      const last = attempts[attempts.length - 1];
       const smoke = {
-        ok: Boolean(result?.ok) && canonicalTools.length > 0,
+        ok: successRate >= minSuccessRate,
         serverId,
-        health: result,
-        totalTools: tools.length,
-        canonicalTools,
+        runs,
+        passed,
+        successRate,
+        minSuccessRate,
+        lastAttempt: last,
+        attempts,
       };
 
       if (options.json) {
         console.log(JSON.stringify(smoke, null, 2));
       } else {
-        if (!result?.ok) {
-          console.log(chalk.red(`x ${serverId}: ${result?.error || 'health check failed'}`));
+        if (!last?.health?.ok) {
+          console.log(chalk.red(`x ${serverId}: ${last?.health?.error || 'health check failed'}`));
         } else {
-          console.log(chalk.green(`* ${serverId}: health check passed (${result.durationMs}ms)`));
-          console.log(chalk.dim(`  discovered tools: ${tools.length}`));
-          console.log(chalk.dim(`  canonical computer-use aliases: ${canonicalTools.length}`));
-          if (canonicalTools.length > 0) {
-            console.log(chalk.dim(`  ${canonicalTools.join(', ')}`));
+          console.log(chalk.green(`* ${serverId}: latest health check passed (${last.health.durationMs}ms)`));
+          console.log(chalk.dim(`  discovered tools: ${last.totalTools}`));
+          console.log(chalk.dim(`  canonical computer-use aliases: ${last.canonicalTools.length}`));
+          if (last.canonicalTools.length > 0) {
+            console.log(chalk.dim(`  ${last.canonicalTools.join(', ')}`));
           }
         }
+        console.log(
+          `${smoke.ok ? chalk.green('*') : chalk.red('x')} smoke success rate: ` +
+          `${(successRate * 100).toFixed(1)}% (${passed}/${runs}), threshold ${(minSuccessRate * 100).toFixed(1)}%`
+        );
       }
 
       if (!smoke.ok) {
-        if (!options.json && result?.ok && canonicalTools.length === 0) {
+        if (!options.json && last?.health?.ok && (last?.canonicalTools?.length || 0) === 0) {
           console.log(chalk.red('Smoke failed: no canonical computer-use tools detected.'));
         }
         process.exitCode = 1;
