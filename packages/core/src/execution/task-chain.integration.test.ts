@@ -216,4 +216,59 @@ describe('Task execution chain integration', () => {
     expect(latest.steps.some((s: any) => s.status === 'skipped')).toBe(true);
     expect(latest.steps.some((s: any) => String(s.stepId).startsWith('replan-'))).toBe(true);
   });
+
+  it('fails a step when verification criteria are not met even if tool call succeeds', async () => {
+    const provider = new MockProvider();
+    const dbPath = path.join(os.tmpdir(), `lydia-task-chain-verification-${Date.now()}.db`);
+    dbPaths.push(dbPath);
+    const memory = new MemoryManager(dbPath);
+
+    provider.enqueueResponse({
+      text: JSON.stringify({
+        steps: [
+          {
+            type: 'action',
+            description: 'Run command and verify success token',
+            tool: 'shell_execute',
+            args: { command: 'echo done' },
+            dependsOn: [],
+            verification: ['contains:success'],
+          },
+        ],
+      }),
+      stop_reason: 'end_turn',
+    });
+    provider.enqueueResponse({
+      id: 'exec-tool-verify-fail',
+      role: 'assistant',
+      model: 'mock-model',
+      stop_reason: 'tool_use',
+      usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+      content: [
+        {
+          type: 'tool_use',
+          id: 'tool-verify-1',
+          name: 'shell_execute',
+          input: { command: 'echo done' },
+        } as any,
+      ],
+    });
+    provider.enqueueResponse({
+      text: 'Verification failed, stopping execution.',
+      stop_reason: 'end_turn',
+    });
+
+    const agent = makeAgent(provider, memory, async () => ({
+      content: [{ type: 'text', text: 'done' }],
+      isError: false,
+    }));
+    await agent.run('Execute command with strict verification');
+
+    const reports = memory.listTaskReports(10);
+    expect(reports.length).toBeGreaterThan(0);
+    const latest = JSON.parse(reports[0].report_json);
+    expect(latest.success).toBe(false);
+    expect(latest.steps.some((s: any) => s.status === 'failed')).toBe(true);
+    expect(latest.summary).toContain('Task failed');
+  });
 });

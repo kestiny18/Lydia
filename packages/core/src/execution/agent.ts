@@ -53,6 +53,11 @@ export interface AgentOptions {
   strategyPathOverride?: string;
 }
 
+interface VerificationEvaluation {
+  passed: boolean;
+  failedCriteria: string[];
+}
+
 export class Agent extends EventEmitter {
   private llm: ILLMProvider;
   private intentAnalyzer: IntentAnalyzer;
@@ -784,13 +789,34 @@ export class Agent extends EventEmitter {
             const result = await dynamicSkill.execute(toolUse.name, toolUse.input, {});
             const duration = Date.now() - start;
 
+            const outputText = this.toDisplayText(result);
+            const verification = this.evaluateStepVerification(plannedStep, outputText);
+            if (!verification.passed) {
+              const failMessage = this.buildVerificationFailureMessage(plannedStep, verification.failedCriteria, outputText);
+              toolResultBlocks.push({
+                type: 'tool_result',
+                tool_use_id: toolUse.id,
+                content: failMessage,
+                is_error: true,
+              });
+              this.traces.push({
+                step_index: this.traces.length,
+                tool_name: toolUse.name,
+                tool_args: JSON.stringify(toolUse.input),
+                tool_output: failMessage,
+                duration,
+                status: 'failed',
+              });
+              this.recordFailedStep(stepId, plannedStep, failMessage, duration, messages);
+              this.emit('tool:error', { name: toolUse.name, error: failMessage, code: 'VERIFICATION_FAILED' });
+              continue;
+            }
+
             toolResultBlocks.push({
               type: 'tool_result',
               tool_use_id: toolUse.id,
               content: result,
             });
-
-            const outputText = this.toDisplayText(result);
 
             this.traces.push({
               step_index: this.traces.length,
@@ -859,27 +885,63 @@ export class Agent extends EventEmitter {
           const normalizedResult = this.normalizeMcpResultForLoop(result);
           const textContent = normalizedResult.textSummary;
 
-          toolResultBlocks.push({
-            type: 'tool_result',
-            tool_use_id: toolUse.id,
-            content: normalizedResult.llmContent,
-            is_error: !!result.isError,
-          });
-
           // Record trace
-          this.traces.push({
-            step_index: this.traces.length,
-            tool_name: toolUse.name,
-            tool_args: JSON.stringify(toolUse.input),
-            tool_output: textContent,
-            duration,
-            status: result.isError ? 'failed' : 'success',
-          });
-
           if (result.isError) {
             const failMessage = textContent || `Tool ${toolUse.name} returned an error.`;
+            toolResultBlocks.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: normalizedResult.llmContent,
+              is_error: true,
+            });
+            this.traces.push({
+              step_index: this.traces.length,
+              tool_name: toolUse.name,
+              tool_args: JSON.stringify(toolUse.input),
+              tool_output: failMessage,
+              duration,
+              status: 'failed',
+            });
             this.recordFailedStep(stepId, plannedStep, failMessage, duration, messages);
+            this.emit('tool:error', { name: toolUse.name, error: failMessage });
+            continue;
+          }
+
+          const verification = this.evaluateStepVerification(plannedStep, textContent);
+          if (!verification.passed) {
+            const failMessage = this.buildVerificationFailureMessage(plannedStep, verification.failedCriteria, textContent);
+            toolResultBlocks.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: failMessage,
+              is_error: true,
+            });
+            this.traces.push({
+              step_index: this.traces.length,
+              tool_name: toolUse.name,
+              tool_args: JSON.stringify(toolUse.input),
+              tool_output: failMessage,
+              duration,
+              status: 'failed',
+            });
+            this.recordFailedStep(stepId, plannedStep, failMessage, duration, messages);
+            this.emit('tool:error', { name: toolUse.name, error: failMessage, code: 'VERIFICATION_FAILED' });
+            continue;
           } else {
+            toolResultBlocks.push({
+              type: 'tool_result',
+              tool_use_id: toolUse.id,
+              content: normalizedResult.llmContent,
+              is_error: false,
+            });
+            this.traces.push({
+              step_index: this.traces.length,
+              tool_name: toolUse.name,
+              tool_args: JSON.stringify(toolUse.input),
+              tool_output: textContent,
+              duration,
+              status: 'success',
+            });
             this.recordStepResult({
               stepId,
               status: 'completed',
@@ -1150,6 +1212,155 @@ export class Agent extends EventEmitter {
       this.markDownstreamStepsSkipped(plannedStep.id, error);
     }
     this.enqueueFailureReplan(messages, plannedStep, error);
+  }
+
+  private evaluateStepVerification(
+    plannedStep: Step | undefined,
+    outputText: string,
+  ): VerificationEvaluation {
+    const checks = (plannedStep?.verification || [])
+      .map((criterion) => criterion.trim())
+      .filter((criterion) => criterion.length > 0);
+    if (checks.length === 0) {
+      return { passed: true, failedCriteria: [] };
+    }
+
+    const failedCriteria = checks.filter((criterion) =>
+      !this.evaluateVerificationCriterion(criterion, outputText),
+    );
+
+    return {
+      passed: failedCriteria.length === 0,
+      failedCriteria,
+    };
+  }
+
+  private evaluateVerificationCriterion(criterion: string, outputText: string): boolean {
+    const normalizedOutput = outputText.trim();
+    const lowerOutput = normalizedOutput.toLowerCase();
+    const lowerCriterion = criterion.trim().toLowerCase();
+
+    if (lowerCriterion.startsWith('contains:')) {
+      const expected = criterion.slice('contains:'.length).trim();
+      return expected.length > 0 && lowerOutput.includes(expected.toLowerCase());
+    }
+
+    if (lowerCriterion.startsWith('not_contains:')) {
+      const denied = criterion.slice('not_contains:'.length).trim();
+      return denied.length === 0 || !lowerOutput.includes(denied.toLowerCase());
+    }
+
+    if (lowerCriterion.startsWith('regex:')) {
+      const pattern = criterion.slice('regex:'.length).trim();
+      if (!pattern) return false;
+      try {
+        return new RegExp(pattern, 'm').test(normalizedOutput);
+      } catch {
+        return false;
+      }
+    }
+
+    if (lowerCriterion.startsWith('min_length:')) {
+      const min = Number.parseInt(criterion.slice('min_length:'.length).trim(), 10);
+      if (!Number.isFinite(min)) return false;
+      return normalizedOutput.length >= min;
+    }
+
+    const quotedFragments = this.extractQuotedFragments(criterion);
+    if (quotedFragments.length > 0) {
+      return quotedFragments.every((fragment) => lowerOutput.includes(fragment.toLowerCase()));
+    }
+
+    if (/\bpath\b/.test(lowerCriterion)) {
+      return this.containsPathLikeText(normalizedOutput);
+    }
+
+    if (/\bjson\b/.test(lowerCriterion)) {
+      return this.looksLikeJson(normalizedOutput);
+    }
+
+    if (/\b(success|succeed|successful|ok|completed|done)\b/.test(lowerCriterion)) {
+      return this.isLikelySuccessfulOutput(normalizedOutput);
+    }
+
+    if (/\b(no error|without error|no failures?)\b/.test(lowerCriterion)) {
+      return !this.containsFailureSignals(lowerOutput);
+    }
+
+    if (/\b(exists?|present|found)\b/.test(lowerCriterion)) {
+      return !this.containsMissingSignals(lowerOutput);
+    }
+
+    if (/\b(non[- ]?empty|not empty|returned|output)\b/.test(lowerCriterion)) {
+      return normalizedOutput.length > 0 && !this.containsFailureSignals(lowerOutput);
+    }
+
+    return normalizedOutput.length > 0 && !this.containsFailureSignals(lowerOutput);
+  }
+
+  private extractQuotedFragments(text: string): string[] {
+    const matches = [...text.matchAll(/"([^"]+)"|'([^']+)'/g)];
+    return matches
+      .map((match) => (match[1] || match[2] || '').trim())
+      .filter((value) => value.length > 0);
+  }
+
+  private containsPathLikeText(text: string): boolean {
+    return /([a-zA-Z]:\\[^\s]+|\/[^\s]+)/.test(text);
+  }
+
+  private looksLikeJson(text: string): boolean {
+    const trimmed = text.trim();
+    if (!trimmed) return false;
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        JSON.parse(trimmed);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    const match = trimmed.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (!match) return false;
+    try {
+      JSON.parse(match[1]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private containsFailureSignals(lowerOutput: string): boolean {
+    return /\b(error|failed|failure|exception|denied|not found|invalid|timeout|timed out)\b/.test(lowerOutput);
+  }
+
+  private containsMissingSignals(lowerOutput: string): boolean {
+    return /\b(missing|not found|does not exist|no such file|no such directory)\b/.test(lowerOutput);
+  }
+
+  private isLikelySuccessfulOutput(outputText: string): boolean {
+    const lowerOutput = outputText.toLowerCase();
+    if (this.containsFailureSignals(lowerOutput)) return false;
+    if (!outputText.trim()) return false;
+    return /\b(success|succeeded|ok|completed|done|true|passed)\b/.test(lowerOutput);
+  }
+
+  private buildVerificationFailureMessage(
+    plannedStep: Step | undefined,
+    failedCriteria: string[],
+    outputText: string,
+  ): string {
+    const stepLabel = plannedStep?.id || 'unplanned-step';
+    const criteriaText = failedCriteria.length > 0
+      ? failedCriteria.map((criterion) => `"${criterion}"`).join(', ')
+      : 'unspecified verification criteria';
+    const outputSnippet = this.truncateText(outputText, 280) || '(empty output)';
+    return `Verification failed for ${stepLabel}. Unmet checks: ${criteriaText}. Output snippet: ${outputSnippet}`;
+  }
+
+  private truncateText(text: string, maxLength: number): string {
+    if (text.length <= maxLength) return text;
+    return `${text.slice(0, maxLength)}...`;
   }
 
   private parseCheckpointFrameIds(value?: string): string[] {

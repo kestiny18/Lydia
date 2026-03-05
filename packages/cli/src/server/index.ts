@@ -204,6 +204,17 @@ export function createServer(
   const memoryManager = options?.memoryManager || new MemoryManager(dbPath);
   const approvalService = new StrategyApprovalService(memoryManager, configLoader);
   const shadowRouter = new ShadowRouter(memoryManager);
+  type RoutedStrategy = Awaited<ReturnType<ShadowRouter['selectStrategy']>>;
+
+  async function createRoutedAgent(llm: any): Promise<{ agent: Agent; routedStrategy: RoutedStrategy }> {
+    const currentConfig = await configLoader.load();
+    const routedStrategy = await shadowRouter.selectStrategy(currentConfig);
+    const agent = new Agent(
+      llm,
+      routedStrategy.path ? { strategyPathOverride: routedStrategy.path } : {}
+    );
+    return { agent, routedStrategy };
+  }
 
   async function refreshRuntimeConfig(force: boolean = false): Promise<void> {
     const now = Date.now();
@@ -790,12 +801,7 @@ export function createServer(
     activeRunId = runId;
 
     try {
-      const currentConfig = await configLoader.load();
-      const routedStrategy = await shadowRouter.selectStrategy(currentConfig);
-      const agent = new Agent(
-        llm,
-        routedStrategy.path ? { strategyPathOverride: routedStrategy.path } : {}
-      );
+      const { agent, routedStrategy } = await createRoutedAgent(llm);
       runState.agent = agent;
       runState.strategyPath = routedStrategy.path;
       runState.strategyRole = routedStrategy.role;
@@ -1058,12 +1064,30 @@ export function createServer(
     activeRunId = runId;
 
     try {
-      const agent = new Agent(llm);
+      const { agent, routedStrategy } = await createRoutedAgent(llm);
       runState.agent = agent;
+      runState.strategyPath = routedStrategy.path;
+      runState.strategyRole = routedStrategy.role;
+      runState.strategyId = routedStrategy.strategyId;
+      runState.strategyVersion = routedStrategy.strategyVersion;
 
       // Wire up agent events (same as /api/tasks/run)
       agent.on('task:resume', (data) => {
-        broadcastWs({ type: 'task:resume', data: { runId, ...data }, timestamp: Date.now() });
+        broadcastWs({
+          type: 'task:resume',
+          data: {
+            runId,
+            ...data,
+            strategy: {
+              role: routedStrategy.role,
+              path: routedStrategy.path,
+              id: routedStrategy.strategyId,
+              version: routedStrategy.strategyVersion,
+              reason: routedStrategy.reason,
+            }
+          },
+          timestamp: Date.now()
+        });
       });
 
       agent.on('stream:text', (text: string) => {
@@ -1219,11 +1243,14 @@ export function createServer(
       return c.json({ error: error.message }, 500);
     }
 
-    const sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const agent = new Agent(llm);
-    chatSessions.set(sessionId, { agent, createdAt: Date.now() });
-
-    return c.json({ sessionId });
+    try {
+      const sessionId = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const { agent } = await createRoutedAgent(llm);
+      chatSessions.set(sessionId, { agent, createdAt: Date.now() });
+      return c.json({ sessionId });
+    } catch (error: any) {
+      return c.json({ error: error?.message || 'Failed to start chat session' }, 500);
+    }
   });
 
   app.post('/api/chat/:id/message', async (c) => {
