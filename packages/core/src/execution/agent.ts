@@ -458,7 +458,7 @@ export class Agent extends EventEmitter {
       }
 
       const taskContext = this.buildTaskContext(
-        tools.map(t => t.name),
+        tools,
         facts,
         episodes,
       );
@@ -1059,14 +1059,20 @@ export class Agent extends EventEmitter {
     };
   }
 
-  private buildTaskContext(tools: string[], facts: Fact[], episodes: Episode[]): TaskContext {
+  private buildTaskContext(tools: ToolDefinition[], facts: Fact[], episodes: Episode[]): TaskContext {
     const mustConfirm = [
       ...(this.activeStrategy?.execution?.requiresConfirmation || []),
       ...(this.activeStrategy?.constraints?.mustConfirmBefore || []),
     ];
+    const toolNames = tools.map((tool) => tool.name);
     return {
       cwd: process.cwd(),
-      tools,
+      tools: toolNames,
+      toolDefinitions: tools.map((tool) => ({
+        name: tool.name,
+        description: tool.description || '',
+        inputSchema: tool.inputSchema as Record<string, unknown>,
+      })),
       strategyId: this.activeStrategy?.metadata.id || 'unknown',
       strategyVersion: this.activeStrategy?.metadata.version || 'unknown',
       facts,

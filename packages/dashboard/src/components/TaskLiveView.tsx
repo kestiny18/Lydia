@@ -187,6 +187,46 @@ export function TaskLiveView({
                                 {evt.type === 'retry' && (
                                     <span className="text-yellow-600">&#8635; Retry {evt.data?.attempt}/{evt.data?.maxRetries}</span>
                                 )}
+                                {evt.type === 'task:resume' && (
+                                    <span className="text-blue-600">resumed from iteration {evt.data?.fromIteration ?? '?'}</span>
+                                )}
+                                {evt.type === 'checkpoint:saved' && (
+                                    <span className="text-gray-600">
+                                        checkpoint saved (iteration {evt.data?.iteration ?? '?'})
+                                    </span>
+                                )}
+                                {evt.type === 'checkpoint:error' && (
+                                    <span className="text-red-600">
+                                        checkpoint error: {evt.data?.error || 'unknown error'}
+                                    </span>
+                                )}
+                                {evt.type === 'phase:start' && (
+                                    <span className="text-sky-600">phase started: {evt.data?.phase || 'unknown'}</span>
+                                )}
+                                {evt.type === 'phase:end' && (
+                                    <span className="text-sky-600">phase ended: {evt.data?.phase || 'unknown'}</span>
+                                )}
+                                {evt.type === 'intent' && (
+                                    <span className="text-cyan-700">
+                                        intent: {evt.data?.intent?.summary || evt.data?.intent?.goal || 'analyzed'}
+                                    </span>
+                                )}
+                                {evt.type === 'plan' && (
+                                    <span className="text-cyan-700">
+                                        plan generated ({Array.isArray(evt.data?.steps) ? evt.data.steps.length : 0} step(s))
+                                    </span>
+                                )}
+                                {evt.type === 'plan:error' && (
+                                    <span className="text-red-600">plan error: {evt.data?.error || 'unknown error'}</span>
+                                )}
+                                {evt.type === 'max_iterations' && (
+                                    <span className="text-orange-600">
+                                        max iterations reached ({evt.data?.iterations ?? '?'})
+                                    </span>
+                                )}
+                                {evt.type === 'skill:error' && (
+                                    <span className="text-red-600">skill error: {evt.data?.error || 'unknown error'}</span>
+                                )}
                                 {evt.type === 'computer-use:session.start' && (
                                     <span className="text-indigo-600">computer-use session started ({evt.data?.sessionId})</span>
                                 )}

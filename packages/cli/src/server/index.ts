@@ -216,6 +216,15 @@ export function createServer(
     return { agent, routedStrategy };
   }
 
+  function formatErrorMessage(error: unknown): string {
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'string') return error;
+    if (error && typeof error === 'object' && 'message' in error && typeof (error as any).message === 'string') {
+      return (error as any).message;
+    }
+    return String(error);
+  }
+
   async function refreshRuntimeConfig(force: boolean = false): Promise<void> {
     const now = Date.now();
     if (!force && now - lastConfigRefreshAt < 5000) return;
@@ -865,6 +874,37 @@ export function createServer(
       agent.on('checkpoint:saved', (data) => {
         broadcastWs({ type: 'checkpoint:saved', data: { runId, ...data }, timestamp: Date.now() });
       });
+      agent.on('checkpoint:error', (data: any) => {
+        broadcastWs({
+          type: 'checkpoint:error',
+          data: { runId, ...(data || {}), error: formatErrorMessage(data?.error) },
+          timestamp: Date.now()
+        });
+      });
+      agent.on('phase:start', (phase: string) => {
+        broadcastWs({ type: 'phase:start', data: { runId, phase }, timestamp: Date.now() });
+      });
+      agent.on('phase:end', (phase: string) => {
+        broadcastWs({ type: 'phase:end', data: { runId, phase }, timestamp: Date.now() });
+      });
+      agent.on('intent', (intent) => {
+        broadcastWs({ type: 'intent', data: { runId, intent }, timestamp: Date.now() });
+      });
+      agent.on('plan', (steps) => {
+        broadcastWs({ type: 'plan', data: { runId, steps }, timestamp: Date.now() });
+      });
+      agent.on('plan:error', (error) => {
+        broadcastWs({ type: 'plan:error', data: { runId, error: formatErrorMessage(error) }, timestamp: Date.now() });
+      });
+      agent.on('max_iterations', (data) => {
+        broadcastWs({ type: 'max_iterations', data: { runId, ...(data || {}) }, timestamp: Date.now() });
+      });
+      agent.on('skill:error', (error) => {
+        broadcastWs({ type: 'skill:error', data: { runId, error: formatErrorMessage(error) }, timestamp: Date.now() });
+      });
+      agent.on('thinking', (thinking: string) => {
+        broadcastWs({ type: 'thinking', data: { runId, thinking }, timestamp: Date.now() });
+      });
 
       agent.on('computer-use:session.start', (data) => {
         broadcastWs({ type: 'computer-use:session.start', data: { runId, ...data }, timestamp: Date.now() });
@@ -1125,6 +1165,37 @@ export function createServer(
 
       agent.on('checkpoint:saved', (data) => {
         broadcastWs({ type: 'checkpoint:saved', data: { runId, ...data }, timestamp: Date.now() });
+      });
+      agent.on('checkpoint:error', (data: any) => {
+        broadcastWs({
+          type: 'checkpoint:error',
+          data: { runId, ...(data || {}), error: formatErrorMessage(data?.error) },
+          timestamp: Date.now()
+        });
+      });
+      agent.on('phase:start', (phase: string) => {
+        broadcastWs({ type: 'phase:start', data: { runId, phase }, timestamp: Date.now() });
+      });
+      agent.on('phase:end', (phase: string) => {
+        broadcastWs({ type: 'phase:end', data: { runId, phase }, timestamp: Date.now() });
+      });
+      agent.on('intent', (intent) => {
+        broadcastWs({ type: 'intent', data: { runId, intent }, timestamp: Date.now() });
+      });
+      agent.on('plan', (steps) => {
+        broadcastWs({ type: 'plan', data: { runId, steps }, timestamp: Date.now() });
+      });
+      agent.on('plan:error', (error) => {
+        broadcastWs({ type: 'plan:error', data: { runId, error: formatErrorMessage(error) }, timestamp: Date.now() });
+      });
+      agent.on('max_iterations', (data) => {
+        broadcastWs({ type: 'max_iterations', data: { runId, ...(data || {}) }, timestamp: Date.now() });
+      });
+      agent.on('skill:error', (error) => {
+        broadcastWs({ type: 'skill:error', data: { runId, error: formatErrorMessage(error) }, timestamp: Date.now() });
+      });
+      agent.on('thinking', (thinking: string) => {
+        broadcastWs({ type: 'thinking', data: { runId, thinking }, timestamp: Date.now() });
       });
 
       agent.on('computer-use:session.start', (data) => {

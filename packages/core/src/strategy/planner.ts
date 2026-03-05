@@ -51,6 +51,43 @@ export class SimplePlanner {
     });
   }
 
+  private formatToolList(context: AgentContext): string {
+    const definitions = context.taskContext?.toolDefinitions || [];
+    if (definitions.length > 0) {
+      return definitions
+        .map((tool) => {
+          const description = tool.description?.trim() ? `: ${tool.description.trim()}` : '';
+          const args = this.formatToolArgs(tool.inputSchema);
+          return `- ${tool.name}${description}${args}`;
+        })
+        .join('\n');
+    }
+
+    const toolNames = context.taskContext?.tools || [];
+    if (toolNames.length > 0) {
+      return toolNames.map((tool) => `- ${tool}`).join('\n');
+    }
+
+    return '- No tool inventory provided by Agent for this task.';
+  }
+
+  private formatToolArgs(inputSchema?: Record<string, unknown>): string {
+    if (!inputSchema || typeof inputSchema !== 'object') return '';
+
+    const propertiesRaw = (inputSchema as Record<string, unknown>).properties;
+    const requiredRaw = (inputSchema as Record<string, unknown>).required;
+    if (!propertiesRaw || typeof propertiesRaw !== 'object' || Array.isArray(propertiesRaw)) return '';
+
+    const required = Array.isArray(requiredRaw)
+      ? new Set(requiredRaw.filter((entry): entry is string => typeof entry === 'string'))
+      : new Set<string>();
+    const keys = Object.keys(propertiesRaw as Record<string, unknown>);
+    if (keys.length === 0) return '';
+
+    const args = keys.map((key) => required.has(key) ? `${key}*` : key).join(', ');
+    return ` (args: ${args})`;
+  }
+
   async createPlan(task: Task, intent: IntentProfile, context: AgentContext, skills: Skill[] = [], memories: { facts: Fact[], episodes: Episode[] } = { facts: [], episodes: [] }): Promise<Step[]> {
     let skillContext = '';
     if (skills.length > 0) {
@@ -68,29 +105,7 @@ export class SimplePlanner {
       }
     }
 
-    // Default tools list (hardcoded for now as placeholders, ideally passed from Agent)
-    const predefinedTools = `
-    - shell_execute: Execute shell commands. USE CAUTION. (args: { command: string })
-    - fs_read_file: Read file content (args: { path: string })
-    - fs_write_file: Write file content (args: { path: string, content: string })
-    - fs_list_directory: List files and directories (args: { path: string })
-    - fs_copy_file: Copy file to another path (args: { from: string, to: string, overwrite?: boolean })
-    - fs_move_file: Move/rename file (args: { from: string, to: string, overwrite?: boolean })
-    - fs_search: Search files/directories by name (args: { path: string, pattern: string, maxResults?: number })
-    - fs_archive: Archive file/directory to bundle (args: { path: string, outputPath: string, overwrite?: boolean, maxBytes?: number })
-    - fs_unarchive: Extract archive bundle to directory (args: { archivePath: string, outputDir: string, overwrite?: boolean, maxBytes?: number })
-    - git_*: Git operations (status, add, commit, etc)
-    - remember: Store persistent info (args: { content: string, key?: string })
-    - recall: Search memory (args: { query: string })
-    - recall: Search memory (args: { query: string })
-    - ask_user: Ask user for confirmation or input (args: { prompt: string })
-    - analyze_performance: Check recent success rates (args: { limit?: number })
-    - propose_strategy_update: Propose strategy changes (args: { analysis: string, description: string, modifications: string })
-    `;
-
-    const toolList = context.taskContext?.tools?.length
-      ? context.taskContext.tools.map((tool) => `- ${tool}`).join('\n')
-      : predefinedTools;
+    const toolList = this.formatToolList(context);
 
     const taskContextJson = context.taskContext ? JSON.stringify(context.taskContext, null, 2) : '';
     const taskContextSection = taskContextJson

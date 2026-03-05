@@ -72,7 +72,7 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
                 setActiveRunId(msg.data?.runId || null);
                 setIsRunning(true);
                 setAgentEvents(prev => [...prev, {
-                    type: 'resume',
+                    type: 'task:resume',
                     data: msg.data,
                     timestamp: msg.timestamp,
                 }]);
@@ -82,6 +82,7 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
                 setStreamText(streamTextRef.current);
                 break;
             case 'stream:thinking':
+            case 'thinking':
                 setAgentEvents(prev => [...prev, { type: 'thinking', data: msg.data, timestamp: msg.timestamp }]);
                 break;
             case 'message':
@@ -121,6 +122,15 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
             case 'retry':
                 setAgentEvents(prev => [...prev, { type: 'retry', data: msg.data, timestamp: msg.timestamp }]);
                 break;
+            case 'checkpoint:saved':
+            case 'checkpoint:error':
+            case 'phase:start':
+            case 'phase:end':
+            case 'intent':
+            case 'plan':
+            case 'plan:error':
+            case 'max_iterations':
+            case 'skill:error':
             case 'computer-use:session.start':
             case 'computer-use:action.dispatch':
             case 'computer-use:observation.collect':

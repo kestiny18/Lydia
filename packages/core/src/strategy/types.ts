@@ -67,6 +67,11 @@ export interface AgentContext {
 export interface TaskContext {
   cwd: string;
   tools: string[];
+  toolDefinitions?: Array<{
+    name: string;
+    description?: string;
+    inputSchema?: Record<string, unknown>;
+  }>;
   strategyId: string;
   strategyVersion: string;
   facts: Fact[];
