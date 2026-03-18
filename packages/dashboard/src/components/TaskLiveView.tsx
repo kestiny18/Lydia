@@ -187,6 +187,9 @@ export function TaskLiveView({
                                 {evt.type === 'retry' && (
                                     <span className="text-yellow-600">&#8635; Retry {evt.data?.attempt}/{evt.data?.maxRetries}</span>
                                 )}
+                                {evt.type === 'task:error' && (
+                                    <span className="text-red-600">task failed: {evt.data?.error || 'unknown error'}</span>
+                                )}
                                 {evt.type === 'task:resume' && (
                                     <span className="text-blue-600">resumed from iteration {evt.data?.fromIteration ?? '?'}</span>
                                 )}

@@ -55,6 +55,15 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
         queryClient.invalidateQueries({ queryKey: ['memory-reports-summary'] });
     }, [queryClient]);
 
+    const buildFailureResult = useCallback((message: string) => {
+        const detail = message?.trim() || 'Task failed.';
+        const output = streamTextRef.current.trim();
+        if (!output) {
+            return `Execution failed.\nReason: ${detail}`;
+        }
+        return `${output}\n\nExecution failed.\nReason: ${detail}`;
+    }, []);
+
     const handleWsMessage = useCallback((msg: WsMessage) => {
         switch (msg.type) {
             case 'connected':
@@ -112,6 +121,8 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
                 break;
             case 'task:error':
                 setError(msg.data?.error || 'Task failed.');
+                setLastResult(buildFailureResult(msg.data?.error || 'Task failed.'));
+                setAgentEvents(prev => [...prev, { type: 'task:error', data: msg.data, timestamp: msg.timestamp }]);
                 setActiveRunId(null);
                 setIsRunning(false);
                 refreshTaskQueries();
@@ -168,10 +179,12 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
             setIsRunning(true);
             setSelectedId(result.runId);
         } catch (err: any) {
-            setError(err.message || 'Failed to run task.');
+            const message = err.message || 'Failed to run task.';
+            setError(message);
+            setLastResult(buildFailureResult(message));
             setIsRunning(false);
         }
-    }, [resetLiveState]);
+    }, [buildFailureResult, resetLiveState]);
 
     const handleResumeTask = useCallback(async (taskId: string) => {
         resetLiveState();
@@ -185,10 +198,12 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
             setSelectedId(result.runId);
             setActiveInput(`Resumed from iteration ${result.fromIteration}`);
         } catch (err: any) {
-            setError(err.message || 'Failed to resume task.');
+            const message = err.message || 'Failed to resume task.';
+            setError(message);
+            setLastResult(buildFailureResult(message));
             setIsRunning(false);
         }
-    }, [resetLiveState]);
+    }, [buildFailureResult, resetLiveState]);
 
     const handlePromptSubmit = useCallback(async () => {
         if (!activeRunId || !pendingPrompt) return;

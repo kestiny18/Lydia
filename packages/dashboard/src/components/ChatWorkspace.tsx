@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Brain, ChevronDown, MessageSquare, RotateCcw, Send } from 'lucide-react';
+import { Brain, Check, ChevronDown, Copy, MessageSquare, RotateCcw, Send } from 'lucide-react';
 import { api } from '../lib/api';
 import { useWebSocket } from '../lib/useWebSocket';
 import type { WsMessage } from '../types';
@@ -56,6 +56,14 @@ function formatMessageTime(isoString: string): string {
     }).format(date);
 }
 
+function mergeErrorContent(existingContent: string, errorMessage: string): string {
+    const trimmedExisting = existingContent.trim();
+    const trimmedError = errorMessage.trim();
+    if (!trimmedExisting) return `执行失败：${trimmedError}`;
+    if (trimmedExisting.includes(trimmedError)) return trimmedExisting;
+    return `${trimmedExisting}\n\n执行失败：${trimmedError}`;
+}
+
 function loadPersistedState(): PersistedChatState {
     if (typeof window === 'undefined') {
         return { sessionId: null, input: '', messages: [] };
@@ -98,6 +106,7 @@ export function ChatWorkspace({ seedMessage, seedToken }: ChatWorkspaceProps) {
     const [error, setError] = useState<string | null>(null);
     const [pendingAssistantId, setPendingAssistantId] = useState<string | null>(null);
     const [soul, setSoul] = useState<SoulProfile | null>(null);
+    const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
     const messagesRef = useRef<HTMLDivElement>(null);
     const pendingAssistantIdRef = useRef<string | null>(null);
     const sessionIdRef = useRef<string | null>(persisted.sessionId);
@@ -135,6 +144,12 @@ export function ChatWorkspace({ seedMessage, seedToken }: ChatWorkspaceProps) {
         if (!messagesRef.current) return;
         messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }, [messages, isSending]);
+
+    useEffect(() => {
+        if (!copiedMessageId) return;
+        const timer = window.setTimeout(() => setCopiedMessageId(null), 1800);
+        return () => window.clearTimeout(timer);
+    }, [copiedMessageId]);
 
     const updateMessage = useCallback((messageId: string, updater: (message: ChatMessage) => ChatMessage) => {
         setMessages((prev) => prev.map((message) => (message.id === messageId ? updater(message) : message)));
@@ -199,6 +214,17 @@ export function ChatWorkspace({ seedMessage, seedToken }: ChatWorkspaceProps) {
         }));
     }, [updateMessage]);
 
+    const handleCopyMessage = useCallback(async (message: ChatMessage) => {
+        const payload = message.content.trim();
+        if (!payload) return;
+        try {
+            await navigator.clipboard.writeText(payload);
+            setCopiedMessageId(message.id);
+        } catch {
+            setCopiedMessageId(null);
+        }
+    }, []);
+
     const startFresh = useCallback(() => {
         resetSession();
         setMessages([]);
@@ -260,7 +286,7 @@ export function ChatWorkspace({ seedMessage, seedToken }: ChatWorkspaceProps) {
             setError(message);
             updateMessage(assistantMessage.id, (entry) => ({
                 ...entry,
-                content: entry.content || message,
+                content: mergeErrorContent(entry.content, message),
                 status: 'error',
             }));
         } finally {
@@ -318,56 +344,77 @@ export function ChatWorkspace({ seedMessage, seedToken }: ChatWorkspaceProps) {
                         </div>
                     ) : (
                         <div className="mx-auto max-w-5xl space-y-5 pb-6">
-                            {messages.map((message) => (
-                                <div
-                                    key={message.id}
-                                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                                >
+                            {messages.map((message) => {
+                                const canCopy = message.content.trim().length > 0;
+                                const copied = copiedMessageId === message.id;
+                                return (
                                     <div
-                                        className={`w-full max-w-[78%] rounded-[28px] border px-5 py-4 text-sm leading-relaxed shadow-[0_10px_30px_rgba(15,23,42,0.04)] ${
-                                            message.role === 'user'
-                                                ? 'bg-[#f4f7ff] border-[#cfdcff]'
-                                                : 'bg-white border-[color:var(--line)]'
-                                        }`}
+                                        key={message.id}
+                                        className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                     >
-                                        <div className={`mb-3 flex items-center gap-3 text-[11px] text-[color:var(--text-muted)] ${message.role === 'user' ? 'justify-end' : 'justify-between'}`}>
-                                            <span className="font-semibold uppercase tracking-[0.14em]">
-                                                {getDisplayName(message)}
-                                            </span>
-                                            <span>{formatMessageTime(message.createdAt)}</span>
-                                        </div>
+                                        <div
+                                            tabIndex={0}
+                                            className={`group relative w-full max-w-[78%] rounded-[28px] border px-5 py-4 text-sm leading-relaxed shadow-[0_10px_30px_rgba(15,23,42,0.04)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)] ${
+                                                message.role === 'user'
+                                                    ? 'bg-[#f4f7ff] border-[#cfdcff]'
+                                                    : 'bg-white border-[color:var(--line)]'
+                                            }`}
+                                        >
+                                            <button
+                                                type="button"
+                                                onClick={() => void handleCopyMessage(message)}
+                                                disabled={!canCopy}
+                                                className={`absolute top-4 ${message.role === 'user' ? 'left-4' : 'right-4'} inline-flex h-8 items-center gap-1 rounded-full border border-[color:var(--line)] bg-white/95 px-2.5 text-[11px] font-medium text-[color:var(--text-muted)] shadow-sm transition-opacity hover:border-[color:var(--line-strong)] hover:text-[color:var(--text-strong)] focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-[color:var(--ring)] disabled:cursor-not-allowed disabled:opacity-0 ${canCopy ? 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100' : 'opacity-0'}`}
+                                                title="Copy message"
+                                            >
+                                                {copied ? <Check size={13} /> : <Copy size={13} />}
+                                                <span>{copied ? 'Copied' : 'Copy'}</span>
+                                            </button>
 
-                                        {message.thinking && (
-                                            <div className="mb-3 rounded-2xl border border-[color:var(--line)] bg-[color:var(--surface-subtle)]">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleThinking(message.id)}
-                                                    className="w-full px-4 py-3 flex items-center justify-between text-left text-xs text-[color:var(--text-muted)]"
-                                                >
-                                                    <span className="inline-flex items-center gap-1.5">
-                                                        <Brain size={12} />
-                                                        Thought Process
-                                                    </span>
-                                                    <ChevronDown
-                                                        size={14}
-                                                        className={`transition-transform ${message.thinkingCollapsed ? '' : 'rotate-180'}`}
-                                                    />
-                                                </button>
-                                                {!message.thinkingCollapsed && (
-                                                    <div className="px-4 pb-4 text-xs leading-6 text-[color:var(--text-muted)] whitespace-pre-wrap border-t border-[color:var(--line)]">
-                                                        {message.thinking}
-                                                    </div>
-                                                )}
+                                            <div className={`mb-3 flex items-center gap-3 text-[11px] text-[color:var(--text-muted)] ${message.role === 'user' ? 'justify-end pr-14' : 'justify-between pr-14'}`}>
+                                                <span className="font-semibold uppercase tracking-[0.14em]">
+                                                    {getDisplayName(message)}
+                                                </span>
+                                                <span>{formatMessageTime(message.createdAt)}</span>
                                             </div>
-                                        )}
 
-                                        <div className="text-[color:var(--text-strong)] whitespace-pre-wrap min-h-[1.25rem]">
-                                            {message.content}
-                                            {message.status === 'streaming' && <span className="animate-pulse text-[color:var(--accent)]">...</span>}
+                                            {message.thinking && (
+                                                <div className="mb-3 rounded-2xl border border-[color:var(--line)] bg-[color:var(--surface-subtle)]">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleThinking(message.id)}
+                                                        className="w-full px-4 py-3 flex items-center justify-between text-left text-xs text-[color:var(--text-muted)]"
+                                                    >
+                                                        <span className="inline-flex items-center gap-1.5">
+                                                            <Brain size={12} />
+                                                            Thought Process
+                                                        </span>
+                                                        <ChevronDown
+                                                            size={14}
+                                                            className={`transition-transform ${message.thinkingCollapsed ? '' : 'rotate-180'}`}
+                                                        />
+                                                    </button>
+                                                    {!message.thinkingCollapsed && (
+                                                        <div className="px-4 pb-4 text-xs leading-6 text-[color:var(--text-muted)] whitespace-pre-wrap border-t border-[color:var(--line)]">
+                                                            {message.thinking}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            <div className="text-[color:var(--text-strong)] whitespace-pre-wrap min-h-[1.25rem]">
+                                                {message.content}
+                                                {message.status === 'streaming' && <span className="animate-pulse text-[color:var(--accent)]">...</span>}
+                                            </div>
+                                            {message.status === 'error' && (
+                                                <div className="mt-3 text-xs font-medium text-red-600">
+                                                    Failed
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     )}
                 </div>
