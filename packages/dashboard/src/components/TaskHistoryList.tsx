@@ -24,7 +24,10 @@ export function TaskHistoryList({ selectedId, onSelect, activeRunId }: TaskHisto
             search: search || undefined,
             status: statusFilter || undefined,
         }),
-        refetchInterval: activeRunId ? 3000 : 10000, // faster polling when task running
+        placeholderData: (previousData) => previousData,
+        refetchInterval: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: false,
     });
 
     const items = data?.items ?? [];
@@ -69,7 +72,10 @@ export function TaskHistoryList({ selectedId, onSelect, activeRunId }: TaskHisto
             </div>
 
             {/* Task List */}
-            <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-1">
+            <div
+                className="flex-1 overflow-y-auto -mx-1 px-1 space-y-1"
+                style={{ scrollbarGutter: 'stable' }}
+            >
                 {isLoading && items.length === 0 && (
                     <FeedbackState type="loading" title="Loading tasks..." />
                 )}

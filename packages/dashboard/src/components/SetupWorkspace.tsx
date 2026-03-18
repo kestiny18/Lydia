@@ -78,13 +78,28 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
   });
 
   const testMutation = useMutation({
-    mutationFn: () => api.testLLM(true),
+    mutationFn: () => api.testLLM(true, {
+      llm: {
+        provider,
+        defaultModel,
+        fallbackOrder,
+        openaiApiKey: openaiApiKey.trim(),
+        anthropicApiKey: anthropicApiKey.trim(),
+        openaiBaseUrl,
+        anthropicBaseUrl,
+        ollamaBaseUrl,
+      },
+    }),
   });
 
   const setupReady = Boolean(setupStatus?.ready);
-  const llmConfigured = Boolean(setupStatus?.llmConfigured);
-  const currentProvider = setupStatus?.provider || provider;
+  const llmConfigured = Boolean(setupStatus?.llmConfigured);  const savedProvider = setupConfig?.llm?.provider || setupStatus?.provider || 'auto';
   const canRun = setupReady && llmConfigured;
+  const isAuto = provider === 'auto';
+  const isOpenAI = provider === 'openai';
+  const isAnthropic = provider === 'anthropic';
+  const isOllama = provider === 'ollama';
+  const isMock = provider === 'mock';
 
   const steps = useMemo(() => ([
     { id: 'workspace', title: 'Initialize Workspace', done: setupReady },
@@ -177,68 +192,88 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
                 />
               </label>
               <label className="text-xs text-[color:var(--text-muted)]">
-                Fallback Order (auto mode)
+                {isAuto ? 'Fallback Order (auto mode)' : 'Selected Provider'}
                 <input
-                  value={fallbackOrder.join(',')}
-                  onChange={(e) =>
+                  value={isAuto ? fallbackOrder.join(',') : provider}
+                  onChange={(e) => {
+                    if (!isAuto) return;
                     setFallbackOrder(
                       e.target.value.split(',').map((item) => item.trim()).filter(Boolean)
-                    )
-                  }
-                  placeholder="ollama,openai,anthropic"
+                    );
+                  }}
+                  readOnly={!isAuto}
+                  placeholder={isAuto ? 'ollama,openai,anthropic' : provider}
                   className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
                 />
               </label>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              <label className="text-xs text-[color:var(--text-muted)]">
-                OpenAI API Key
-                <input
-                  type="password"
-                  value={openaiApiKey}
-                  onChange={(e) => setOpenaiApiKey(e.target.value)}
-                  placeholder={setupConfig?.llm?.openaiApiKeyMasked ? `Saved: ${setupConfig.llm.openaiApiKeyMasked}` : 'sk-...'}
-                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
-                />
-              </label>
-              <label className="text-xs text-[color:var(--text-muted)]">
-                Anthropic API Key
-                <input
-                  type="password"
-                  value={anthropicApiKey}
-                  onChange={(e) => setAnthropicApiKey(e.target.value)}
-                  placeholder={setupConfig?.llm?.anthropicApiKeyMasked ? `Saved: ${setupConfig.llm.anthropicApiKeyMasked}` : 'sk-ant-...'}
-                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
-                />
-              </label>
-              <label className="text-xs text-[color:var(--text-muted)]">
-                OpenAI Base URL
-                <input
-                  value={openaiBaseUrl}
-                  onChange={(e) => setOpenaiBaseUrl(e.target.value)}
-                  placeholder="Optional"
-                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
-                />
-              </label>
-              <label className="text-xs text-[color:var(--text-muted)]">
-                Anthropic Base URL
-                <input
-                  value={anthropicBaseUrl}
-                  onChange={(e) => setAnthropicBaseUrl(e.target.value)}
-                  placeholder="Optional"
-                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
-                />
-              </label>
-              <label className="text-xs text-[color:var(--text-muted)] md:col-span-2">
-                Ollama Base URL
-                <input
-                  value={ollamaBaseUrl}
-                  onChange={(e) => setOllamaBaseUrl(e.target.value)}
-                  placeholder="http://localhost:11434/api"
-                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
-                />
-              </label>
+              {(isAuto || isOpenAI) && (
+                <>
+                  <label className="text-xs text-[color:var(--text-muted)]">
+                    OpenAI API Key
+                    <input
+                      type="password"
+                      value={openaiApiKey}
+                      onChange={(e) => setOpenaiApiKey(e.target.value)}
+                      placeholder={setupConfig?.llm?.openaiApiKeyMasked ? `Saved: ${setupConfig.llm.openaiApiKeyMasked}` : 'sk-...'}
+                      className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs text-[color:var(--text-muted)]">
+                    OpenAI Base URL
+                    <input
+                      value={openaiBaseUrl}
+                      onChange={(e) => setOpenaiBaseUrl(e.target.value)}
+                      placeholder="Optional"
+                      className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                </>
+              )}
+
+              {(isAuto || isAnthropic) && (
+                <>
+                  <label className="text-xs text-[color:var(--text-muted)]">
+                    Anthropic API Key
+                    <input
+                      type="password"
+                      value={anthropicApiKey}
+                      onChange={(e) => setAnthropicApiKey(e.target.value)}
+                      placeholder={setupConfig?.llm?.anthropicApiKeyMasked ? `Saved: ${setupConfig.llm.anthropicApiKeyMasked}` : 'sk-ant-...'}
+                      className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs text-[color:var(--text-muted)]">
+                    Anthropic Base URL
+                    <input
+                      value={anthropicBaseUrl}
+                      onChange={(e) => setAnthropicBaseUrl(e.target.value)}
+                      placeholder="Optional"
+                      className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                    />
+                  </label>
+                </>
+              )}
+
+              {(isAuto || isOllama) && (
+                <label className="text-xs text-[color:var(--text-muted)] md:col-span-2">
+                  Ollama Base URL
+                  <input
+                    value={ollamaBaseUrl}
+                    onChange={(e) => setOllamaBaseUrl(e.target.value)}
+                    placeholder="http://localhost:11434/api"
+                    className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                  />
+                </label>
+              )}
+
+              {isMock && (
+                <div className="md:col-span-2 text-xs text-[color:var(--text-muted)] rounded-md border border-[color:var(--line)] bg-[color:var(--surface-subtle)] px-3 py-2">
+                  Mock provider does not require API keys or base URLs.
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -281,7 +316,7 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
               <div className="text-xs text-[color:var(--danger)]">{(testMutation.error as Error).message}</div>
             )}
             <div className="text-xs text-[color:var(--text-muted)]">
-              Current provider: <strong>{currentProvider}</strong>
+              Draft provider: <strong>{provider}</strong> ¡¤ Saved provider: <strong>{savedProvider}</strong>
             </div>
           </div>
         </Panel>
@@ -334,3 +369,4 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
     </div>
   );
 }
+

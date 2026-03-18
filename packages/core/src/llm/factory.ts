@@ -11,6 +11,17 @@ export interface CreateLLMOptions {
   provider?: string;
   /** Override default model */
   model?: string;
+  /** Override config-backed llm settings for draft/testing scenarios */
+  llmOverrides?: {
+    provider?: string;
+    defaultModel?: string;
+    fallbackOrder?: string[];
+    openaiApiKey?: string;
+    anthropicApiKey?: string;
+    openaiBaseUrl?: string;
+    anthropicBaseUrl?: string;
+    ollamaBaseUrl?: string;
+  };
 }
 
 /**
@@ -25,15 +36,19 @@ export interface CreateLLMOptions {
  */
 export async function createLLMFromConfig(options?: CreateLLMOptions): Promise<ILLMProvider> {
   const config = await new ConfigLoader().load();
-  const providerChoice = options?.provider || config.llm?.provider || 'auto';
-  const defaultModel = options?.model || config.llm?.defaultModel || undefined;
-  const openaiApiKey = config.llm?.openaiApiKey || process.env.OPENAI_API_KEY || '';
-  const anthropicApiKey = config.llm?.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '';
-  const openaiBaseUrl = config.llm?.openaiBaseUrl || process.env.OPENAI_BASE_URL || '';
-  const anthropicBaseUrl = config.llm?.anthropicBaseUrl || process.env.ANTHROPIC_BASE_URL || '';
-  const ollamaBaseUrl = config.llm?.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || '';
-  const fallbackOrder = Array.isArray(config.llm?.fallbackOrder) && config.llm.fallbackOrder.length > 0
-    ? config.llm.fallbackOrder
+  const llmConfig = {
+    ...(config.llm || {}),
+    ...(options?.llmOverrides || {}),
+  };
+  const providerChoice = options?.provider || llmConfig.provider || 'auto';
+  const defaultModel = options?.model || llmConfig.defaultModel || undefined;
+  const openaiApiKey = llmConfig.openaiApiKey || process.env.OPENAI_API_KEY || '';
+  const anthropicApiKey = llmConfig.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '';
+  const openaiBaseUrl = llmConfig.openaiBaseUrl || process.env.OPENAI_BASE_URL || '';
+  const anthropicBaseUrl = llmConfig.anthropicBaseUrl || process.env.ANTHROPIC_BASE_URL || '';
+  const ollamaBaseUrl = llmConfig.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || '';
+  const fallbackOrder = Array.isArray(llmConfig.fallbackOrder) && llmConfig.fallbackOrder.length > 0
+    ? llmConfig.fallbackOrder
     : ['ollama', 'openai', 'anthropic'];
 
   const createSingle = (name: string, strict: boolean): ILLMProvider | null => {

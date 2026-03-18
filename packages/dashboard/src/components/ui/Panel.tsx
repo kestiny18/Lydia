@@ -9,6 +9,7 @@ interface PanelProps {
     children: ReactNode;
     tone?: Tone;
     className?: string;
+    contentClassName?: string;
 }
 
 const toneClass: Record<Tone, string> = {
@@ -17,7 +18,15 @@ const toneClass: Record<Tone, string> = {
     accent: 'bg-[color:var(--surface-accent)] border border-[color:var(--line-strong)] shadow-[var(--shadow-soft)]',
 };
 
-export function Panel({ title, subtitle, actions, children, tone = 'default', className = '' }: PanelProps) {
+export function Panel({
+    title,
+    subtitle,
+    actions,
+    children,
+    tone = 'default',
+    className = '',
+    contentClassName = '',
+}: PanelProps) {
     return (
         <section className={`rounded-2xl ${toneClass[tone]} ${className}`}>
             {(title || subtitle || actions) && (
@@ -29,8 +38,7 @@ export function Panel({ title, subtitle, actions, children, tone = 'default', cl
                     {actions && <div>{actions}</div>}
                 </header>
             )}
-            <div className="p-4">{children}</div>
+            <div className={`p-4 ${contentClassName}`.trim()}>{children}</div>
         </section>
     );
 }
-

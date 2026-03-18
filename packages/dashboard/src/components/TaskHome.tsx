@@ -58,10 +58,8 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
     const handleWsMessage = useCallback((msg: WsMessage) => {
         switch (msg.type) {
             case 'connected':
-                if (msg.data?.activeRunId) {
-                    setActiveRunId(msg.data.activeRunId);
-                    setIsRunning(true);
-                }
+                setActiveRunId(msg.data?.activeRunId || null);
+                setIsRunning(Boolean(msg.data?.activeRunId));
                 break;
             case 'task:start':
                 setActiveRunId(msg.data?.runId || null);
@@ -108,11 +106,13 @@ export function TaskHome({ onContinueInChat }: TaskHomeProps) {
             }
             case 'task:complete':
                 setLastResult(msg.data?.result || 'Task completed.');
+                setActiveRunId(null);
                 setIsRunning(false);
                 refreshTaskQueries();
                 break;
             case 'task:error':
                 setError(msg.data?.error || 'Task failed.');
+                setActiveRunId(null);
                 setIsRunning(false);
                 refreshTaskQueries();
                 break;

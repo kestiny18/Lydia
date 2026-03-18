@@ -201,10 +201,117 @@ export function createServer(
 
   // Initialize MemoryManager
   const dbPath = join(homedir(), '.lydia', 'memory.db');
+  const soulPath = join(homedir(), '.lydia', 'Soul.md');
   const memoryManager = options?.memoryManager || new MemoryManager(dbPath);
   const approvalService = new StrategyApprovalService(memoryManager, configLoader);
   const shadowRouter = new ShadowRouter(memoryManager);
   type RoutedStrategy = Awaited<ReturnType<ShadowRouter['selectStrategy']>>;
+
+  type SoulProfile = {
+    userDisplayName?: string;
+    assistantDisplayName?: string;
+    updatedAt?: string;
+  };
+
+  async function readSoulProfile(): Promise<SoulProfile> {
+    try {
+      if (!existsSync(soulPath)) return {};
+      const content = await readFile(soulPath, 'utf-8');
+      const userDisplayName = content.match(/^- User display name: (.+)$/m)?.[1]?.trim();
+      const assistantDisplayName = content.match(/^- Assistant display name: (.+)$/m)?.[1]?.trim();
+      const updatedAt = content.match(/^- Updated at: (.+)$/m)?.[1]?.trim();
+      return {
+        userDisplayName: userDisplayName || undefined,
+        assistantDisplayName: assistantDisplayName || undefined,
+        updatedAt: updatedAt || undefined,
+      };
+    } catch {
+      return {};
+    }
+  }
+
+  async function writeSoulProfile(profile: SoulProfile): Promise<void> {
+    const next: SoulProfile = {
+      ...profile,
+      assistantDisplayName: profile.assistantDisplayName || 'Lydia',
+      updatedAt: new Date().toISOString(),
+    };
+    const content = [
+      '# Soul',
+      '',
+      'Core identity notes for Lydia chat.',
+      '',
+      '## Identity',
+      `- User display name: ${next.userDisplayName || ''}`,
+      `- Assistant display name: ${next.assistantDisplayName}`,
+      `- Updated at: ${next.updatedAt}`,
+      '',
+    ].join('\n');
+    await writeFile(soulPath, content, 'utf-8');
+  }
+
+  function normalizeSoulName(value: string | undefined): string | undefined {
+    if (!value) return undefined;
+    const cleaned = value
+      .replace(/[*`"'“”‘’<>]/g, '')
+      .replace(/[。！!,.，~～：:]+$/g, '')
+      .replace(/^(叫|是)/, '')
+      .replace(/了$/g, '')
+      .trim();
+    if (!cleaned || cleaned.length > 24) return undefined;
+    return cleaned;
+  }
+
+  function inferSoulFromMessage(message: string): Partial<SoulProfile> {
+    const userPatterns = [
+      /(?:从现在起|以后)?我(?:就)?叫\s*[:：]?\s*([^\n，。,.!！]+)/i,
+      /(?:从现在起|以后)?我(?:就)?是\s*[:：]?\s*([^\n，。,.!！]+)/i,
+      /(?:从现在起|以后)?(?:你|您)(?:可以|就)?叫我\s*[:：]?\s*([^\n，。,.!！]+)/i,
+      /(?:请|就)?称呼我\s*[:：]?\s*([^\n，。,.!！]+)/i,
+      /\bcall me\s+([a-zA-Z][a-zA-Z0-9 _-]{0,23})/i,
+    ];
+    const assistantPatterns = [
+      /(?:你|您)(?:以后|就)?叫\s*[:：]?\s*([^\n，。,.!！]+)/i,
+      /(?:你的名字是|你叫)\s*[:：]?\s*([^\n，。,.!！]+)/i,
+      /\byour name is\s+([a-zA-Z][a-zA-Z0-9 _-]{0,23})/i,
+    ];
+
+    let userDisplayName: string | undefined;
+    let assistantDisplayName: string | undefined;
+
+    for (const pattern of userPatterns) {
+      const value = normalizeSoulName(message.match(pattern)?.[1]);
+      if (value) {
+        userDisplayName = value;
+        break;
+      }
+    }
+
+    for (const pattern of assistantPatterns) {
+      const value = normalizeSoulName(message.match(pattern)?.[1]);
+      if (value) {
+        assistantDisplayName = value;
+        break;
+      }
+    }
+
+    return { userDisplayName, assistantDisplayName };
+  }
+
+  async function updateSoulFromMessage(message: string): Promise<SoulProfile> {
+    const current = await readSoulProfile();
+    const inferred = inferSoulFromMessage(message);
+    if (!inferred.userDisplayName && !inferred.assistantDisplayName) {
+      return current;
+    }
+
+    await writeSoulProfile({
+      userDisplayName: inferred.userDisplayName || current.userDisplayName,
+      assistantDisplayName: inferred.assistantDisplayName || current.assistantDisplayName || 'Lydia',
+    });
+
+    return readSoulProfile();
+  }
 
   async function createRoutedAgent(llm: any): Promise<{ agent: Agent; routedStrategy: RoutedStrategy }> {
     const currentConfig = await configLoader.load();
@@ -339,6 +446,15 @@ export function createServer(
     } catch (error: any) {
       return c.json({ error: error?.message || 'Failed to initialize workspace.' }, 500);
     }
+  });
+
+  app.get('/api/soul', async (c) => {
+    const soul = await readSoulProfile();
+    return c.json({
+      userDisplayName: soul.userDisplayName,
+      assistantDisplayName: soul.assistantDisplayName || 'Lydia',
+      updatedAt: soul.updatedAt,
+    });
   });
 
   app.get('/api/setup/config', async (c) => {
@@ -481,9 +597,33 @@ export function createServer(
       body = {};
     }
     const probe = Boolean(body?.probe);
+    const llmInput = body?.llm || {};
+    const testProvider = pickString(llmInput.provider);
+    const testDefaultModel = pickString(llmInput.defaultModel);
+    const testOpenaiApiKey = pickString(llmInput.openaiApiKey);
+    const testAnthropicApiKey = pickString(llmInput.anthropicApiKey);
+    const testOpenaiBaseUrl = pickString(llmInput.openaiBaseUrl);
+    const testAnthropicBaseUrl = pickString(llmInput.anthropicBaseUrl);
+    const testOllamaBaseUrl = pickString(llmInput.ollamaBaseUrl);
+    const testFallbackOrder = Array.isArray(llmInput.fallbackOrder)
+      ? llmInput.fallbackOrder.filter((item: unknown) => typeof item === 'string')
+      : undefined;
 
     try {
-      const llm = await createLLMFromConfig();
+      const llm = await createLLMFromConfig({
+        provider: testProvider,
+        model: testDefaultModel,
+        llmOverrides: {
+          provider: testProvider,
+          defaultModel: testDefaultModel,
+          fallbackOrder: testFallbackOrder,
+          openaiApiKey: Object.prototype.hasOwnProperty.call(llmInput, 'openaiApiKey') ? testOpenaiApiKey : undefined,
+          anthropicApiKey: Object.prototype.hasOwnProperty.call(llmInput, 'anthropicApiKey') ? testAnthropicApiKey : undefined,
+          openaiBaseUrl: testOpenaiBaseUrl,
+          anthropicBaseUrl: testAnthropicBaseUrl,
+          ollamaBaseUrl: testOllamaBaseUrl,
+        },
+      });
       if (probe) {
         const timeoutMs = Number(body?.timeoutMs) > 0 ? Number(body.timeoutMs) : 15000;
         const response = await Promise.race([
@@ -1335,8 +1475,34 @@ export function createServer(
     if (!message) return c.json({ error: 'message is required' }, 400);
 
     try {
-      const response = await session.agent.chat(message);
-      return c.json({ response });
+      await updateSoulFromMessage(message);
+      const handleStreamText = (text: string) => {
+        broadcastWs({ type: 'chat:stream:text', data: { sessionId, text }, timestamp: Date.now() });
+      };
+      const handleStreamThinking = (thinking: string) => {
+        broadcastWs({ type: 'chat:stream:thinking', data: { sessionId, thinking }, timestamp: Date.now() });
+      };
+      const handleMessage = (msg: any) => {
+        broadcastWs({ type: 'chat:message', data: { sessionId, ...msg }, timestamp: Date.now() });
+      };
+      const handleThinking = (thinking: string) => {
+        broadcastWs({ type: 'chat:thinking', data: { sessionId, thinking }, timestamp: Date.now() });
+      };
+
+      session.agent.on('stream:text', handleStreamText);
+      session.agent.on('stream:thinking', handleStreamThinking);
+      session.agent.on('message', handleMessage);
+      session.agent.on('thinking', handleThinking);
+
+      try {
+        const response = await session.agent.chat(message);
+        return c.json({ response });
+      } finally {
+        session.agent.off('stream:text', handleStreamText);
+        session.agent.off('stream:thinking', handleStreamThinking);
+        session.agent.off('message', handleMessage);
+        session.agent.off('thinking', handleThinking);
+      }
     } catch (error: any) {
       return c.json({ error: error.message || 'Chat failed.' }, 500);
     }

@@ -3,6 +3,16 @@ import type { StrategyProposal, TaskHistoryItem, TaskDetail } from '../types';
 const API_BASE = ''; // Relative path, assuming served from same origin
 
 export const api = {
+    async getSoul(): Promise<{
+        userDisplayName?: string;
+        assistantDisplayName?: string;
+        updatedAt?: string;
+    }> {
+        const res = await fetch(`${API_BASE}/api/soul`);
+        if (!res.ok) throw new Error('Failed to fetch soul profile');
+        return res.json();
+    },
+
     async getSetupStatus(): Promise<{
         ready: boolean;
         configPath: string;
@@ -54,11 +64,25 @@ export const api = {
         return res.json();
     },
 
-    async testLLM(probe = false): Promise<any> {
+    async testLLM(
+        probe = false,
+        payload?: {
+            llm?: {
+                provider?: string;
+                defaultModel?: string;
+                fallbackOrder?: string[];
+                openaiApiKey?: string;
+                anthropicApiKey?: string;
+                openaiBaseUrl?: string;
+                anthropicBaseUrl?: string;
+                ollamaBaseUrl?: string;
+            };
+        }
+    ): Promise<any> {
         const res = await fetch(`${API_BASE}/api/setup/test-llm`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ probe }),
+            body: JSON.stringify({ probe, ...(payload || {}) }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || data?.ok === false) {

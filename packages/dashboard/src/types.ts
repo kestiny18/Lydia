@@ -146,6 +146,10 @@ export interface WsMessage {
 
 export type AgentEventType =
     | 'connected'
+    | 'chat:stream:text'
+    | 'chat:stream:thinking'
+    | 'chat:message'
+    | 'chat:thinking'
     | 'task:start'
     | 'task:resume'
     | 'task:complete'
