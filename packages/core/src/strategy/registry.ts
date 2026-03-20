@@ -142,6 +142,8 @@ export class StrategyRegistry {
       // User Home
       path.join(os.homedir(), '.lydia', 'strategies', 'default.yml'),
       // Package Built-in
+      path.resolve(__dirname, '../strategies/base-v1.yml'),
+      // Package Built-in (older path assumption)
       path.resolve(__dirname, '../../strategies/base-v1.yml'),
       // Package Built-in (dev/src)
       path.resolve(__dirname, '../../../strategies/base-v1.yml')
