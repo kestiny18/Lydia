@@ -12,7 +12,7 @@ export class ShellServer {
     this.server = new Server(
       {
         name: "internal-shell",
-        version: "0.1.0",
+        version: "0.1.1",
       },
       {
         capabilities: {

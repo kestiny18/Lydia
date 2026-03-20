@@ -1,6 +1,6 @@
 {
   "name": "@lydia-agent/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lydia Core Strategy Engine",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",

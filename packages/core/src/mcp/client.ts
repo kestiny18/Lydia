@@ -38,7 +38,7 @@ export class McpClientManager {
     const client = new Client(
       {
         name: "lydia-client",
-        version: "0.1.0",
+        version: "0.1.1",
       },
       {
         capabilities: {

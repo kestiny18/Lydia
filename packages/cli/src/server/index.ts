@@ -418,7 +418,7 @@ export function createServer(
   app.get('/api/status', (c) => {
     return c.json({
       status: 'ok',
-      version: '0.1.0',
+      version: '0.1.1',
       pid: process.pid,
       host: DEFAULT_HOST,
       port,
