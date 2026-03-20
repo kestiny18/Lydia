@@ -2,9 +2,9 @@
   "name": "@lydia-agent/cli",
   "version": "0.1.0",
   "description": "Lydia Command Line Interface",
-  "main": "./dist/index.js",
+  "main": "dist/index.js",
   "bin": {
-    "lydia": "./dist/index.js"
+    "lydia": "dist/index.js"
   },
   "type": "module",
   "files": [
