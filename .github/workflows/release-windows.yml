@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: Release version to embed in the installer (for example 0.1.1)
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -41,7 +46,11 @@ jobs:
       - name: Build installer
         shell: powershell
         run: |
-          $env:LYDIA_VERSION = "${{ github.ref_name }}".TrimStart('v')
+          $version = "${{ github.event.inputs.release_version }}"
+          if (-not $version) {
+            $version = "${{ github.ref_name }}".TrimStart('v')
+          }
+          $env:LYDIA_VERSION = $version
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "build\windows\Lydia.iss"
 
       - name: Upload GitHub release assets

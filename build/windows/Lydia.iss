@@ -11,7 +11,7 @@ AppVersion={#MyAppVersion}
 AppPublisher=Lydia
 DefaultDirName={localappdata}\Programs\Lydia
 DefaultGroupName=Lydia
-OutputDir=build\windows\out
+OutputDir=out
 OutputBaseFilename=Lydia-Setup-{#MyAppVersion}
 Compression=lzma
 SolidCompression=yes
@@ -23,7 +23,7 @@ DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\lydia-dashboard.cmd
 
 [Files]
-Source: ".release\windows\bundle\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\..\.release\windows\bundle\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\Open Lydia"; Filename: "{app}\lydia-dashboard.cmd"
