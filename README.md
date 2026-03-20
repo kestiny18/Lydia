@@ -43,69 +43,68 @@ Lydia is a local-first assistant that treats strategy evolution as a first-class
 
 ## Quick Start
 
-### Option A: One-Click Scripts (Internal Alpha)
-
-These scripts install the CLI (via npm), run `lydia init`, and optionally start the dashboard.
-
-- macOS/Linux/WSL:
-  - `curl -fsSL https://raw.githubusercontent.com/kestiny18/Lydia/main/scripts/install.sh | bash`
-- Windows PowerShell:
-  - `irm https://raw.githubusercontent.com/kestiny18/Lydia/main/scripts/install.ps1 | iex`
-
-Notes:
-- Requires Node.js 18+.
-- If `@lydia/cli` is not yet published, the scripts fall back to building/installing from source (slower).
-
-### Option B: From Source (Recommended for Now)
+### Option A: Developer Install
 
 ```bash
-# Clone the repo
+npm install -g @lydia-agent/cli
+lydia init
+lydia start
+lydia dashboard
+```
+
+Or with pnpm:
+
+```bash
+pnpm add -g @lydia-agent/cli
+lydia init
+lydia start
+lydia dashboard
+```
+
+Common lifecycle commands:
+
+```bash
+lydia status
+lydia stop
+lydia restart
+lydia doctor
+```
+
+Default local URL:
+- `http://127.0.0.1:15536`
+
+### Option B: Windows Installer
+
+Download the latest Windows installer from GitHub Releases:
+
+- `Lydia-Setup-<version>.exe`
+
+The installer:
+- Bundles the local runtime
+- Registers Lydia to auto-start for the current user
+- Starts the local service on `127.0.0.1:15536`
+- Opens the browser-based dashboard
+
+### Option C: Install Script
+
+```bash
+curl -fsSL https://github.com/kestiny18/Lydia/releases/latest/download/install.sh | bash
+```
+
+```powershell
+irm https://github.com/kestiny18/Lydia/releases/latest/download/install.ps1 | iex
+```
+
+### Option D: From Source
+
+```bash
 git clone https://github.com/kestiny18/Lydia.git
 cd Lydia
-
-# Install dependencies
 pnpm install
-
-# Build
 pnpm build
-
-# Initialize local state
-pnpm tsx packages/cli/src/index.ts init
-```
-
-Run your first task:
-```bash
-pnpm tsx packages/cli/src/index.ts run "check git status"
-```
-
-Start an interactive chat session:
-```bash
-pnpm tsx packages/cli/src/index.ts chat
-```
-
-Launch the dashboard (with real-time WebSocket):
-```bash
-pnpm tsx packages/cli/src/index.ts dashboard
-```
-
-First-time dashboard use:
-- Open the `Setup` workspace.
-- Initialize local workspace.
-- Configure provider/API key and run LLM connectivity test.
-
-Manage skills:
-```bash
-# List all loaded skills
-pnpm tsx packages/cli/src/index.ts skills list
-
-# Install a community skill from GitHub
-pnpm tsx packages/cli/src/index.ts skills install github:user/repo/path/to/skill.md
-
-# Show skill details
-pnpm tsx packages/cli/src/index.ts skills info git-commit
-
-# Remove an installed skill
-pnpm tsx packages/cli/src/index.ts skills remove my-skill
+node packages/cli/dist/index.js init
+node packages/cli/dist/index.js start
+node packages/cli/dist/index.js dashboard --no-open
 ```
 
 ---

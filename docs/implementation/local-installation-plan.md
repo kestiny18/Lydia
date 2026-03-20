@@ -6,12 +6,12 @@ and starts the dashboard for first-time users.
 
 ## Phase L1: Release Readiness (Week 1)
 Deliverables:
-1. Confirm CLI package name and publish target (`@lydia/cli`).
+1. Confirm CLI package name and publish target (`@lydia-agent/cli`).
 2. Ensure `dist/` is included in the published package.
 3. Document supported Node versions (>= 18).
 
 Exit Criteria:
-- `npm install -g @lydia/cli` works on a clean machine.
+- `npm install -g @lydia-agent/cli` works on a clean machine.
 - `lydia --help` runs after install.
 
 ## Phase L2: Script Authoring (Week 1)

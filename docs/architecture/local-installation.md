@@ -35,7 +35,7 @@ directly from the repo:
 
 ### Install Strategy (Phase A)
 Default installation is a global npm install of the published CLI package:
-- `npm install -g @lydia/cli@<version>`
+- `npm install -g @lydia-agent/cli@<version>`
 
 The CLI package must ship with prebuilt `dist/` so end users do not run TypeScript builds.
 
@@ -44,7 +44,7 @@ The CLI package must ship with prebuilt `dist/` so end users do not run TypeScri
 2. Verify Node.js >= 18 is installed.
    - If missing or too old, print guidance and exit.
    - Optional flag `--install-node` reserved for future automation.
-3. Install `@lydia/cli` globally with npm.
+3. Install `@lydia-agent/cli` globally with npm.
 4. Ensure global npm bin directory is on PATH.
    - Print instructions if missing.
 5. Run `lydia init` (unless `--no-init`).
@@ -55,7 +55,7 @@ The CLI package must ship with prebuilt `dist/` so end users do not run TypeScri
 1. Detect OS and PowerShell version.
 2. Verify Node.js >= 18 is installed.
    - If missing or too old, print guidance and exit.
-3. Install `@lydia/cli` globally with npm.
+3. Install `@lydia-agent/cli` globally with npm.
 4. Ensure `%AppData%\\npm` (or `npm prefix -g` + `\\bin`) is on PATH.
 5. Run `lydia init` (unless `--NoInit`).
 6. Optionally run `lydia dashboard` (unless `--NoStart`).
@@ -76,7 +76,7 @@ Common flags (Phase A):
 
 ### Uninstall
 Document the uninstall steps:
-- `npm uninstall -g @lydia/cli`
+- `npm uninstall -g @lydia-agent/cli`
 - Optional: remove `~/.lydia` if you want to wipe local state.
 
 ### Integration Points
