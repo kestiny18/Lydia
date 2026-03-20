@@ -240,6 +240,14 @@ export function assessRisk(
   if (toolName === 'shell_execute') {
     const command = typeof args?.command === 'string' ? args.command : '';
     if (command && (isDestructiveShellCommand(command) || isPermissionChangeCommand(command))) {
+      if (isPermissionChangeCommand(command)) {
+        return {
+          level: 'high',
+          reason: 'Permission change shell command',
+          signature: `shell_permission:${command.toLowerCase().slice(0, 80)}`,
+          details: command,
+        };
+      }
       const targets = extractPathsFromCommand(command);
       const hasTraversal = hasRelativePathTraversal(command);
       if (targets.length === 0 || hasTraversal) {

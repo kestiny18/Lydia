@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { ObservationFrame } from '../computer-use/runtime-contract.js';
 
 export interface Fact {
@@ -145,6 +147,7 @@ export class MemoryManager extends EventEmitter {
 
   constructor(dbPath: string, options: MemoryManagerOptions = {}) {
     super();
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     this.db = new Database(dbPath);
     this.checkpointTtlMs = options.checkpointTtlMs ?? (24 * 60 * 60 * 1000);
     this.observationFrameTtlMs = options.observationFrameTtlMs ?? (24 * 7 * 60 * 60 * 1000);
