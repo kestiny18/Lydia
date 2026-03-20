@@ -53,9 +53,20 @@ jobs:
           $env:LYDIA_VERSION = $version
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "build\windows\Lydia.iss"
 
+      - name: Resolve release tag
+        id: release_tag
+        shell: bash
+        run: |
+          version="${{ github.event.inputs.release_version }}"
+          if [ -z "$version" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
       - name: Upload GitHub release assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
           generate_release_notes: true
           files: |
             build/windows/out/*.exe
