@@ -1,11 +1,17 @@
 {
-  "name": "@lydia/shared",
+  "name": "@lydia-agent/shared",
   "version": "0.1.0",
   "description": "Shared utilities and types for Lydia",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "type": "module",
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format cjs,esm --dts",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch",

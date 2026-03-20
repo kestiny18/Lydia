@@ -1,22 +1,31 @@
 {
-  "name": "@lydia/core",
+  "name": "@lydia-agent/core",
   "version": "0.1.0",
   "description": "Lydia Core Strategy Engine",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "type": "module",
+  "files": [
+    "dist",
+    "skills",
+    "strategies"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --tsconfig tsconfig.json --shims",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --tsconfig tsconfig.json --shims",
+    "build": "tsup src/index.ts --format cjs,esm --dts --tsconfig tsconfig.json --shims --external better-sqlite3",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch --tsconfig tsconfig.json --shims --external better-sqlite3",
     "test": "vitest run --passWithNoTests",
     "lint": "biome check .",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.73.0",
-    "@lydia/shared": "workspace:*",
+    "@lydia-agent/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^0.6.0",
+    "better-sqlite3": "^12.6.2",
     "openai": "^4.0.0",
     "simple-git": "^3.30.0",
     "yaml": "^2.3.4",
@@ -24,7 +33,6 @@
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.9",
-    "better-sqlite3": "^12.6.2",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
     "vitest": "^1.2.2"

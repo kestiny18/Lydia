@@ -1,5 +1,5 @@
 import { Command } from 'commander';
-import { ReviewManager, StrategyBranchManager } from '@lydia/core';
+import { ReviewManager, StrategyBranchManager } from '@lydia-agent/core';
 import inquirer from 'inquirer';
 import chalk from 'chalk';
 

@@ -1,24 +1,36 @@
 {
-  "name": "@lydia/cli",
+  "name": "@lydia-agent/cli",
   "version": "0.1.0",
   "description": "Lydia Command Line Interface",
+  "main": "./dist/index.js",
   "bin": {
     "lydia": "./dist/index.js"
   },
   "type": "module",
+  "files": [
+    "dist",
+    "public"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --clean",
-    "dev": "tsup src/index.ts --format esm --watch",
+    "build": "tsup src/index.ts --format esm --clean --external dotenv --external @lydia-agent/core --external @lydia-agent/shared --external commander --external chalk --external ora --external open --external ws --external zod --external enquirer --external inquirer --external hono --external @hono/node-server --external @hono/node-ws",
+    "dev": "tsup src/index.ts --format esm --watch --external dotenv --external @lydia-agent/core --external @lydia-agent/shared --external commander --external chalk --external ora --external open --external ws --external zod --external enquirer --external inquirer --external hono --external @hono/node-server --external @hono/node-ws",
     "test": "vitest run --passWithNoTests",
     "lint": "biome check .",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
-    "@lydia/core": "workspace:*",
-    "@lydia/shared": "workspace:*",
+    "@hono/node-server": "^1.19.9",
+    "@hono/node-ws": "^1.3.0",
+    "@lydia-agent/core": "workspace:*",
+    "@lydia-agent/shared": "workspace:*",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
+    "dotenv": "^17.2.4",
     "enquirer": "^2.4.1",
+    "hono": "^4.11.8",
     "inquirer": "^13.2.2",
     "ora": "^8.0.1",
     "ws": "^8.19.0",

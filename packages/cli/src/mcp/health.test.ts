@@ -4,7 +4,7 @@ const connectMock = vi.fn();
 const closeAllMock = vi.fn();
 const getToolsMock = vi.fn();
 
-vi.mock('@lydia/core', () => {
+vi.mock('@lydia-agent/core', () => {
   class MockMcpClientManager {
     connect = connectMock;
     closeAll = closeAllMock;
@@ -66,4 +66,3 @@ describe('checkMcpServer', () => {
     expect(result.error).toContain('Timeout');
   });
 });
-

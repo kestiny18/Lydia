@@ -1,4 +1,4 @@
-import { Agent, AnthropicProvider } from '@lydia/core';
+import { Agent, AnthropicProvider } from '@lydia-agent/core';
 import { join } from 'node:path';
 import { mkdir, rm, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';

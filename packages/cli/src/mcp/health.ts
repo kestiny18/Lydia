@@ -1,4 +1,4 @@
-import { McpClientManager } from '@lydia/core';
+import { McpClientManager } from '@lydia-agent/core';
 
 export interface McpCheckTarget {
   id: string;
@@ -100,4 +100,3 @@ export async function checkMcpServers(
   }
   return results;
 }
-

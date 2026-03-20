@@ -9,7 +9,7 @@ import {
   StrategyApprovalService,
   ShadowRouter,
   createLLMFromConfig,
-} from '@lydia/core';
+} from '@lydia-agent/core';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
@@ -19,6 +19,8 @@ import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { WSContext } from 'hono/ws';
 import { checkMcpServers } from '../mcp/health.js';
+import { DEFAULT_HOST, DEFAULT_PORT } from '../service/constants.js';
+import { getBaseUrl, getLydiaPaths } from '../service/runtime.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -53,12 +55,14 @@ interface AuthRuntimeState {
 }
 
 function getSetupPaths() {
-  const baseDir = join(homedir(), '.lydia');
-  const strategiesDir = join(baseDir, 'strategies');
-  const skillsDir = join(baseDir, 'skills');
-  const configPath = join(baseDir, 'config.json');
-  const strategyPath = join(strategiesDir, 'default.yml');
-  return { baseDir, strategiesDir, skillsDir, configPath, strategyPath };
+  const paths = getLydiaPaths();
+  return {
+    baseDir: paths.baseDir,
+    strategiesDir: paths.strategiesDir,
+    skillsDir: paths.skillsDir,
+    configPath: paths.configPath,
+    strategyPath: paths.strategyPath,
+  };
 }
 
 function maskSecret(value?: string): string {
@@ -107,7 +111,7 @@ async function ensureLocalWorkspace() {
 }
 
 export function createServer(
-  port: number = 3000,
+  port: number = DEFAULT_PORT,
   options?: { silent?: boolean; memoryManager?: MemoryManager }
 ) {
   const app = new Hono();
@@ -415,6 +419,12 @@ export function createServer(
     return c.json({
       status: 'ok',
       version: '0.1.0',
+      pid: process.pid,
+      host: DEFAULT_HOST,
+      port,
+      baseUrl: getBaseUrl(port, DEFAULT_HOST),
+      uptimeMs: Math.round(process.uptime() * 1000),
+      startedAt: new Date(Date.now() - Math.round(process.uptime() * 1000)).toISOString(),
       memory_db: dbPath
     });
   });
@@ -1677,8 +1687,15 @@ export function createServer(
   // In dev/monorepo, we might need to point to packages/dashboard/dist
   // In production build, we assume it's copied to ../public or similar.
 
-  // For this MVP, let's assume we will build dashboard to packages/cli/public
-  const publicDir = join(__dirname, '../../public');
+  // Support both source execution (src/server -> ../../public) and bundled CLI output
+  // (dist -> ../public) so the dashboard works after npm install/deploy.
+  const publicDirCandidates = [
+    join(process.cwd(), 'packages', 'cli', 'public'),
+    join(process.cwd(), 'public'),
+    join(__dirname, '../public'),
+    join(__dirname, '../../public'),
+  ];
+  const publicDir = publicDirCandidates.find((candidate) => existsSync(candidate)) || publicDirCandidates[0];
 
   app.get('/*', async (c) => {
     const path = c.req.path === '/' ? '/index.html' : c.req.path;
@@ -1721,6 +1738,7 @@ export function createServer(
         port
       });
       injectWebSocket(server);
+      return server;
     }
   };
 }

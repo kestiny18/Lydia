@@ -4,23 +4,17 @@
  * The server is the single execution layer. The CLI is just a presentation
  * layer that talks to the server via HTTP + WebSocket.
  */
-import chalk from 'chalk';
-import { createServer } from './server/index.js';
-
-const DEFAULT_PORT = 3000;
-const MAX_RETRIES = 20;
-const RETRY_DELAY_MS = 300;
-
-let serverStarted = false;
+import { DEFAULT_HOST, DEFAULT_PORT } from './service/constants.js';
+import { ensureServiceStarted } from './service/manager.js';
 
 /** Get the base URL for the server */
 export function getServerUrl(port?: number): string {
-  return `http://localhost:${port || DEFAULT_PORT}`;
+  return `http://${DEFAULT_HOST}:${port || DEFAULT_PORT}`;
 }
 
 /** Get the WebSocket URL for the server */
 export function getWsUrl(port?: number): string {
-  return `ws://localhost:${port || DEFAULT_PORT}/ws`;
+  return `ws://${DEFAULT_HOST}:${port || DEFAULT_PORT}/ws`;
 }
 
 /** Check if the server is reachable */
@@ -41,37 +35,8 @@ export async function isServerRunning(port?: number): Promise<boolean> {
  */
 export async function ensureServer(port?: number): Promise<number> {
   const p = port || DEFAULT_PORT;
-
-  if (await isServerRunning(p)) {
-    return p;
-  }
-
-  if (serverStarted) {
-    // Already tried to start, wait a bit more
-    await waitForServer(p);
-    return p;
-  }
-
-  // Start server in-process (non-blocking, silent output)
-  serverStarted = true;
-  const server = createServer(p, { silent: true });
-  server.start();
-
-  // Wait until server is ready
-  await waitForServer(p);
+  await ensureServiceStarted(p);
   return p;
-}
-
-async function waitForServer(port: number): Promise<void> {
-  for (let i = 0; i < MAX_RETRIES; i++) {
-    if (await isServerRunning(port)) return;
-    await sleep(RETRY_DELAY_MS);
-  }
-  throw new Error(`Server failed to start on port ${port} after ${MAX_RETRIES * RETRY_DELAY_MS}ms`);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildAuthHeaders(base: Record<string, string> = {}): Record<string, string> {

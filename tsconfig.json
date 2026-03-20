@@ -17,9 +17,9 @@
     "rootDir": ".",
     "baseUrl": ".",
     "paths": {
-      "@lydia/core": ["./packages/core/src"],
-      "@lydia/cli": ["./packages/cli/src"],
-      "@lydia/shared": ["./packages/shared/src"]
+      "@lydia-agent/core": ["./packages/core/src"],
+      "@lydia-agent/cli": ["./packages/cli/src"],
+      "@lydia-agent/shared": ["./packages/shared/src"]
     }
   },
   "exclude": ["node_modules", "dist", "**/*.spec.ts", "**/*.test.ts"]

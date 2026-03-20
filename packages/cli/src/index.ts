@@ -3,7 +3,7 @@ import 'dotenv/config';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { ReplayManager, StrategyRegistry, StrategyReviewer, StrategyApprovalService, ShadowRouter, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, resolveCanonicalComputerUseToolName } from '@lydia/core';
+import { ReplayManager, StrategyRegistry, StrategyReviewer, StrategyApprovalService, ShadowRouter, ConfigLoader, MemoryManager, BasicStrategyGate, StrategyUpdateGate, resolveCanonicalComputerUseToolName } from '@lydia-agent/core';
 import { readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +18,9 @@ import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
 import { reviewCommand } from './commands/review.js';
 import { checkMcpServers, type McpCheckTarget } from './mcp/health.js';
+import { DEFAULT_HOST, DEFAULT_PORT } from './service/constants.js';
+import { getBaseUrl, initLocalWorkspace, writeServiceState } from './service/runtime.js';
+import { getServiceStatus, startService, stopService } from './service/manager.js';
 
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -65,12 +68,140 @@ async function main() {
     .version(version);
 
   program
+    .command('serve')
+    .description('Run the Lydia local service')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
+    .option('--host <host>', 'Server host', DEFAULT_HOST)
+    .action(async (options) => {
+      const port = parseInt(options.port, 10) || DEFAULT_PORT;
+      const host = String(options.host || DEFAULT_HOST);
+      await initLocalWorkspace();
+      const server = createServer(port);
+      server.start();
+      await writeServiceState({
+        pid: process.pid,
+        port,
+        host,
+        baseUrl: getBaseUrl(port, host),
+        startedAt: new Date().toISOString(),
+        version,
+      });
+    });
+
+  program
+    .command('start')
+    .description('Start the Lydia local service')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
+    .action(async (options) => {
+      const port = parseInt(options.port, 10) || DEFAULT_PORT;
+      const status = await startService({ port, version });
+      console.log(chalk.green(`Lydia service running at ${status.baseUrl}`));
+      if (status.pid) {
+        console.log(chalk.dim(`pid=${status.pid}`));
+      }
+    });
+
+  program
+    .command('stop')
+    .description('Stop the Lydia local service')
+    .action(async () => {
+      const status = await stopService();
+      console.log(chalk.green(status.reason || 'Service stopped.'));
+    });
+
+  program
+    .command('restart')
+    .description('Restart the Lydia local service')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
+    .action(async (options) => {
+      await stopService();
+      const port = parseInt(options.port, 10) || DEFAULT_PORT;
+      const status = await startService({ port, version });
+      console.log(chalk.green(`Lydia service restarted at ${status.baseUrl}`));
+      if (status.pid) {
+        console.log(chalk.dim(`pid=${status.pid}`));
+      }
+    });
+
+  program
+    .command('status')
+    .description('Show Lydia service status')
+    .action(async () => {
+      const status = await getServiceStatus();
+      const stateText = status.healthy
+        ? chalk.green('healthy')
+        : status.running
+          ? chalk.yellow('starting')
+          : chalk.red('stopped');
+      console.log(`Service: ${stateText}`);
+      console.log(`URL: ${status.baseUrl}`);
+      if (status.pid) console.log(`PID: ${status.pid}`);
+      if (status.version) console.log(`Version: ${status.version}`);
+      if (status.startedAt) console.log(`Started: ${status.startedAt}`);
+      if (status.reason) console.log(chalk.dim(status.reason));
+    });
+
+  program
+    .command('doctor')
+    .description('Run local health checks for Lydia')
+    .action(async () => {
+      const checks: Array<{ name: string; ok: boolean; detail: string }> = [];
+      const init = await initLocalWorkspace();
+      const config = await new ConfigLoader().load();
+      const service = await getServiceStatus();
+      checks.push({
+        name: 'Workspace',
+        ok: true,
+        detail: init.paths.baseDir,
+      });
+      checks.push({
+        name: 'Config',
+        ok: fs.existsSync(init.paths.configPath),
+        detail: init.paths.configPath,
+      });
+      checks.push({
+        name: 'Strategy',
+        ok: fs.existsSync(init.paths.strategyPath),
+        detail: init.paths.strategyPath,
+      });
+      checks.push({
+        name: 'Service',
+        ok: service.healthy,
+        detail: service.healthy ? service.baseUrl : (service.reason || service.baseUrl),
+      });
+      checks.push({
+        name: 'LLM Provider',
+        ok: Boolean(config.llm.provider),
+        detail: config.llm.provider || 'auto',
+      });
+      checks.push({
+        name: 'API Keys',
+        ok: Boolean(
+          config.llm.openaiApiKey ||
+          config.llm.anthropicApiKey ||
+          process.env.OPENAI_API_KEY ||
+          process.env.ANTHROPIC_API_KEY
+        ),
+        detail: 'OpenAI/Anthropic key configured',
+      });
+
+      for (const check of checks) {
+        const icon = check.ok ? chalk.green('*') : chalk.red('x');
+        console.log(`${icon} ${check.name}: ${check.detail}`);
+      }
+
+      if (checks.some((check) => !check.ok)) {
+        process.exitCode = 1;
+      }
+    });
+
+  program
     .command('run')
     .description('Execute a task')
     .argument('<task>', 'The task description')
     .option('-m, --model <model>', 'Override default model')
     .option('-p, --provider <provider>', 'LLM provider (anthropic|openai|ollama|mock|auto)')
-    .option('--port <number>', 'Server port', '3000')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
     .action(async (taskDescription, options) => {
       console.log(chalk.bold.blue('\nLydia is starting...\n'));
 
@@ -193,7 +324,7 @@ async function main() {
   program
     .command('chat')
     .description('Start an interactive chat session with Lydia')
-    .option('--port <number>', 'Server port', '3000')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
     .action(async (options) => {
       console.log(chalk.bold.blue('\nLydia Chat Mode\n'));
       console.log(chalk.dim('Commands: /exit, /reset, /tasks, /task <id>, /help'));
@@ -353,14 +484,12 @@ async function main() {
   program
     .command('dashboard')
     .description('Launch the Web Dashboard')
-    .option('-p, --port <number>', 'Port to run on', '3000')
+    .option('-p, --port <number>', 'Port to run on', String(DEFAULT_PORT))
     .option('--no-open', 'Do not open browser automatically')
     .action(async (options) => {
-      const port = parseInt(options.port, 10);
-      const server = createServer(port);
-      server.start();
-
-      const url = `http://localhost:${port}`;
+      const port = parseInt(options.port, 10) || DEFAULT_PORT;
+      const status = await startService({ port, version });
+      const url = status.baseUrl;
       console.log(chalk.green(`\n Dashboard running at: ${chalk.bold(url)}\n`));
 
       if (options.open) {
@@ -519,45 +648,14 @@ async function main() {
     .command('init')
     .description('Initialize Lydia config, strategy, and folders')
     .action(async () => {
-      const home = os.homedir();
-      const baseDir = path.join(home, '.lydia');
-      const strategiesDir = path.join(baseDir, 'strategies');
-      const skillsDir = path.join(baseDir, 'skills');
-      const configPath = path.join(baseDir, 'config.json');
-      const strategyPath = path.join(strategiesDir, 'default.yml');
-
       try {
-        await fsPromises.mkdir(strategiesDir, { recursive: true });
-        await fsPromises.mkdir(skillsDir, { recursive: true });
-
-        if (!fs.existsSync(configPath)) {
-          const loader = new ConfigLoader();
-          const config = await loader.load();
-          await fsPromises.writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8');
-          console.log(chalk.green(`Created config: ${configPath}`));
-        } else {
-          console.log(chalk.gray(`Config already exists: ${configPath}`));
+        const result = await initLocalWorkspace();
+        for (const filePath of result.created) {
+          console.log(chalk.green(`Created: ${filePath}`));
         }
-
-        if (!fs.existsSync(strategyPath)) {
-          const registry = new StrategyRegistry();
-          const strategy = await registry.loadDefault();
-          const initial = {
-            ...strategy,
-            metadata: {
-              ...strategy.metadata,
-              id: 'default',
-              version: '1.0.0',
-              name: 'Default Strategy',
-              description: 'Baseline strategy for safe execution.',
-            }
-          };
-          await registry.saveToFile(initial, strategyPath);
-          console.log(chalk.green(`Created strategy: ${strategyPath}`));
-        } else {
-          console.log(chalk.gray(`Strategy already exists: ${strategyPath}`));
+        for (const filePath of result.existing) {
+          console.log(chalk.gray(`Exists: ${filePath}`));
         }
-
         console.log(chalk.green('Lydia initialization complete.'));
       } catch (error: any) {
         console.error(chalk.red('Initialization failed:'), error.message);
@@ -1069,7 +1167,7 @@ async function main() {
     .option('-n, --limit <limit>', 'Max number of tasks', '20')
     .option('--status <status>', 'Filter by status (running|completed|failed)')
     .option('-s, --search <query>', 'Search tasks by keyword')
-    .option('--port <number>', 'Server port', '3000')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
     .action(async (options) => {
       try {
         const port = await ensureServer(parseInt(options.port, 10));
@@ -1116,7 +1214,7 @@ async function main() {
     .command('show')
     .description('Show detailed information about a task')
     .argument('<id>', 'Task ID (e.g., report-5 or run-...)')
-    .option('--port <number>', 'Server port', '3000')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
     .action(async (id, options) => {
       try {
         const port = await ensureServer(parseInt(options.port, 10));
@@ -1189,7 +1287,7 @@ async function main() {
   tasksCmd
     .command('resumable')
     .description('List tasks that can be resumed from checkpoint')
-    .option('--port <number>', 'Server port', '3000')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
     .action(async (options) => {
       try {
         const port = await ensureServer(parseInt(options.port, 10));
@@ -1221,7 +1319,7 @@ async function main() {
     .command('resume')
     .description('Resume an interrupted task from its checkpoint')
     .argument('<id>', 'Task ID (from "tasks resumable")')
-    .option('--port <number>', 'Server port', '3000')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
     .action(async (taskId, options) => {
       const spinner = ora('Connecting to server...').start();
 
@@ -1316,7 +1414,7 @@ async function main() {
     .command('task-evidence')
     .description('Inspect observation frames for a task')
     .argument('<taskId>', 'Task ID')
-    .option('--port <number>', 'Server port', '3000')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
     .action(async (taskId, options) => {
       try {
         const port = await ensureServer(parseInt(options.port, 10));
@@ -1343,7 +1441,7 @@ async function main() {
     .command('session')
     .description('Inspect a computer-use session timeline')
     .argument('<sessionId>', 'Computer-use session ID')
-    .option('--port <number>', 'Server port', '3000')
+    .option('--port <number>', 'Server port', String(DEFAULT_PORT))
     .action(async (sessionId, options) => {
       try {
         const port = await ensureServer(parseInt(options.port, 10));
@@ -1477,7 +1575,7 @@ async function main() {
     .command('list')
     .description('List all loaded skills')
     .action(async () => {
-      const { SkillRegistry, SkillLoader } = await import('@lydia/core');
+      const { SkillRegistry, SkillLoader } = await import('@lydia-agent/core');
       const registry = new SkillRegistry();
       const loader = new SkillLoader(registry);
       const config = await new ConfigLoader().load();
@@ -1507,7 +1605,7 @@ async function main() {
     .description('Show detailed information about a skill')
     .argument('<name>', 'Skill name')
     .action(async (name) => {
-      const { SkillRegistry, SkillLoader } = await import('@lydia/core');
+      const { SkillRegistry, SkillLoader } = await import('@lydia-agent/core');
       const registry = new SkillRegistry();
       const loader = new SkillLoader(registry);
       const config = await new ConfigLoader().load();
