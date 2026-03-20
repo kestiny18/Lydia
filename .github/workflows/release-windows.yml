@@ -39,6 +39,15 @@ jobs:
         shell: powershell
         run: .\scripts\stage-windows-bundle.ps1
 
+      - name: Smoke test staged bundle
+        shell: powershell
+        run: |
+          cmd /c ".release\windows\bundle\lydia.cmd stop" 2>$null
+          cmd /c ".release\windows\bundle\lydia.cmd start"
+          Start-Sleep -Seconds 3
+          cmd /c ".release\windows\bundle\lydia.cmd status"
+          cmd /c ".release\windows\bundle\lydia.cmd stop"
+
       - name: Install Inno Setup
         shell: powershell
         run: choco install innosetup -y --no-progress

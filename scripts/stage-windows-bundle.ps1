@@ -14,7 +14,7 @@ $runtimeDir = Join-Path $resolvedOutput "runtime"
 Remove-Item -Recurse -Force $resolvedOutput -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null
 
-pnpm --filter @lydia-agent/cli deploy --prod --legacy $appDir
+pnpm --filter @lydia-agent/cli --config.node-linker=hoisted deploy --prod --legacy $appDir
 
 $nodeCommand = Get-Command node -ErrorAction Stop
 Copy-Item $nodeCommand.Source (Join-Path $runtimeDir "node.exe") -Force
