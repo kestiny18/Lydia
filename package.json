@@ -8,6 +8,8 @@
     "build": "pnpm -r run build",
     "build:dashboard": "pnpm -C packages/dashboard run build",
     "test": "pnpm -r run test",
+    "release:verify": "pnpm build && pnpm test",
+    "release:stage:windows": "powershell -ExecutionPolicy Bypass -File scripts/stage-windows-bundle.ps1",
     "typecheck": "pnpm -r run typecheck",
     "lint": "biome check .",
     "lint:fix": "biome check --apply .",

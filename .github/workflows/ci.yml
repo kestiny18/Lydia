@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: CLI smoke
+        run: |
+          node packages/cli/dist/index.js init
+          node packages/cli/dist/index.js doctor || true
+          node packages/cli/dist/index.js start
+          node packages/cli/dist/index.js status
+          node packages/cli/dist/index.js stop
+
+      - name: Deploy smoke
+        run: |
+          rm -rf .release/smoke-cli
+          pnpm --filter @lydia/cli deploy --prod --legacy .release/smoke-cli
+          node .release/smoke-cli/dist/index.js doctor || true

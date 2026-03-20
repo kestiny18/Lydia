@@ -5,6 +5,10 @@ node_modules/
 # Build outputs
 dist/
 build/
+.release/
+!build/
+!build/windows/
+!build/windows/**
 *.tsbuildinfo
 packages/cli/public/
 packages/**/src/**/*.js

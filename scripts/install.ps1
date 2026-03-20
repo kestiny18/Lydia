@@ -46,13 +46,13 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
   exit 1
 }
 
-$pkg = "@lydia/cli"
+$pkg = "@lydia-agent/cli"
 if ($Version) {
   $pkg = "$pkg@$Version"
 }
 
 function Install-FromRegistry {
-  $viewArgs = @("view", "@lydia/cli", "version")
+  $viewArgs = @("view", "@lydia-agent/cli", "version")
   if ($Registry) { $viewArgs += @("--registry", $Registry) }
 
   & npm @viewArgs *> $null
@@ -128,10 +128,10 @@ function Install-FromGitHub {
 if (-not (Install-FromRegistry)) {
   $hereHasRepo = (Test-Path (Join-Path (Get-Location) "packages\\cli\\package.json")) -and (Test-Path (Join-Path (Get-Location) "pnpm-workspace.yaml"))
   if ($hereHasRepo) {
-    Write-Log "Package @lydia/cli is not published; installing from local source checkout..."
+    Write-Log "Package @lydia-agent/cli is not published; installing from local source checkout..."
     Install-FromSourceDir -SourceDir (Get-Location).Path
   } else {
-    Write-Log "Package @lydia/cli is not published; installing from GitHub source..."
+    Write-Log "Package @lydia-agent/cli is not published; installing from GitHub source..."
     Install-FromGitHub
   }
 }

@@ -85,13 +85,13 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-PKG="@lydia/cli"
+PKG="@lydia-agent/cli"
 if [[ -n "${VERSION}" ]]; then
   PKG="${PKG}@${VERSION}"
 fi
 
 install_from_registry() {
-  local view_args=(npm view "@lydia/cli" version)
+  local view_args=(npm view "@lydia-agent/cli" version)
   if [[ -n "${REGISTRY}" ]]; then
     view_args+=(--registry "${REGISTRY}")
   fi
@@ -176,10 +176,10 @@ install_from_github() {
 
 if ! install_from_registry; then
   if [[ -f "./packages/cli/package.json" && -f "./pnpm-workspace.yaml" ]]; then
-    log "Package @lydia/cli is not published; installing from local source checkout..."
+    log "Package @lydia-agent/cli is not published; installing from local source checkout..."
     install_from_source_dir "$(pwd)"
   else
-    log "Package @lydia/cli is not published; installing from GitHub source..."
+    log "Package @lydia-agent/cli is not published; installing from GitHub source..."
     install_from_github
   fi
 fi
