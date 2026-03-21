@@ -11,7 +11,7 @@ export class GitServer {
     this.server = new Server(
       {
         name: "internal-git",
-        version: "0.1.1",
+        version: "0.1.2",
       },
       {
         capabilities: {

@@ -1,7 +1,7 @@
 #define MyAppName "Lydia"
 #define MyAppVersion GetEnv("LYDIA_VERSION")
 #if MyAppVersion == ""
-  #define MyAppVersion "0.1.1"
+  #define MyAppVersion "0.1.2"
 #endif
 
 [Setup]

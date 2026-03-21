@@ -13,7 +13,7 @@ export class FileSystemServer {
     this.server = new Server(
       {
         name: "internal-fs",
-        version: "0.1.1",
+        version: "0.1.2",
       },
       {
         capabilities: {

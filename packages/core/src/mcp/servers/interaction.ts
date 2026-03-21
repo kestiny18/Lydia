@@ -16,7 +16,7 @@ export class InteractionServer extends EventEmitter {
   constructor() {
     super();
     this.server = new Server(
-      { name: "internal-interaction", version: "0.1.1" },
+      { name: "internal-interaction", version: "0.1.2" },
       { capabilities: { tools: {} } }
     );
     this.setupHandlers();
