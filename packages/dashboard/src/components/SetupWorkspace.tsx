@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+ï»¿import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, CircleDot, KeyRound, Rocket, Server, Wrench } from 'lucide-react';
+import { CheckCircle2, CircleDot, Globe, KeyRound, Rocket, Server, Wrench } from 'lucide-react';
 import { api } from '../lib/api';
 import { Panel } from './ui/Panel';
 import { FeedbackState } from './ui/FeedbackState';
@@ -19,6 +19,15 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
   const [openaiBaseUrl, setOpenaiBaseUrl] = useState('');
   const [anthropicBaseUrl, setAnthropicBaseUrl] = useState('');
   const [ollamaBaseUrl, setOllamaBaseUrl] = useState('');
+  const [browserEnabled, setBrowserEnabled] = useState(true);
+  const [browserMode, setBrowserMode] = useState<'auto' | 'cdp' | 'headless' | 'remote'>('auto');
+  const [browserCdpPort, setBrowserCdpPort] = useState('9222');
+  const [browserRemoteUrl, setBrowserRemoteUrl] = useState('');
+  const [browserChromePath, setBrowserChromePath] = useState('');
+  const [browserDownloadDir, setBrowserDownloadDir] = useState('');
+  const [launchHostBrowser, setLaunchHostBrowser] = useState(false);
+  const [navigationTimeoutMs, setNavigationTimeoutMs] = useState('30000');
+  const [actionTimeoutMs, setActionTimeoutMs] = useState('10000');
   const [hasHydrated, setHasHydrated] = useState(false);
 
   const { data: setupStatus, isLoading: setupLoading } = useQuery({
@@ -34,14 +43,26 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
   useEffect(() => {
     if (!setupConfig || hasHydrated) return;
     const llm = setupConfig.llm || {};
+    const browser = setupConfig.browser || {};
     setProvider((llm.provider || 'auto') as any);
     setDefaultModel(llm.defaultModel || '');
-    setFallbackOrder(Array.isArray(llm.fallbackOrder) && llm.fallbackOrder.length > 0
-      ? llm.fallbackOrder
-      : ['ollama', 'openai', 'anthropic']);
+    setFallbackOrder(
+      Array.isArray(llm.fallbackOrder) && llm.fallbackOrder.length > 0
+        ? llm.fallbackOrder
+        : ['ollama', 'openai', 'anthropic'],
+    );
     setOpenaiBaseUrl(llm.openaiBaseUrl || '');
     setAnthropicBaseUrl(llm.anthropicBaseUrl || '');
     setOllamaBaseUrl(llm.ollamaBaseUrl || '');
+    setBrowserEnabled(browser.enabled !== false);
+    setBrowserMode((browser.mode || 'auto') as any);
+    setBrowserCdpPort(String(browser.cdpPort || 9222));
+    setBrowserRemoteUrl(browser.remoteUrl || '');
+    setBrowserChromePath(browser.chromePath || '');
+    setBrowserDownloadDir(browser.downloadDir || '');
+    setLaunchHostBrowser(Boolean(browser.launchHostBrowser));
+    setNavigationTimeoutMs(String(browser.navigationTimeoutMs || 30000));
+    setActionTimeoutMs(String(browser.actionTimeoutMs || 10000));
     setHasHydrated(true);
   }, [setupConfig, hasHydrated]);
 
@@ -64,6 +85,17 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
           anthropicBaseUrl,
           ollamaBaseUrl,
         },
+        browser: {
+          enabled: browserEnabled,
+          mode: browserMode,
+          cdpPort: Number(browserCdpPort) || 9222,
+          remoteUrl: browserRemoteUrl,
+          chromePath: browserChromePath,
+          launchHostBrowser,
+          navigationTimeoutMs: Number(navigationTimeoutMs) || 30000,
+          actionTimeoutMs: Number(actionTimeoutMs) || 10000,
+          downloadDir: browserDownloadDir,
+        },
       };
       if (openaiApiKey.trim()) payload.llm.openaiApiKey = openaiApiKey.trim();
       if (anthropicApiKey.trim()) payload.llm.anthropicApiKey = anthropicApiKey.trim();
@@ -78,22 +110,24 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
   });
 
   const testMutation = useMutation({
-    mutationFn: () => api.testLLM(true, {
-      llm: {
-        provider,
-        defaultModel,
-        fallbackOrder,
-        openaiApiKey: openaiApiKey.trim(),
-        anthropicApiKey: anthropicApiKey.trim(),
-        openaiBaseUrl,
-        anthropicBaseUrl,
-        ollamaBaseUrl,
-      },
-    }),
+    mutationFn: () =>
+      api.testLLM(true, {
+        llm: {
+          provider,
+          defaultModel,
+          fallbackOrder,
+          openaiApiKey: openaiApiKey.trim(),
+          anthropicApiKey: anthropicApiKey.trim(),
+          openaiBaseUrl,
+          anthropicBaseUrl,
+          ollamaBaseUrl,
+        },
+      }),
   });
 
   const setupReady = Boolean(setupStatus?.ready);
-  const llmConfigured = Boolean(setupStatus?.llmConfigured);  const savedProvider = setupConfig?.llm?.provider || setupStatus?.provider || 'auto';
+  const llmConfigured = Boolean(setupStatus?.llmConfigured);
+  const savedProvider = setupConfig?.llm?.provider || setupStatus?.provider || 'auto';
   const canRun = setupReady && llmConfigured;
   const isAuto = provider === 'auto';
   const isOpenAI = provider === 'openai';
@@ -101,11 +135,14 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
   const isOllama = provider === 'ollama';
   const isMock = provider === 'mock';
 
-  const steps = useMemo(() => ([
-    { id: 'workspace', title: 'Initialize Workspace', done: setupReady },
-    { id: 'provider', title: 'Configure LLM Provider', done: llmConfigured },
-    { id: 'ready', title: 'Ready To Run Tasks', done: canRun },
-  ]), [setupReady, llmConfigured, canRun]);
+  const steps = useMemo(
+    () => [
+      { id: 'workspace', title: 'Initialize Workspace', done: setupReady },
+      { id: 'provider', title: 'Configure LLM Provider', done: llmConfigured },
+      { id: 'ready', title: 'Ready To Run Tasks', done: canRun },
+    ],
+    [setupReady, llmConfigured, canRun],
+  );
 
   if (setupLoading || configLoading) {
     return (
@@ -126,7 +163,11 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
           {steps.map((step, idx) => (
             <div key={step.id} className="rounded-xl border border-[color:var(--line)] bg-white p-3">
               <div className="flex items-center gap-2 text-sm font-semibold">
-                {step.done ? <CheckCircle2 size={14} className="text-[color:var(--success)]" /> : <CircleDot size={14} className="text-[color:var(--text-muted)]" />}
+                {step.done ? (
+                  <CheckCircle2 size={14} className="text-[color:var(--success)]" />
+                ) : (
+                  <CircleDot size={14} className="text-[color:var(--text-muted)]" />
+                )}
                 <span>Step {idx + 1}</span>
               </div>
               <div className="mt-1 text-sm text-[color:var(--text-strong)]">{step.title}</div>
@@ -139,20 +180,26 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
         <Panel
           title="Step 1: Workspace"
           subtitle="Create local config, strategy, and skill folders."
-          actions={(
+          actions={
             <button
               onClick={() => initMutation.mutate()}
               disabled={initMutation.isPending}
               className="px-3 py-1.5 rounded-md text-xs text-white bg-[color:var(--accent)] disabled:opacity-60"
             >
-              {setupReady ? 'Re-check' : (initMutation.isPending ? 'Initializing...' : 'Initialize')}
+              {setupReady ? 'Re-check' : initMutation.isPending ? 'Initializing...' : 'Initialize'}
             </button>
-          )}
+          }
         >
           <div className="text-sm text-[color:var(--text-muted)] space-y-1">
-            <div><strong>Status:</strong> {setupReady ? 'Ready' : 'Not initialized'}</div>
-            <div><strong>Config:</strong> <span className="font-mono">{setupStatus?.configPath}</span></div>
-            <div><strong>Strategy:</strong> <span className="font-mono">{setupStatus?.strategyPath}</span></div>
+            <div>
+              <strong>Status:</strong> {setupReady ? 'Ready' : 'Not initialized'}
+            </div>
+            <div>
+              <strong>Config:</strong> <span className="font-mono">{setupStatus?.configPath}</span>
+            </div>
+            <div>
+              <strong>Strategy:</strong> <span className="font-mono">{setupStatus?.strategyPath}</span>
+            </div>
             {initMutation.isError && (
               <div className="text-[color:var(--danger)] text-xs">{(initMutation.error as Error).message}</div>
             )}
@@ -198,7 +245,10 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
                   onChange={(e) => {
                     if (!isAuto) return;
                     setFallbackOrder(
-                      e.target.value.split(',').map((item) => item.trim()).filter(Boolean)
+                      e.target.value
+                        .split(',')
+                        .map((item) => item.trim())
+                        .filter(Boolean),
                     );
                   }}
                   readOnly={!isAuto}
@@ -301,9 +351,7 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
               )}
             </div>
 
-            {saveMutation.isSuccess && (
-              <div className="text-xs text-[color:var(--success)]">Configuration saved.</div>
-            )}
+            {saveMutation.isSuccess && <div className="text-xs text-[color:var(--success)]">Configuration saved.</div>}
             {saveMutation.isError && (
               <div className="text-xs text-[color:var(--danger)]">{(saveMutation.error as Error).message}</div>
             )}
@@ -316,11 +364,137 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
               <div className="text-xs text-[color:var(--danger)]">{(testMutation.error as Error).message}</div>
             )}
             <div className="text-xs text-[color:var(--text-muted)]">
-              Draft provider: <strong>{provider}</strong> ¡¤ Saved provider: <strong>{savedProvider}</strong>
+              Draft provider: <strong>{provider}</strong> Â· Saved provider: <strong>{savedProvider}</strong>
             </div>
           </div>
         </Panel>
       </div>
+
+      <Panel
+        title="Step 3: Browser Runtime"
+        subtitle="Native Lydia browser automation shares the same task runtime, evidence store, and resume flow as the rest of the platform."
+      >
+        <div className="grid grid-cols-1 xl:grid-cols-[220px_minmax(0,1fr)] gap-4">
+          <div className="rounded-2xl border border-[color:var(--line-strong)] bg-[color:var(--surface-accent)] p-4">
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-[color:var(--accent)]">
+              <Globe size={15} />
+              Browser Mode
+            </div>
+            <div className="mt-3 space-y-2">
+              {(['auto', 'cdp', 'headless', 'remote'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setBrowserMode(mode)}
+                  className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                    browserMode === mode
+                      ? 'border-[color:var(--line-strong)] bg-white text-[color:var(--accent)]'
+                      : 'border-[color:var(--line)] bg-[color:var(--surface-subtle)] text-[color:var(--text-muted)]'
+                  }`}
+                >
+                  <div className="font-semibold uppercase tracking-[0.18em]">{mode}</div>
+                  <div className="mt-1 normal-case tracking-normal">
+                    {mode === 'auto' && 'Prefer CDP, then remote if configured, then local headless.'}
+                    {mode === 'cdp' && 'Attach to a local Chrome session and preserve its login state.'}
+                    {mode === 'headless' && 'Run isolated Playwright Chromium for stable automation.'}
+                    {mode === 'remote' && 'Force a remote CDP endpoint for managed browser infrastructure.'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <label className="text-xs text-[color:var(--text-muted)]">
+                Browser Capability
+                <select
+                  value={browserEnabled ? 'enabled' : 'disabled'}
+                  onChange={(e) => setBrowserEnabled(e.target.value === 'enabled')}
+                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm bg-white"
+                >
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
+                </select>
+              </label>
+
+              <label className="text-xs text-[color:var(--text-muted)]">
+                CDP Port
+                <input
+                  value={browserCdpPort}
+                  onChange={(e) => setBrowserCdpPort(e.target.value)}
+                  placeholder="9222"
+                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                />
+              </label>
+
+              <label className="text-xs text-[color:var(--text-muted)] md:col-span-2">
+                Remote Browser URL
+                <input
+                  value={browserRemoteUrl}
+                  onChange={(e) => setBrowserRemoteUrl(e.target.value)}
+                  placeholder="Optional CDP endpoint for Browserbase / Steel / managed Chromium"
+                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                />
+              </label>
+
+              <label className="text-xs text-[color:var(--text-muted)] md:col-span-2">
+                Chrome Path
+                <input
+                  value={browserChromePath}
+                  onChange={(e) => setBrowserChromePath(e.target.value)}
+                  placeholder="Optional executable override for CDP launch"
+                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                />
+              </label>
+
+              <label className="text-xs text-[color:var(--text-muted)] md:col-span-2">
+                Download Directory
+                <input
+                  value={browserDownloadDir}
+                  onChange={(e) => setBrowserDownloadDir(e.target.value)}
+                  placeholder="Optional artifact directory override"
+                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                />
+              </label>
+
+              <label className="text-xs text-[color:var(--text-muted)]">
+                Navigation Timeout (ms)
+                <input
+                  value={navigationTimeoutMs}
+                  onChange={(e) => setNavigationTimeoutMs(e.target.value)}
+                  placeholder="30000"
+                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                />
+              </label>
+
+              <label className="text-xs text-[color:var(--text-muted)]">
+                Action Timeout (ms)
+                <input
+                  value={actionTimeoutMs}
+                  onChange={(e) => setActionTimeoutMs(e.target.value)}
+                  placeholder="10000"
+                  className="mt-1 w-full border border-[color:var(--line)] rounded-md px-2 py-1.5 text-sm"
+                />
+              </label>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-[color:var(--text-strong)]">
+              <input
+                type="checkbox"
+                checked={launchHostBrowser}
+                onChange={(e) => setLaunchHostBrowser(e.target.checked)}
+                className="rounded border-[color:var(--line)] text-[color:var(--accent)] focus:ring-[color:var(--ring)]"
+              />
+              Auto-launch host Chrome if CDP is unavailable
+            </label>
+
+            <div className="rounded-xl border border-[color:var(--line)] bg-[color:var(--surface-subtle)] px-3 py-3 text-xs text-[color:var(--text-muted)] space-y-1">
+              <div>We keep browser automation inside Lydia's native MCP and computer-use contracts, so navigation, interaction, screenshots, downloads, and resume all share one evidence timeline.</div>
+              <div>That means the browser page persists across actions in the same task session instead of opening a fresh page for each tool call.</div>
+            </div>
+          </div>
+        </div>
+      </Panel>
 
       <Panel title="Workspace Responsibilities" subtitle="Defines the boundary between Tasks, Chat, and system panels.">
         <div className="overflow-auto">
@@ -334,22 +508,38 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
             </thead>
             <tbody className="text-sm">
               <tr>
-                <td className="py-2 border-b border-[color:var(--line)]"><span className="inline-flex items-center gap-1"><Rocket size={12} /> Tasks</span></td>
+                <td className="py-2 border-b border-[color:var(--line)]">
+                  <span className="inline-flex items-center gap-1">
+                    <Rocket size={12} /> Tasks
+                  </span>
+                </td>
                 <td className="py-2 border-b border-[color:var(--line)]">Execute tracked tasks end-to-end.</td>
                 <td className="py-2 border-b border-[color:var(--line)]">Run, monitor, resume, inspect reports.</td>
               </tr>
               <tr>
-                <td className="py-2 border-b border-[color:var(--line)]"><span className="inline-flex items-center gap-1"><Server size={12} /> Chat</span></td>
+                <td className="py-2 border-b border-[color:var(--line)]">
+                  <span className="inline-flex items-center gap-1">
+                    <Server size={12} /> Chat
+                  </span>
+                </td>
                 <td className="py-2 border-b border-[color:var(--line)]">Explore and iterate conversationally.</td>
                 <td className="py-2 border-b border-[color:var(--line)]">Multi-turn Q&A, follow-up guidance.</td>
               </tr>
               <tr>
-                <td className="py-2 border-b border-[color:var(--line)]"><span className="inline-flex items-center gap-1"><KeyRound size={12} /> Setup</span></td>
+                <td className="py-2 border-b border-[color:var(--line)]">
+                  <span className="inline-flex items-center gap-1">
+                    <KeyRound size={12} /> Setup
+                  </span>
+                </td>
                 <td className="py-2 border-b border-[color:var(--line)]">Bootstrap and configure runtime.</td>
-                <td className="py-2 border-b border-[color:var(--line)]">Initialize workspace, set provider and API keys.</td>
+                <td className="py-2 border-b border-[color:var(--line)]">Initialize workspace, set provider and browser runtime.</td>
               </tr>
               <tr>
-                <td className="py-2"><span className="inline-flex items-center gap-1"><Wrench size={12} /> Control</span></td>
+                <td className="py-2">
+                  <span className="inline-flex items-center gap-1">
+                    <Wrench size={12} /> Control
+                  </span>
+                </td>
                 <td className="py-2">Govern strategy and platform health.</td>
                 <td className="py-2">Review proposals, approvals, MCP status.</td>
               </tr>
@@ -360,13 +550,23 @@ export function SetupWorkspace({ onSetupCompleted }: SetupWorkspaceProps) {
 
       <Panel title="Advanced CLI Paths" subtitle="Dashboard now covers first-run and daily operation. Use CLI for automation-heavy workflows.">
         <ul className="text-sm text-[color:var(--text-muted)] space-y-2">
-          <li><span className="font-mono">lydia run "..."</span> for scripted terminal execution.</li>
-          <li><span className="font-mono">lydia tasks list/show/resume</span> for batch-friendly task operations.</li>
-          <li><span className="font-mono">lydia skills install/remove</span> for GitHub/local skill packaging flows.</li>
-          <li><span className="font-mono">lydia mcp check</span> for diagnostic checks in CI pipelines.</li>
+          <li>
+            <span className="font-mono">lydia run "..."</span> for scripted terminal execution.
+          </li>
+          <li>
+            <span className="font-mono">lydia tasks list/show/resume</span> for batch-friendly task operations.
+          </li>
+          <li>
+            <span className="font-mono">lydia skills install/remove</span> for GitHub/local skill packaging flows.
+          </li>
+          <li>
+            <span className="font-mono">lydia mcp check</span> for diagnostic checks in CI pipelines.
+          </li>
+          <li>
+            <span className="font-mono">lydia computer-use task-evidence &lt;task-id&gt;</span> for browser session evidence inspection.
+          </li>
         </ul>
       </Panel>
     </div>
   );
 }
-

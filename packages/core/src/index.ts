@@ -11,3 +11,4 @@ export * from './memory/index.js';
 export * from './reporting/index.js';
 export * from './feedback/index.js';
 export * from './computer-use/index.js';
+export * from './browser/index.js';

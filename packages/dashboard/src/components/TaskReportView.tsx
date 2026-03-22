@@ -81,6 +81,7 @@ export function TaskReportView({ taskId, onResumeTask, onContinueInChat }: TaskR
 
     const isSuccess = detail.status === 'completed';
     const report = detail.report;
+    const evidenceSessions = groupEvidenceBySession(detail.evidence || []);
 
     return (
         <div className="space-y-5 max-w-3xl">
@@ -217,30 +218,54 @@ export function TaskReportView({ taskId, onResumeTask, onContinueInChat }: TaskR
                     <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                         Evidence Timeline ({detail.evidence.length})
                     </h3>
-                    <div className="space-y-1">
-                        {detail.evidence.slice(0, 30).map((frame: any, i: number) => {
-                            const blockTypes = Array.isArray(frame.blocks)
-                                ? frame.blocks.map((block: any) => block.type).join(', ')
-                                : 'unknown';
-                            return (
-                                <div key={i} className="text-xs border border-gray-100 rounded-md px-3 py-2 bg-gray-50/60 space-y-1">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <span className="font-medium text-gray-700">{frame.actionId}</span>
-                                        <span className="text-gray-400">{new Date(frame.createdAt).toLocaleTimeString()}</span>
-                                    </div>
-                                    <div className="text-gray-500">
-                                        {frame.frameId} | session: {frame.sessionId} | {blockTypes}
-                                    </div>
-                                    <div className="space-y-1">
-                                        {(Array.isArray(frame.blocks) ? frame.blocks : []).map((block: any, idx: number) => (
-                                            <div key={idx} className="rounded bg-white border border-gray-100 px-2 py-1 text-gray-600">
-                                                {renderEvidenceBlock(block)}
-                                            </div>
-                                        ))}
-                                    </div>
+                    <div className="space-y-3">
+                        {evidenceSessions.map((session) => (
+                            <Panel
+                                key={session.sessionId}
+                                tone="subtle"
+                                title={session.sessionId}
+                                subtitle={`${session.frames.length} frame(s) · ${session.actions.length} action(s)`}
+                            >
+                                <div className="flex flex-wrap gap-2 mb-3">
+                                    {session.actions.map((actionId) => (
+                                        <span
+                                            key={actionId}
+                                            className="rounded-full border border-[color:var(--line-strong)] bg-white px-2 py-1 text-[10px] font-semibold tracking-[0.18em] text-[color:var(--accent)]"
+                                        >
+                                            {actionId}
+                                        </span>
+                                    ))}
                                 </div>
-                            );
-                        })}
+                                <div className="space-y-2">
+                                    {session.frames.slice(0, 20).map((frame: any, i: number) => {
+                                        const blockTypes = Array.isArray(frame.blocks)
+                                            ? frame.blocks.map((block: any) => block.type).join(', ')
+                                            : 'unknown';
+                                        return (
+                                            <div key={i} className="rounded-xl border border-[color:var(--line)] bg-white px-3 py-3 text-xs space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div>
+                                                        <div className="font-semibold text-[color:var(--text-strong)]">{frame.actionId}</div>
+                                                        <div className="text-[color:var(--text-muted)]">{frame.frameId}</div>
+                                                    </div>
+                                                    <div className="text-right text-[color:var(--text-muted)]">
+                                                        <div>{new Date(frame.createdAt).toLocaleTimeString()}</div>
+                                                        <div>{blockTypes}</div>
+                                                    </div>
+                                                </div>
+                                                <div className="space-y-2">
+                                                    {(Array.isArray(frame.blocks) ? frame.blocks : []).map((block: any, idx: number) => (
+                                                        <div key={idx} className="rounded-lg border border-[color:var(--line)] bg-[color:var(--surface-subtle)] px-3 py-2 text-[color:var(--text-strong)]">
+                                                            {renderEvidenceBlock(block)}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </Panel>
+                        ))}
                     </div>
                 </div>
             )}
@@ -336,6 +361,20 @@ function renderEvidenceBlock(block: any): any {
         return `json: ${truncate(payload, 220)}`;
     }
     return `${block.type}: ${truncate(JSON.stringify(block), 220)}`;
+}
+
+function groupEvidenceBySession(frames: any[]) {
+    const grouped = new Map<string, { sessionId: string; frames: any[]; actions: string[] }>();
+    for (const frame of frames) {
+        const sessionId = frame?.sessionId || 'unknown-session';
+        const current = grouped.get(sessionId) || { sessionId, frames: [], actions: [] };
+        current.frames.push(frame);
+        if (frame?.actionId && !current.actions.includes(frame.actionId)) {
+            current.actions.push(frame.actionId);
+        }
+        grouped.set(sessionId, current);
+    }
+    return Array.from(grouped.values());
 }
 
 function formatDuration(ms: number): string {

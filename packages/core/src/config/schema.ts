@@ -57,6 +57,17 @@ export const ConfigSchema = z.object({
     checkpointTtlHours: z.number().default(24),
     observationFrameTtlHours: z.number().default(24 * 7),
   }).default({}),
+  browser: z.object({
+    enabled: z.boolean().default(true),
+    mode: z.enum(['auto', 'cdp', 'headless', 'remote']).default('auto'),
+    cdpPort: z.number().int().positive().default(9222),
+    remoteUrl: z.string().default(''),
+    chromePath: z.string().default(''),
+    launchHostBrowser: z.boolean().default(false),
+    navigationTimeoutMs: z.number().positive().default(30_000),
+    actionTimeoutMs: z.number().positive().default(10_000),
+    downloadDir: z.string().default(''),
+  }).default({}),
   skills: z.object({
     /** Maximum number of skills whose full content is injected into the prompt (default: 3) */
     matchTopK: z.number().default(3),

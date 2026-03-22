@@ -60,6 +60,10 @@ export class ConfigLoader {
         ...(current.memory || {}),
         ...(partial as any).memory
       },
+      browser: {
+        ...(current.browser || {}),
+        ...(partial as any).browser
+      },
       skills: {
         ...(current.skills || {}),
         ...(partial as any).skills

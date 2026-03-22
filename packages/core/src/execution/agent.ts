@@ -26,7 +26,14 @@ import {
 import { SkillRegistry, SkillLoader } from '../skills/index.js';
 import { SkillWatcher } from '../skills/watcher.js';
 import { StrategyRegistry, type Strategy } from '../strategy/index.js';
-import { McpClientManager, ShellServer, FileSystemServer, GitServer, MemoryServer } from '../mcp/index.js';
+import {
+  McpClientManager,
+  ShellServer,
+  FileSystemServer,
+  GitServer,
+  MemoryServer,
+  BrowserServer,
+} from '../mcp/index.js';
 import { ConfigLoader } from '../config/index.js';
 import { MemoryManager, type Trace, type Fact, type Episode, type Checkpoint } from '../memory/index.js';
 import { InteractionServer } from '../mcp/servers/interaction.js';
@@ -111,6 +118,7 @@ export class Agent extends EventEmitter {
 
   // Centralized built-in server descriptors keep MCP wiring declarative.
   private builtinServerSpecs: Array<{ id: string; create: () => Server }> = [];
+  private browserServer?: BrowserServer;
   private options: AgentOptions;
   private computerUseAdapter: McpCanonicalCapabilityAdapter;
   private computerUseOrchestrator: ComputerUseSessionOrchestrator;
@@ -235,6 +243,13 @@ export class Agent extends EventEmitter {
       { id: 'internal-fs', create: () => new FileSystemServer().server },
       { id: 'internal-git', create: () => new GitServer().server },
     ];
+    if (config.browser?.enabled !== false) {
+      this.browserServer = new BrowserServer(config.browser);
+      this.builtinServerSpecs.push({
+        id: 'internal-browser',
+        create: () => this.browserServer!.server,
+      });
+    }
     await this.connectBuiltinServers();
 
     // 5. Connect External MCP Servers
@@ -548,6 +563,7 @@ export class Agent extends EventEmitter {
       // Ignore cleanup errors
     }
     if (this.computerUseSessionId) {
+      await this.closeBrowserAutomationSession(this.computerUseSessionId);
       const terminalCheckpoint = this.computerUseOrchestrator.endSession(this.computerUseSessionId);
       if (terminalCheckpoint) {
         this.memoryManager.upsertComputerUseSessionSummary({
@@ -683,6 +699,7 @@ export class Agent extends EventEmitter {
       // Ignore cleanup errors
     }
     if (this.computerUseSessionId) {
+      await this.closeBrowserAutomationSession(this.computerUseSessionId);
       const terminalCheckpoint = this.computerUseOrchestrator.endSession(this.computerUseSessionId);
       if (terminalCheckpoint) {
         this.memoryManager.upsertComputerUseSessionSummary({
@@ -1411,7 +1428,10 @@ export class Agent extends EventEmitter {
         adapter: this.computerUseAdapter,
         toolName,
         invokeTool: async (resolvedToolName, resolvedArgs) =>
-          await this.mcpClientManager.callTool(resolvedToolName, resolvedArgs),
+          await this.mcpClientManager.callTool(
+            resolvedToolName,
+            this.attachInternalBrowserSessionArg(resolvedToolName, sessionId, resolvedArgs),
+          ),
       });
       this.memoryManager.recordObservationFrame(this.currentTaskId, dispatchResult.frame);
       this.memoryManager.upsertComputerUseSessionSummary({
@@ -1451,6 +1471,30 @@ export class Agent extends EventEmitter {
       return resolveCanonicalComputerUseToolName(toolName.slice(slashIndex + 1));
     }
     return undefined;
+  }
+
+  private attachInternalBrowserSessionArg(
+    toolName: string,
+    sessionId: string,
+    args: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const toolInfo = this.mcpClientManager.getToolInfo(toolName);
+    if (!toolInfo || toolInfo.serverId !== 'internal-browser') {
+      return args;
+    }
+    return {
+      ...args,
+      __lydiaSessionId: sessionId,
+    };
+  }
+
+  private async closeBrowserAutomationSession(sessionId: string): Promise<void> {
+    if (!sessionId || !this.browserServer) return;
+    try {
+      await this.browserServer.closeSession(sessionId);
+    } catch {
+      // Best-effort cleanup only; session shutdown should not mask task result.
+    }
   }
 
   private inferComputerUseDomain(canonicalAction: string): ComputerUseDomain {
@@ -1515,18 +1559,28 @@ export class Agent extends EventEmitter {
         continue;
       }
 
-      if (
-        block?.type === 'image' &&
-        block.source?.type === 'base64' &&
-        typeof block.source.media_type === 'string' &&
-        typeof block.source.data === 'string'
-      ) {
+      if (block?.type === 'image') {
+        const mediaType =
+          typeof block.source?.media_type === 'string'
+            ? block.source.media_type
+            : typeof block.mimeType === 'string'
+              ? block.mimeType
+              : undefined;
+        const data =
+          typeof block.source?.data === 'string'
+            ? block.source.data
+            : typeof block.data === 'string'
+              ? block.data
+              : undefined;
+        if (!mediaType || !data) {
+          continue;
+        }
         normalized.push({
           type: 'image',
           source: {
             type: 'base64',
-            media_type: block.source.media_type,
-            data: block.source.data,
+            media_type: mediaType,
+            data,
           },
         });
       }

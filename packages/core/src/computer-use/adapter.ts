@@ -92,14 +92,22 @@ export class McpCanonicalCapabilityAdapter implements ComputerUseCapabilityAdapt
           continue;
         }
 
-        if (
-          contentBlock?.type === 'image' &&
-          contentBlock.source?.type === 'base64' &&
-          typeof contentBlock.source.media_type === 'string' &&
-          typeof contentBlock.source.data === 'string'
-        ) {
-          const mediaType = contentBlock.source.media_type;
-          const base64Data = contentBlock.source.data;
+        if (contentBlock?.type === 'image') {
+          const mediaType =
+            typeof contentBlock.source?.media_type === 'string'
+              ? contentBlock.source.media_type
+              : typeof contentBlock.mimeType === 'string'
+                ? contentBlock.mimeType
+                : undefined;
+          const base64Data =
+            typeof contentBlock.source?.data === 'string'
+              ? contentBlock.source.data
+              : typeof contentBlock.data === 'string'
+                ? contentBlock.data
+                : undefined;
+          if (!mediaType || !base64Data) {
+            continue;
+          }
           const dataRef = base64Data.length <= this.maxInlineImageBase64Length
             ? `data:${mediaType};base64,${base64Data}`
             : `inline://image/${mediaType}/${base64Data.length}`;

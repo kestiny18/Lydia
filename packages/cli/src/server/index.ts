@@ -496,6 +496,17 @@ export function createServer(
         checkpointTtlHours: config.memory.checkpointTtlHours,
         observationFrameTtlHours: config.memory.observationFrameTtlHours,
       },
+      browser: {
+        enabled: config.browser.enabled,
+        mode: config.browser.mode,
+        cdpPort: config.browser.cdpPort,
+        remoteUrl: config.browser.remoteUrl,
+        chromePath: config.browser.chromePath,
+        launchHostBrowser: config.browser.launchHostBrowser,
+        navigationTimeoutMs: config.browser.navigationTimeoutMs,
+        actionTimeoutMs: config.browser.actionTimeoutMs,
+        downloadDir: config.browser.downloadDir,
+      },
     });
   });
 
@@ -510,11 +521,16 @@ export function createServer(
     const llmInput = body?.llm || {};
     const serverInput = body?.server || {};
     const memoryInput = body?.memory || {};
+    const browserInput = body?.browser || {};
     const provider = pickString(llmInput.provider);
     const defaultModel = pickString(llmInput.defaultModel);
     const openaiBaseUrl = pickString(llmInput.openaiBaseUrl);
     const anthropicBaseUrl = pickString(llmInput.anthropicBaseUrl);
     const ollamaBaseUrl = pickString(llmInput.ollamaBaseUrl);
+    const browserMode = pickString(browserInput.mode);
+    const browserRemoteUrl = pickString(browserInput.remoteUrl);
+    const browserChromePath = pickString(browserInput.chromePath);
+    const browserDownloadDir = pickString(browserInput.downloadDir);
     const fallbackOrder = Array.isArray(llmInput.fallbackOrder)
       ? llmInput.fallbackOrder.filter((item: unknown) => typeof item === 'string')
       : undefined;
@@ -522,6 +538,10 @@ export function createServer(
     const providerSet = new Set(['anthropic', 'openai', 'ollama', 'mock', 'auto']);
     if (provider && !providerSet.has(provider)) {
       return c.json({ error: `Unsupported provider: ${provider}` }, 400);
+    }
+    const browserModeSet = new Set(['auto', 'cdp', 'headless', 'remote']);
+    if (browserMode && !browserModeSet.has(browserMode)) {
+      return c.json({ error: `Unsupported browser mode: ${browserMode}` }, 400);
     }
 
     const updateLlm: Record<string, unknown> = {};
@@ -564,11 +584,50 @@ export function createServer(
       }
     }
 
+    const updateBrowser: Record<string, unknown> = {};
+    if (Object.prototype.hasOwnProperty.call(browserInput, 'enabled')) {
+      updateBrowser.enabled = Boolean(browserInput.enabled);
+    }
+    if (browserMode !== undefined) {
+      updateBrowser.mode = browserMode;
+    }
+    if (Object.prototype.hasOwnProperty.call(browserInput, 'cdpPort')) {
+      const cdpPort = Number(browserInput.cdpPort);
+      if (!Number.isNaN(cdpPort) && cdpPort > 0) {
+        updateBrowser.cdpPort = cdpPort;
+      }
+    }
+    if (browserRemoteUrl !== undefined) {
+      updateBrowser.remoteUrl = browserRemoteUrl;
+    }
+    if (browserChromePath !== undefined) {
+      updateBrowser.chromePath = browserChromePath;
+    }
+    if (Object.prototype.hasOwnProperty.call(browserInput, 'launchHostBrowser')) {
+      updateBrowser.launchHostBrowser = Boolean(browserInput.launchHostBrowser);
+    }
+    if (Object.prototype.hasOwnProperty.call(browserInput, 'navigationTimeoutMs')) {
+      const navigationTimeoutMs = Number(browserInput.navigationTimeoutMs);
+      if (!Number.isNaN(navigationTimeoutMs) && navigationTimeoutMs > 0) {
+        updateBrowser.navigationTimeoutMs = navigationTimeoutMs;
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(browserInput, 'actionTimeoutMs')) {
+      const actionTimeoutMs = Number(browserInput.actionTimeoutMs);
+      if (!Number.isNaN(actionTimeoutMs) && actionTimeoutMs > 0) {
+        updateBrowser.actionTimeoutMs = actionTimeoutMs;
+      }
+    }
+    if (browserDownloadDir !== undefined) {
+      updateBrowser.downloadDir = browserDownloadDir;
+    }
+
     try {
       const next = await configLoader.update({
         llm: updateLlm,
         server: updateServer,
         memory: updateMemory,
+        browser: updateBrowser,
       } as any);
       await refreshRuntimeConfig(true);
       return c.json({
@@ -592,6 +651,17 @@ export function createServer(
         memory: {
           checkpointTtlHours: next.memory.checkpointTtlHours,
           observationFrameTtlHours: next.memory.observationFrameTtlHours,
+        },
+        browser: {
+          enabled: next.browser.enabled,
+          mode: next.browser.mode,
+          cdpPort: next.browser.cdpPort,
+          remoteUrl: next.browser.remoteUrl,
+          chromePath: next.browser.chromePath,
+          launchHostBrowser: next.browser.launchHostBrowser,
+          navigationTimeoutMs: next.browser.navigationTimeoutMs,
+          actionTimeoutMs: next.browser.actionTimeoutMs,
+          downloadDir: next.browser.downloadDir,
         },
       });
     } catch (error: any) {

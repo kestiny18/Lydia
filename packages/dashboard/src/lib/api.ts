@@ -51,6 +51,17 @@ export const api = {
             anthropicBaseUrl?: string;
             ollamaBaseUrl?: string;
         };
+        browser?: {
+            enabled?: boolean;
+            mode?: string;
+            cdpPort?: number;
+            remoteUrl?: string;
+            chromePath?: string;
+            launchHostBrowser?: boolean;
+            navigationTimeoutMs?: number;
+            actionTimeoutMs?: number;
+            downloadDir?: string;
+        };
     }): Promise<any> {
         const res = await fetch(`${API_BASE}/api/setup/config`, {
             method: 'POST',

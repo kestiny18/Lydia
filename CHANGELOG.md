@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.3
+
+### Native Browser Automation Integration
+
+- Added a native Lydia browser automation runtime backed by Playwright and exposed through an internal MCP browser server.
+- Integrated browser actions into the existing computer-use session, evidence, checkpoint, and resume architecture instead of adding a sidecar helper path.
+- Added browser runtime configuration to setup APIs and dashboard setup UI, including mode selection for `auto`, `cdp`, `headless`, and `remote`.
+- Upgraded task evidence rendering to group browser observations by session and action for easier inspection.
+- Added browser MCP server tests and verified real-site screenshot capture against `https://scys.com/`.
+
 ## 0.3.0
 
 ### Skill System Overhaul — Progressive Disclosure, Hot-Reload, Community Compatibility
