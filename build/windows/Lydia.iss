@@ -27,16 +27,57 @@ Source: "..\..\.release\windows\bundle\*"; DestDir: "{app}"; Flags: ignoreversio
 
 [Icons]
 Name: "{group}\Open Lydia"; Filename: "{app}\lydia-dashboard.cmd"
+Name: "{group}\Lydia Tray"; Filename: "{app}\lydia-tray.cmd"
 Name: "{group}\Start Lydia"; Filename: "{app}\lydia-start.cmd"
 Name: "{group}\Stop Lydia"; Filename: "{app}\lydia-stop.cmd"
 Name: "{group}\Uninstall Lydia"; Filename: "{uninstallexe}"
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Lydia"; ValueData: """{app}\lydia.cmd"" start"; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Lydia"; ValueData: """{sys}\WindowsPowerShell\v1.0\powershell.exe"" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\lydia-tray.ps1"""; Flags: uninsdeletevalue
 
 [Run]
-Filename: "{app}\lydia.cmd"; Parameters: "start"; Flags: postinstall runhidden skipifsilent
-Filename: "{app}\lydia-dashboard.cmd"; Flags: postinstall skipifsilent shellexec
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\lydia-tray.ps1"" -OpenDashboard"; Flags: postinstall runhidden skipifsilent
 
 [UninstallRun]
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\lydia-tray.ps1"" -Shutdown"; Flags: runhidden
 Filename: "{app}\lydia.cmd"; Parameters: "stop"; Flags: runhidden
+
+[Code]
+procedure ShutdownExistingLydia();
+var
+  ResultCode: Integer;
+begin
+  if FileExists(ExpandConstant('{app}\lydia-tray.ps1')) then
+  begin
+    Exec(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\lydia-tray.ps1') + '" -Shutdown',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    );
+  end;
+
+  if FileExists(ExpandConstant('{app}\lydia.cmd')) then
+  begin
+    Exec(
+      ExpandConstant('{app}\lydia.cmd'),
+      'stop',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    );
+  end;
+
+  Sleep(1500);
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssInstall then
+  begin
+    ShutdownExistingLydia();
+  end;
+end;

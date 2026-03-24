@@ -76,7 +76,7 @@ async function main() {
       const port = parseInt(options.port, 10) || DEFAULT_PORT;
       const host = String(options.host || DEFAULT_HOST);
       await initLocalWorkspace();
-      const server = createServer(port);
+      const server = createServer(port, { version });
       server.start();
       await writeServiceState({
         pid: process.pid,
@@ -126,8 +126,13 @@ async function main() {
   program
     .command('status')
     .description('Show Lydia service status')
-    .action(async () => {
+    .option('--json', 'Output machine-readable JSON')
+    .action(async (options) => {
       const status = await getServiceStatus();
+      if (options.json) {
+        console.log(JSON.stringify(status, null, 2));
+        return;
+      }
       const stateText = status.healthy
         ? chalk.green('healthy')
         : status.running

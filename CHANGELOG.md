@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.4
+
+### Windows Installer Reliability And Tray Controls
+
+- Fixed Windows reinstall and upgrade failures by shutting down the existing Lydia tray and service before files are replaced.
+- Hardened Windows service shutdown to terminate the full process tree so repeated installs can complete cleanly.
+- Added a lightweight Windows tray controller with `Dashboard`, `Run Lydia`, `Stop Lydia`, and live status visibility.
+- Switched Windows auto-start to launch the tray controller so non-technical users can monitor and control Lydia without the command line.
+- Added `lydia status --json` and corrected the service status API to report the running package version.
+
 ## 0.1.3
 
 ### Native Browser Automation Integration

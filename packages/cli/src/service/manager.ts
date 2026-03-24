@@ -33,15 +33,32 @@ export function isPidRunning(pid: number): boolean {
   }
 }
 
-export async function isServerHealthy(port: number = DEFAULT_PORT, host: string = DEFAULT_HOST): Promise<boolean> {
+interface ServiceHealthPayload {
+  status?: string;
+  pid?: number;
+  version?: string;
+  startedAt?: string;
+  baseUrl?: string;
+  host?: string;
+  port?: number;
+}
+
+async function fetchServiceHealth(port: number = DEFAULT_PORT, host: string = DEFAULT_HOST): Promise<ServiceHealthPayload | null> {
   try {
     const res = await fetch(`${getBaseUrl(port, host)}/api/status`, {
       signal: AbortSignal.timeout(2_000),
     });
-    return res.ok;
+    if (!res.ok) return null;
+    const payload = await res.json() as ServiceHealthPayload;
+    if (payload?.status !== 'ok') return null;
+    return payload;
   } catch {
-    return false;
+    return null;
   }
+}
+
+export async function isServerHealthy(port: number = DEFAULT_PORT, host: string = DEFAULT_HOST): Promise<boolean> {
+  return Boolean(await fetchServiceHealth(port, host));
 }
 
 export async function waitForServer(port: number = DEFAULT_PORT, host: string = DEFAULT_HOST): Promise<void> {
@@ -58,22 +75,25 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
   const host = state?.host || DEFAULT_HOST;
   const port = state?.port || DEFAULT_PORT;
   const baseUrl = getBaseUrl(port, host);
+  const health = await fetchServiceHealth(port, host);
 
   if (!state) {
-    const healthy = await isServerHealthy(port, host);
+    const healthy = Boolean(health);
     return {
       running: healthy,
       healthy,
-      pid: null,
+      pid: typeof health?.pid === 'number' ? health.pid : null,
       port,
       host,
       baseUrl,
+      startedAt: health?.startedAt,
+      version: health?.version,
       reason: healthy ? 'Healthy service detected without local state file.' : 'Service is not running.',
     };
   }
 
   const pidRunning = isPidRunning(state.pid);
-  const healthy = await isServerHealthy(state.port, state.host);
+  const healthy = Boolean(health);
   if (!pidRunning && !healthy) {
     await removeServiceState();
     return {
@@ -92,12 +112,12 @@ export async function getServiceStatus(): Promise<ServiceStatus> {
   return {
     running: pidRunning || healthy,
     healthy,
-    pid: state.pid,
+    pid: typeof health?.pid === 'number' ? health.pid : state.pid,
     port: state.port,
     host: state.host,
     baseUrl: state.baseUrl,
-    startedAt: state.startedAt,
-    version: state.version,
+    startedAt: health?.startedAt || state.startedAt,
+    version: health?.version || state.version,
     reason: healthy ? 'Service is healthy.' : 'Process exists but health endpoint is not responding yet.',
   };
 }
@@ -168,7 +188,13 @@ export async function startService(options: { port?: number; host?: string; vers
 
 export async function stopService(): Promise<ServiceStatus> {
   const state = await readServiceState();
-  if (!state) {
+  const health = await fetchServiceHealth(
+    state?.port || DEFAULT_PORT,
+    state?.host || DEFAULT_HOST,
+  );
+
+  const pid = state?.pid || (typeof health?.pid === 'number' ? health.pid : 0);
+  if (!state && !pid) {
     return {
       running: false,
       healthy: false,
@@ -180,15 +206,13 @@ export async function stopService(): Promise<ServiceStatus> {
     };
   }
 
-  if (isPidRunning(state.pid)) {
-    try {
-      process.kill(state.pid);
-    } catch {}
+  if (pid && isPidRunning(pid)) {
+    await terminateProcess(pid);
   }
 
   const deadline = Date.now() + STATUS_POLL_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    if (!isPidRunning(state.pid)) break;
+    if (!pid || !isPidRunning(pid)) break;
     await sleep(STATUS_POLL_INTERVAL_MS);
   }
 
@@ -197,14 +221,41 @@ export async function stopService(): Promise<ServiceStatus> {
   return {
     running: false,
     healthy: false,
-    pid: state.pid,
-    port: state.port,
-    host: state.host,
-    baseUrl: state.baseUrl,
-    startedAt: state.startedAt,
-    version: state.version,
+    pid: pid || null,
+    port: state?.port || health?.port || DEFAULT_PORT,
+    host: state?.host || health?.host || DEFAULT_HOST,
+    baseUrl: state?.baseUrl || health?.baseUrl || getBaseUrl(),
+    startedAt: state?.startedAt || health?.startedAt,
+    version: state?.version || health?.version,
     reason: 'Service stopped.',
   };
+}
+
+async function terminateProcess(pid: number): Promise<void> {
+  try {
+    if (process.platform === 'win32') {
+      await spawnAndWait('taskkill', ['/PID', String(pid), '/T', '/F']);
+      return;
+    }
+    process.kill(pid, 'SIGTERM');
+  } catch {}
+}
+
+async function spawnAndWait(command: string, args: string[]): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      if (code === 0 || code === 128 || code === 255) {
+        resolve();
+        return;
+      }
+      reject(new Error(`${command} exited with code ${code}`));
+    });
+  }).catch(() => {});
 }
 
 function resolveLaunchCommand(port: number, host: string): { command: string; args: string[] } {

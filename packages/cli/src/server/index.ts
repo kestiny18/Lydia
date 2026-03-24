@@ -112,7 +112,7 @@ async function ensureLocalWorkspace() {
 
 export function createServer(
   port: number = DEFAULT_PORT,
-  options?: { silent?: boolean; memoryManager?: MemoryManager }
+  options?: { silent?: boolean; memoryManager?: MemoryManager; version?: string }
 ) {
   const app = new Hono();
   const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
@@ -418,7 +418,7 @@ export function createServer(
   app.get('/api/status', (c) => {
     return c.json({
       status: 'ok',
-      version: '0.1.2',
+      version: options?.version || 'unknown',
       pid: process.pid,
       host: DEFAULT_HOST,
       port,
