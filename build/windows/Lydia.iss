@@ -43,6 +43,44 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 Filename: "{app}\lydia.cmd"; Parameters: "stop"; Flags: runhidden
 
 [Code]
+function PowerShellExe(): string;
+begin
+  Result := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
+end;
+
+procedure ExecPowerShell(const Script: string);
+var
+  ResultCode: Integer;
+begin
+  Exec(
+    PowerShellExe(),
+    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "' + Script + '"',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  );
+end;
+
+procedure ForceTerminateExistingLydia();
+var
+  AppPath: string;
+  EscapedAppPath: string;
+begin
+  AppPath := ExpandConstant('{app}');
+  EscapedAppPath := StringChangeEx(AppPath, '''', '''''', True);
+
+  ExecPowerShell(
+    '$app = ''' + EscapedAppPath + '''; ' +
+    '$procs = Get-CimInstance Win32_Process | Where-Object { ' +
+      '(($_.ExecutablePath -ne $null) -and $_.ExecutablePath.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase)) ' +
+      '-or ' +
+      '(($_.CommandLine -ne $null) -and $_.CommandLine.IndexOf($app, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) ' +
+    '}; ' +
+    'foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch {} }'
+  );
+end;
+
 procedure ShutdownExistingLydia();
 var
   ResultCode: Integer;
@@ -50,7 +88,7 @@ begin
   if FileExists(ExpandConstant('{app}\lydia-tray.ps1')) then
   begin
     Exec(
-      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      PowerShellExe(),
       '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\lydia-tray.ps1') + '" -Shutdown',
       '',
       SW_HIDE,
@@ -72,6 +110,8 @@ begin
   end;
 
   Sleep(1500);
+  ForceTerminateExistingLydia();
+  Sleep(1000);
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

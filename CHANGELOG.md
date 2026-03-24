@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.5
+
+### Windows Installer Hotfix
+
+- Hardened the Windows installer upgrade path by force-terminating leftover Lydia processes from the install directory before replacing files.
+- Fixed the remaining `better_sqlite3.node` lock-file failure seen during reinstall when older Lydia background processes survived the normal stop flow.
+
 ## 0.1.4
 
 ### Windows Installer Reliability And Tray Controls
