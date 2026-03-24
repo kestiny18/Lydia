@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.6
+
+### Windows Installer Build Hotfix
+
+- Fixed the Inno Setup Pascal script regression in the Windows installer build so release packaging succeeds again.
+- Preserved the `0.1.5` process-cleanup hotfix for reinstall lock-file failures while correcting the installer compile step.
+
 ## 0.1.5
 
 ### Windows Installer Hotfix

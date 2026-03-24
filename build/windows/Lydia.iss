@@ -68,7 +68,8 @@ var
   EscapedAppPath: string;
 begin
   AppPath := ExpandConstant('{app}');
-  EscapedAppPath := StringChangeEx(AppPath, '''', '''''', True);
+  EscapedAppPath := AppPath;
+  StringChangeEx(EscapedAppPath, '''', '''''', True);
 
   ExecPowerShell(
     '$app = ''' + EscapedAppPath + '''; ' +
