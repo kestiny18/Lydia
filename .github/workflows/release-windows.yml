@@ -60,7 +60,23 @@ jobs:
             $version = "${{ github.ref_name }}".TrimStart('v')
           }
           $env:LYDIA_VERSION = $version
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "build\windows\Lydia.iss"
+          $logDir = "build\windows\out"
+          $logPath = Join-Path $logDir "iscc.log"
+          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "build\windows\Lydia.iss" *>&1 | Tee-Object -FilePath $logPath
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Inno Setup build failed. Full log:"
+            Get-Content $logPath
+            exit $LASTEXITCODE
+          }
+
+      - name: Upload installer build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-build-log
+          path: build/windows/out/iscc.log
+          if-no-files-found: warn
 
       - name: Resolve release tag
         id: release_tag
