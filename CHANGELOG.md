@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.7
+
+### Windows Release Diagnostics
+
+- Added persistent Inno Setup build logging to the Windows release workflow so installer failures surface full compiler output in Actions and artifacts.
+
 ## 0.1.6
 
 ### Windows Installer Build Hotfix
