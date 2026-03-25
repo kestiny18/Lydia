@@ -43,6 +43,21 @@ function createRuntimeStub(): BrowserToolRuntime {
         artifactPath: args.path,
       };
     },
+    async pressKey(sessionId, args) {
+      return { text: `pressKey:${sessionId}:${args.key}` };
+    },
+    async hover(sessionId, args) {
+      return { text: `hover:${sessionId}:${args.selector}` };
+    },
+    async scroll(sessionId, args) {
+      return { text: `scroll:${sessionId}:${args.deltaY}` };
+    },
+    async back(sessionId) {
+      return { text: `back:${sessionId}` };
+    },
+    async forward(sessionId) {
+      return { text: `forward:${sessionId}` };
+    },
     async closeSession(sessionId) {
       return { text: `close:${sessionId}` };
     },
@@ -86,6 +101,11 @@ describe('BrowserServer', () => {
       'browser_screenshot',
       'browser_download',
       'browser_upload',
+      'browser_press_key',
+      'browser_hover',
+      'browser_scroll',
+      'browser_back',
+      'browser_forward',
       'browser_close',
     ]);
   });
