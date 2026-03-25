@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## 0.1.12
 
+### Installer Fix: Remove UninstallDisplayIcon
+
+- Removed `UninstallDisplayIcon={app}\lydia-dashboard.cmd` from ISS. The `.cmd` script is not a valid icon file; Windows tried to save it as an icon for Add/Remove Programs, causing `IPersistFile::Save` access denied (0x80070005) during installation. Windows will use its default icon for now.
+- Added ISCC diagnostic step to the CI workflow for better failure visibility.
+
 ### CI Fix: Installer Icon
 
 - Fixed installer build failure by copying `app.ico` into the ISS source directory before Inno Setup compilation.
