@@ -2,7 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## 0.1.10
+## 0.1.11
+
+### App Icons
+
+- Added app icons for Windows installer and dashboard: multi-size `.ico` (16–256 px), favicon, and PWA icons (192/512 px).
 
 ### Windows Installer Hotfix (Revisited)
 
