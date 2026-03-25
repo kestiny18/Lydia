@@ -52,21 +52,27 @@ jobs:
         shell: powershell
         run: choco install innosetup -y --no-progress
 
-      - name: Diagnose ISCC environment
-        shell: powershell
-        run: |
-          $pf = [System.Environment]::GetFolderPath('ProgramFilesX86')
-          $iscc = Join-Path $pf "Inno Setup 6\ISCC.exe"
-          Write-Host "ISCC: $iscc"
-          Write-Host "ISCC exists: $(Test-Path $iscc)"
-          if (Test-Path $iscc) { & $iscc /? 2>&1 | Select-Object -First 3 }
-          Write-Host "app.ico bytes: $((Get-Item 'build\windows\app.ico').Length)"
-          Write-Host "Lydia.iss bytes: $((Get-Item 'build\windows\Lydia.iss').Length)"
-          Write-Host "kill.ps1 bytes: $((Get-Item '.release\windows\bundle\lydia-kill.ps1').Length)"
-
       - name: Build installer
         shell: powershell
         run: |
+          # --- diagnostics ---
+          $pf86 = [System.Environment]::GetFolderPath('ProgramFilesX86')
+          $iscc = Join-Path $pf86 "Inno Setup 6\ISCC.exe"
+          Write-Host "::group::ISCC Diagnostics"
+          Write-Host "ISCC path: $iscc"
+          Write-Host "ISCC exists: $(Test-Path $iscc)"
+          if (Test-Path $iscc) {
+            $ver = & $iscc /? 2>&1 | Select-Object -First 1
+            Write-Host "ISCC version: $ver"
+          }
+          Write-Host "app.ico bytes: $((Get-Item 'build\windows\app.ico').Length)"
+          Write-Host "Lydia.iss bytes: $((Get-Item 'build\windows\Lydia.iss').Length)"
+          Write-Host "kill.ps1 bytes: $((Get-Item '.release\windows\bundle\lydia-kill.ps1').Length)"
+          Write-Host "bundle dir files:"
+          Get-ChildItem '.release\windows\bundle' | Select-Object Name, Length | Format-Table
+          Write-Host "::endgroup::"
+
+          # --- build ---
           $version = "${{ github.event.inputs.release_version }}"
           if (-not $version) {
             $version = "${{ github.ref_name }}".TrimStart('v')
@@ -75,11 +81,14 @@ jobs:
           $logDir = "build\windows\out"
           $logPath = Join-Path $logDir "iscc.log"
           New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "build\windows\Lydia.iss" *>&1 | Tee-Object -FilePath $logPath
-          if ($LASTEXITCODE -ne 0) {
-            Write-Host "Inno Setup build failed. Full log:"
+          & $iscc "build\windows\Lydia.iss" *>&1 | Tee-Object -FilePath $logPath
+          $exit = $LASTEXITCODE
+          Write-Host "ISCC exit code: $exit"
+          if ($exit -ne 0) {
+            Write-Host "::group::ISCC Error Log"
             Get-Content $logPath
-            exit $LASTEXITCODE
+            Write-Host "::endgroup::"
+            exit $exit
           }
 
       - name: Upload installer build log
