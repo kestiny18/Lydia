@@ -52,6 +52,19 @@ jobs:
         shell: powershell
         run: choco install innosetup -y --no-progress
 
+      - name: Diagnose ISCC environment
+        shell: powershell
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          Write-Host "ISCC path: $iscc"
+          Write-Host "ISCC exists: $(Test-Path $iscc)"
+          # Print first line of ISCC version (contains version info)
+          & $iscc /? 2>&1 | Select-Object -First 3
+          Write-Host "---"
+          Write-Host "app.ico: $(Get-Item 'build\windows\app.ico').Length bytes"
+          Write-Host "Lydia.iss: $(Get-Item 'build\windows\Lydia.iss').Length bytes"
+          Write-Host "lydia-kill.ps1: $(Get-Item '.release\windows\bundle\lydia-kill.ps1').Length bytes"
+
       - name: Build installer
         shell: powershell
         run: |
