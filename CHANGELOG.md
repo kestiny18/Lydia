@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.8
+
+### Browser Automation Improvements
+
+- Extracted `BrowserConnector` to encapsulate Playwright browser lifecycle management.
+- Added `browser_press_key`, `browser_hover`, `browser_scroll`, `browser_back`, `browser_forward` tools to the browser manager and MCP server.
+- Refactored MCP browser server with a declarative `TOOL_SCHEMAS` array for easier tool registration.
+- Registered new browser tools in the canonical computer-use contract and marked them as read-only in the risk gate.
+- Added test coverage for new browser tools.
+
 ## 0.1.7
 
 ### Windows Release Diagnostics
