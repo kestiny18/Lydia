@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.12
+
+### CI Fix: Installer Icon
+
+- Fixed installer build failure by copying `app.ico` into the ISS source directory before Inno Setup compilation.
+
 ## 0.1.11
 
 ### App Icons
