@@ -66,26 +66,13 @@ procedure ForceTerminateExistingLydia();
 var
   AppPath: string;
   EscapedAppPath: string;
+  ResultCode: Integer;
 begin
   AppPath := ExpandConstant('{app}');
   EscapedAppPath := AppPath;
-  StringChangeEx(EscapedAppPath, '''', '''''', True);
+  StringChangeEx(EscapedAppPath, '\', '\\', True);
 
-  ExecPowerShell(
-    '$app = ''' + EscapedAppPath + '''; ' +
-    '$procs = Get-CimInstance Win32_Process | Where-Object { ' +
-      '(($_.ExecutablePath -ne $null) -and $_.ExecutablePath.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase)) ' +
-      '-or ' +
-      '(($_.CommandLine -ne $null) -and $_.CommandLine.IndexOf($app, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) ' +
-    '}; ' +
-    'foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch {} }'
-  );
-end;
-
-procedure ShutdownExistingLydia();
-var
-  ResultCode: Integer;
-begin
+  // Gracefully signal tray shutdown first
   if FileExists(ExpandConstant('{app}\lydia-tray.ps1')) then
   begin
     Exec(
@@ -98,6 +85,7 @@ begin
     );
   end;
 
+  // Stop lydia service gracefully
   if FileExists(ExpandConstant('{app}\lydia.cmd')) then
   begin
     Exec(
@@ -110,9 +98,38 @@ begin
     );
   end;
 
+  Sleep(2000);
+
+  // Force kill by matching ExecutablePath or CommandLine (covers orphaned child processes)
+  ExecPowerShell(
+    '$app = ''' + EscapedAppPath + '''; ' +
+    '$procs = Get-CimInstance Win32_Process | Where-Object { ' +
+      '(($_.ExecutablePath -ne $null) -and $_.ExecutablePath.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase)) ' +
+      '-or ' +
+      '(($_.CommandLine -ne $null) -and $_.CommandLine.IndexOf($app, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) ' +
+    '}; ' +
+    'foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch {} }'
+  );
+
   Sleep(1500);
-  ForceTerminateExistingLydia();
+
+  // Kill any orphaned node.exe directly under the app/runtime directory
+  ExecPowerShell(
+    '$app = ''' + EscapedAppPath + '''; ' +
+    'Get-Process node -ErrorAction SilentlyContinue | Where-Object { ' +
+      '($_.Path -ne $null -and $_.Path.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase)) ' +
+      '-or (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" | Where-Object { ' +
+        '$_.ExecutablePath -ne $null -and $_.ExecutablePath.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase) ' +
+      '}) ' +
+    '} | Stop-Process -Force -ErrorAction SilentlyContinue'
+  );
+
   Sleep(1000);
+end;
+
+procedure ShutdownExistingLydia();
+begin
+  ForceTerminateExistingLydia();
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);

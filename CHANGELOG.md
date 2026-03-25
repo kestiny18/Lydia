@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.9
+
+### Windows Installer Hotfix
+
+- Fixed upgrade installation failure by ensuring orphaned `node.exe` child processes are explicitly killed before file replacement, releasing locks on `better_sqlite3.node`.
+
 ## 0.1.8
 
 ### Browser Automation Improvements
