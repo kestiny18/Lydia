@@ -1,0 +1,96 @@
+<svg width="420" height="420" viewBox="0 0 420 420" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg-glow" cx="42%" cy="48%" r="50%">
+      <stop offset="0%"   stop-color="#0D1E30"/>
+      <stop offset="100%" stop-color="#080A0F"/>
+    </radialGradient>
+    <radialGradient id="face-light" cx="62%" cy="36%" r="58%">
+      <stop offset="0%"   stop-color="#4AB8FF" stop-opacity="0.09"/>
+      <stop offset="100%" stop-color="#4AB8FF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="420" height="420" fill="#080A0F"/>
+
+  <!-- Coin base -->
+  <circle cx="210" cy="210" r="200" fill="url(#bg-glow)"/>
+  <circle cx="210" cy="210" r="200" fill="url(#face-light)"/>
+  <!-- Outer border -->
+  <circle cx="210" cy="210" r="200" fill="none" stroke="#4AB8FF" stroke-width="1" stroke-opacity="0.14"/>
+
+  <!-- Profile fill — dark mass -->
+  <path
+    d="
+      M 210,52
+      C 238,52  260,70  267,96
+      C 273,116 270,130 261,141
+      C 255,149 247,153 249,166
+      C 251,178 264,184 267,198
+      C 271,214 260,228 252,238
+      C 245,247 236,252 238,266
+      C 240,278 252,285 252,301
+      C 251,317 238,332 230,344
+      C 223,355 220,369 222,382
+      L 178,382
+      C 178,369 176,355 176,338
+      C 176,320 176,302 176,284
+      C 176,266 176,248 176,230
+      C 176,212 176,194 176,176
+      C 176,158 176,140 176,122
+      C 176,104 186,52  210,52
+      Z
+    "
+    fill="#0F1C2A"
+  />
+
+  <!-- Profile edge — the luminous contour line -->
+  <path
+    d="
+      M 210,54
+      C 236,54  257,72  264,98
+      C 270,118 266,133 257,143
+      C 251,151 243,155 245,168
+      C 247,180 260,186 263,201
+      C 267,218 255,232 247,242
+      C 240,251 231,256 233,270
+      C 235,283 247,291 246,307
+      C 245,323 231,339 223,351
+      C 216,362 214,375 216,386
+    "
+    fill="none"
+    stroke="#4AB8FF"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    opacity="0.82"
+  />
+
+  <!-- Brow — subtle -->
+  <path
+    d="M 228,136 C 236,130 247,129 255,133"
+    fill="none"
+    stroke="#4AB8FF"
+    stroke-width="1.2"
+    stroke-linecap="round"
+    opacity="0.35"
+  />
+
+  <!-- Eye — teal accent, the focal point -->
+  <circle cx="242" cy="156" r="6.5" fill="#30D5C8" opacity="0.95"/>
+  <circle cx="242" cy="156" r="16"  fill="#30D5C8" opacity="0.10"/>
+
+  <!-- Hair sweep — very subtle, adds life at top -->
+  <path
+    d="
+      M 210,54
+      C 203,44  191,38  177,38
+      C 161,38  150,47  146,59
+    "
+    fill="none"
+    stroke="#4AB8FF"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    opacity="0.28"
+  />
+
+</svg>

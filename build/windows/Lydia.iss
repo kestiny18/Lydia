@@ -21,16 +21,18 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\lydia-dashboard.cmd
+IconFile=app.ico
 
 [Files]
 Source: "..\..\.release\windows\bundle\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\Open Lydia"; Filename: "{app}\lydia-dashboard.cmd"
-Name: "{group}\Lydia Tray"; Filename: "{app}\lydia-tray.cmd"
-Name: "{group}\Start Lydia"; Filename: "{app}\lydia-start.cmd"
-Name: "{group}\Stop Lydia"; Filename: "{app}\lydia-stop.cmd"
-Name: "{group}\Uninstall Lydia"; Filename: "{uninstallexe}"
+Name: "{group}\Open Lydia"; Filename: "{app}\lydia-dashboard.cmd"; IconFilename: "{app}\app.ico"
+Name: "{group}\Lydia Tray"; Filename: "{app}\lydia-tray.cmd"; IconFilename: "{app}\app.ico"
+Name: "{group}\Start Lydia"; Filename: "{app}\lydia-start.cmd"; IconFilename: "{app}\app.ico"
+Name: "{group}\Stop Lydia"; Filename: "{app}\lydia-stop.cmd"; IconFilename: "{app}\app.ico"
+Name: "{group}\Uninstall Lydia"; Filename: "{uninstallexe}"; IconFilename: "{app}\app.ico"
+Name: "{commondesktop}\Lydia"; Filename: "{app}\lydia-dashboard.cmd"; IconFilename: "{app}\app.ico"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Lydia"; ValueData: """{sys}\WindowsPowerShell\v1.0\powershell.exe"" -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{app}\lydia-tray.ps1"""; Flags: uninsdeletevalue
