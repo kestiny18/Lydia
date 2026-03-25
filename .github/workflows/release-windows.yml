@@ -55,15 +55,14 @@ jobs:
       - name: Diagnose ISCC environment
         shell: powershell
         run: |
-          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-          Write-Host "ISCC path: $iscc"
+          $pf = [System.Environment]::GetFolderPath('ProgramFilesX86')
+          $iscc = Join-Path $pf "Inno Setup 6\ISCC.exe"
+          Write-Host "ISCC: $iscc"
           Write-Host "ISCC exists: $(Test-Path $iscc)"
-          # Print first line of ISCC version (contains version info)
-          & $iscc /? 2>&1 | Select-Object -First 3
-          Write-Host "---"
-          Write-Host "app.ico: $(Get-Item 'build\windows\app.ico').Length bytes"
-          Write-Host "Lydia.iss: $(Get-Item 'build\windows\Lydia.iss').Length bytes"
-          Write-Host "lydia-kill.ps1: $(Get-Item '.release\windows\bundle\lydia-kill.ps1').Length bytes"
+          if (Test-Path $iscc) { & $iscc /? 2>&1 | Select-Object -First 3 }
+          Write-Host "app.ico bytes: $((Get-Item 'build\windows\app.ico').Length)"
+          Write-Host "Lydia.iss bytes: $((Get-Item 'build\windows\Lydia.iss').Length)"
+          Write-Host "kill.ps1 bytes: $((Get-Item '.release\windows\bundle\lydia-kill.ps1').Length)"
 
       - name: Build installer
         shell: powershell
