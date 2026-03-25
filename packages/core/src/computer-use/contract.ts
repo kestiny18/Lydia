@@ -18,6 +18,11 @@ const BROWSER_ACTIONS: CanonicalComputerUseAction[] = [
   { domain: 'browser', toolName: 'browser_screenshot', requiredArgs: [], description: 'Capture page screenshot', aliases: ['browser.screenshot', 'playwright_screenshot'] },
   { domain: 'browser', toolName: 'browser_download', requiredArgs: [], description: 'Download an artifact', aliases: ['browser_download_file'] },
   { domain: 'browser', toolName: 'browser_upload', requiredArgs: ['selector', 'path'], description: 'Upload a local file', aliases: ['browser_upload_file', 'browser_attach_file'] },
+  { domain: 'browser', toolName: 'browser_press_key', requiredArgs: ['key'], description: 'Press a keyboard key', aliases: ['browser_press', 'browser_key_press', 'playwright_press'] },
+  { domain: 'browser', toolName: 'browser_hover', requiredArgs: ['selector'], description: 'Hover over an element', aliases: ['browser.hover', 'playwright_hover'] },
+  { domain: 'browser', toolName: 'browser_scroll', requiredArgs: [], description: 'Scroll the page or an element', aliases: ['browser.scroll', 'playwright_scroll'] },
+  { domain: 'browser', toolName: 'browser_back', requiredArgs: [], description: 'Navigate back in history', aliases: ['browser.back', 'playwright_go_back'] },
+  { domain: 'browser', toolName: 'browser_forward', requiredArgs: [], description: 'Navigate forward in history', aliases: ['browser.forward', 'playwright_go_forward'] },
   { domain: 'browser', toolName: 'browser_close', requiredArgs: [], description: 'Close browser/page context', aliases: ['browser.close', 'playwright_close'] },
 ];
 
