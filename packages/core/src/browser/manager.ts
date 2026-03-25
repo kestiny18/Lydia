@@ -1,9 +1,7 @@
 import { mkdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { platform } from 'node:os';
-import { spawn } from 'node:child_process';
-import type { Browser, BrowserContext, Download, Page } from 'playwright';
-import { chromium } from 'playwright';
+import type { BrowserContext, Download } from 'playwright';
+import { BrowserConnector } from './connector.js';
 
 export type BrowserDriverMode = 'auto' | 'cdp' | 'headless' | 'remote';
 export type ResolvedBrowserDriverMode = Exclude<BrowserDriverMode, 'auto'>;
@@ -18,13 +16,18 @@ export interface BrowserRuntimeConfig {
   navigationTimeoutMs: number;
   actionTimeoutMs: number;
   downloadDir: string;
+  /** Idle time in ms before an unused session is automatically closed. Default: 5 min. */
+  idleTimeoutMs: number;
+  /** How often to check for idle sessions. Default: 30 s. */
+  idleCheckIntervalMs: number;
 }
 
 interface BrowserSessionState {
   sessionId: string;
-  page: Page;
+  page: import('playwright').Page;
   context: BrowserContext;
   ownsContext: boolean;
+  lastAccessedAt: number;
 }
 
 export interface BrowserNavigateArgs {
@@ -80,6 +83,22 @@ export interface BrowserUploadArgs {
   timeoutMs?: number;
 }
 
+export interface BrowserPressKeyArgs {
+  key: string;
+  timeoutMs?: number;
+}
+
+export interface BrowserHoverArgs {
+  selector: string;
+  timeoutMs?: number;
+}
+
+export interface BrowserScrollArgs {
+  selector?: string;
+  deltaY?: number;
+  timeoutMs?: number;
+}
+
 export interface BrowserToolResult {
   text: string;
   imageBase64?: string;
@@ -99,34 +118,51 @@ export interface BrowserToolRuntime {
   screenshot(sessionId: string, args: BrowserScreenshotArgs): Promise<BrowserToolResult>;
   download(sessionId: string, args: BrowserDownloadArgs): Promise<BrowserToolResult>;
   upload(sessionId: string, args: BrowserUploadArgs): Promise<BrowserToolResult>;
+  pressKey(sessionId: string, args: BrowserPressKeyArgs): Promise<BrowserToolResult>;
+  hover(sessionId: string, args: BrowserHoverArgs): Promise<BrowserToolResult>;
+  scroll(sessionId: string, args: BrowserScrollArgs): Promise<BrowserToolResult>;
+  back(sessionId: string): Promise<BrowserToolResult>;
+  forward(sessionId: string): Promise<BrowserToolResult>;
   closeSession(sessionId: string): Promise<BrowserToolResult>;
   getResolvedMode(): ResolvedBrowserDriverMode | null;
   dispose(): Promise<void>;
 }
 
-export interface BrowserToolError extends Error {
-  code:
-    | 'BROWSER_TIMEOUT'
-    | 'ELEMENT_NOT_FOUND'
-    | 'ELEMENT_NOT_INTERACTABLE'
-    | 'NAVIGATION_BLOCKED'
-    | 'DOWNLOAD_FAILED'
-    | 'UPLOAD_FAILED'
-    | 'SESSION_CLOSED'
-    | 'CAPABILITY_UNAVAILABLE'
-    | 'UNKNOWN';
-  retryable: boolean;
+/** Error codes that BrowserAutomationManager operations can produce. */
+export type BrowserToolErrorCode =
+  | 'BROWSER_TIMEOUT'
+  | 'ELEMENT_NOT_FOUND'
+  | 'ELEMENT_NOT_INTERACTABLE'
+  | 'NAVIGATION_BLOCKED'
+  | 'DOWNLOAD_FAILED'
+  | 'UPLOAD_FAILED'
+  | 'SESSION_CLOSED'
+  | 'CAPABILITY_UNAVAILABLE'
+  | 'UNKNOWN';
+
+/** Properly-extends_Error typed error for browser operations.
+ *  Instances carry a machine-readable `code` and a `retryable` flag
+ *  so the agent can decide whether to re-attempt without parsing message text. */
+export class BrowserToolError extends Error {
+  readonly code: BrowserToolErrorCode;
+  readonly retryable: boolean;
+
+  constructor(code: BrowserToolErrorCode, message: string, retryable = true) {
+    super(message);
+    this.name = 'BrowserToolError';
+    this.code = code;
+    this.retryable = retryable;
+    // Maintains proper stack traces in V8 environments (Node.js / Playwright)
+    Error.captureStackTrace(this, BrowserToolError);
+  }
 }
 
 export function createBrowserToolError(
-  code: BrowserToolError['code'],
+  code: BrowserToolErrorCode,
   message: string,
   retryable = true,
 ): BrowserToolError {
-  const error = new Error(`${code}: ${message}`) as BrowserToolError;
-  error.code = code;
-  error.retryable = retryable;
-  return error;
+  return new BrowserToolError(code, message, retryable);
 }
 
 export function createDefaultBrowserRuntimeConfig(
@@ -142,25 +178,39 @@ export function createDefaultBrowserRuntimeConfig(
     navigationTimeoutMs: partial.navigationTimeoutMs ?? 30_000,
     actionTimeoutMs: partial.actionTimeoutMs ?? 10_000,
     downloadDir: partial.downloadDir || join(process.cwd(), '.lydia-artifacts', 'browser-downloads'),
+    idleTimeoutMs: partial.idleTimeoutMs ?? 5 * 60 * 1000,
+    idleCheckIntervalMs: partial.idleCheckIntervalMs ?? 30_000,
   };
 }
 
 export class BrowserAutomationManager implements BrowserToolRuntime {
   private readonly config: BrowserRuntimeConfig;
   private readonly sessions = new Map<string, BrowserSessionState>();
-  private browser: Browser | null = null;
-  private resolvedMode: ResolvedBrowserDriverMode | null = null;
-  private attemptedHostLaunch = false;
+  private readonly connector: BrowserConnector;
+  private idleTimer: ReturnType<typeof setInterval> | null = null;
+  private disposed = false;
 
   constructor(config: Partial<BrowserRuntimeConfig> = {}) {
     this.config = createDefaultBrowserRuntimeConfig(config);
+    this.connector = new BrowserConnector({
+      mode: this.config.mode,
+      cdpPort: this.config.cdpPort,
+      remoteUrl: this.config.remoteUrl,
+      chromePath: this.config.chromePath,
+      launchHostBrowser: this.config.launchHostBrowser,
+    });
   }
 
   getResolvedMode(): ResolvedBrowserDriverMode | null {
-    return this.resolvedMode;
+    return this.connector.getResolvedMode();
   }
 
+  // -------------------------------------------------------------------------
+  // Tool operations — each touches a session and records access time.
+  // -------------------------------------------------------------------------
+
   async navigate(sessionId: string, args: BrowserNavigateArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     const response = await page.goto(args.url, {
       waitUntil: args.waitUntil ?? 'domcontentloaded',
@@ -178,6 +228,7 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async click(sessionId: string, args: BrowserClickArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     const locator = page.locator(args.selector).first();
     await locator.waitFor({ state: 'visible', timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
@@ -189,13 +240,18 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async type(sessionId: string, args: BrowserTypeArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     const locator = page.locator(args.selector).first();
     await locator.waitFor({ state: 'visible', timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
-    if (args.clearExisting !== false) {
-      await locator.fill('', { timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
+    if (args.clearExisting === false) {
+      // Use click+type so we don't overwrite existing content when clearExisting=false.
+      await locator.click({ timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
+      await locator.type(args.text, { timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
+    } else {
+      // locator.fill() automatically clears existing value.
+      await locator.fill(args.text, { timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
     }
-    await locator.fill(args.text, { timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
     return {
       text: `Typed into ${args.selector} on ${page.url()}`,
       metadata: { url: page.url(), selector: args.selector, length: args.text.length },
@@ -203,6 +259,7 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async select(sessionId: string, args: BrowserSelectArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     const values = Array.isArray(args.value) ? args.value : [args.value];
     await page.locator(args.selector).first().selectOption(values, {
@@ -215,6 +272,7 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async waitFor(sessionId: string, args: BrowserWaitForArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     const state = args.state ?? 'visible';
     await page.locator(args.selector).first().waitFor({
@@ -228,6 +286,7 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async extractText(sessionId: string, args: BrowserExtractTextArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     const locator = page.locator(args.selector).first();
     await locator.waitFor({ state: 'attached', timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
@@ -239,6 +298,7 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async screenshot(sessionId: string, args: BrowserScreenshotArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     const buffer = await page.screenshot({
       fullPage: args.fullPage ?? true,
@@ -254,6 +314,7 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async download(sessionId: string, args: BrowserDownloadArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     if (!args.selector && !args.url) {
       throw createBrowserToolError('DOWNLOAD_FAILED', 'Either "selector" or "url" is required.', false);
@@ -276,6 +337,7 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async upload(sessionId: string, args: BrowserUploadArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
     const page = await this.getPage(sessionId);
     const locator = page.locator(args.selector).first();
     await locator.setInputFiles(resolve(args.path), {
@@ -285,6 +347,62 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
       text: `Uploaded ${resolve(args.path)} into ${args.selector}`,
       artifactPath: resolve(args.path),
       metadata: { url: page.url(), selector: args.selector, path: resolve(args.path) },
+    };
+  }
+
+  async pressKey(sessionId: string, args: BrowserPressKeyArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
+    const page = await this.getPage(sessionId);
+    await page.keyboard.press(args.key, { delay: 0 });
+    return {
+      text: `Pressed key "${args.key}" on ${page.url()}`,
+      metadata: { url: page.url(), key: args.key },
+    };
+  }
+
+  async hover(sessionId: string, args: BrowserHoverArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
+    const page = await this.getPage(sessionId);
+    const locator = page.locator(args.selector).first();
+    await locator.waitFor({ state: 'visible', timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
+    await locator.hover({ timeout: args.timeoutMs ?? this.config.actionTimeoutMs });
+    return {
+      text: `Hovered over ${args.selector} on ${page.url()}`,
+      metadata: { url: page.url(), selector: args.selector },
+    };
+  }
+
+  async scroll(sessionId: string, args: BrowserScrollArgs): Promise<BrowserToolResult> {
+    this.touch(sessionId);
+    const page = await this.getPage(sessionId);
+    const deltaY = args.deltaY ?? 300;
+    if (args.selector) {
+      await page.locator(args.selector).first().scrollIntoViewIfNeeded();
+    }
+    await page.mouse.wheel(0, deltaY);
+    return {
+      text: `Scrolled ${deltaY}px ${args.selector ? `in ${args.selector}` : 'on page'} at ${page.url()}`,
+      metadata: { url: page.url(), selector: args.selector ?? null, deltaY },
+    };
+  }
+
+  async back(sessionId: string): Promise<BrowserToolResult> {
+    this.touch(sessionId);
+    const page = await this.getPage(sessionId);
+    const response = await page.goBack({ timeout: this.config.navigationTimeoutMs });
+    return {
+      text: `Navigated back to ${page.url()} [status=${response?.status() ?? 'n/a'}]`,
+      metadata: { url: page.url(), title: await page.title(), status: response?.status() ?? null },
+    };
+  }
+
+  async forward(sessionId: string): Promise<BrowserToolResult> {
+    this.touch(sessionId);
+    const page = await this.getPage(sessionId);
+    const response = await page.goForward({ timeout: this.config.navigationTimeoutMs });
+    return {
+      text: `Navigated forward to ${page.url()} [status=${response?.status() ?? 'n/a'}]`,
+      metadata: { url: page.url(), title: await page.title(), status: response?.status() ?? null },
     };
   }
 
@@ -315,25 +433,39 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 
   async dispose(): Promise<void> {
+    if (this.disposed) return;
+    this.disposed = true;
+
+    this.stopIdleCleanup();
+
     const ids = Array.from(this.sessions.keys());
     for (const sessionId of ids) {
       await this.closeSession(sessionId);
     }
-    if (this.browser) {
-      await this.browser.close();
-    }
-    this.browser = null;
-    this.resolvedMode = null;
+
+    await this.connector.close();
   }
 
-  private async getPage(sessionId: string): Promise<Page> {
+  // -------------------------------------------------------------------------
+  // Session management
+  // -------------------------------------------------------------------------
+
+  /** Returns the page for the given session, creating one if necessary.
+   *  Also performs a health check: if the underlying browser process died,
+   *  it is reconnected transparently. */
+  private async getPage(sessionId: string): Promise<import('playwright').Page> {
     const existing = this.sessions.get(sessionId);
     if (existing && !existing.page.isClosed()) {
       return existing.page;
     }
 
-    const browser = await this.ensureBrowser();
-    const mode = this.resolvedMode;
+    if (!this.connector.isHealthy()) {
+      console.warn('[BrowserAutomationManager] Browser process unhealthy, reconnecting...');
+      await this.connector.close();
+    }
+
+    const browser = await this.connector.ensureBrowser();
+    const mode = this.connector.getResolvedMode();
     if (!mode) {
       throw createBrowserToolError('CAPABILITY_UNAVAILABLE', 'Browser mode could not be resolved.', false);
     }
@@ -342,7 +474,7 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
     let ownsContext = true;
 
     if (mode === 'cdp') {
-      context = browser.contexts()[0] || await browser.newContext({ acceptDownloads: true });
+      context = browser.contexts()[0] || (await browser.newContext({ acceptDownloads: true }));
       ownsContext = false;
     } else {
       context = await browser.newContext({ acceptDownloads: true });
@@ -354,143 +486,56 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
       page,
       context,
       ownsContext,
+      lastAccessedAt: Date.now(),
     };
     this.sessions.set(sessionId, session);
+    this.startIdleCleanup();
     return page;
   }
 
-  private async ensureBrowser(): Promise<Browser> {
-    if (!this.config.enabled) {
-      throw createBrowserToolError('CAPABILITY_UNAVAILABLE', 'Browser automation is disabled in config.', false);
+  /** Records that a tool operation just occurred on this session. */
+  private touch(sessionId: string): void {
+    const state = this.sessions.get(sessionId);
+    if (state) {
+      state.lastAccessedAt = Date.now();
     }
-    if (this.browser) return this.browser;
-
-    const desiredMode = this.config.mode;
-    if (desiredMode === 'cdp') {
-      this.browser = await this.connectCdpOrThrow();
-      this.resolvedMode = 'cdp';
-      return this.browser;
-    }
-    if (desiredMode === 'remote') {
-      this.browser = await this.connectRemoteOrThrow();
-      this.resolvedMode = 'remote';
-      return this.browser;
-    }
-    if (desiredMode === 'headless') {
-      this.browser = await this.connectHeadless();
-      this.resolvedMode = 'headless';
-      return this.browser;
-    }
-
-    try {
-      this.browser = await this.connectCdpOrThrow();
-      this.resolvedMode = 'cdp';
-      return this.browser;
-    } catch {}
-
-    if (this.config.remoteUrl) {
-      try {
-        this.browser = await this.connectRemoteOrThrow();
-        this.resolvedMode = 'remote';
-        return this.browser;
-      } catch {}
-    }
-
-    this.browser = await this.connectHeadless();
-    this.resolvedMode = 'headless';
-    return this.browser;
   }
 
-  private async connectCdpOrThrow(): Promise<Browser> {
-    const url = `http://127.0.0.1:${this.config.cdpPort}`;
-    const reachable = await this.isCdpReachable(url);
-    if (!reachable && this.config.launchHostBrowser && !this.attemptedHostLaunch) {
-      this.launchHostChrome();
-      this.attemptedHostLaunch = true;
-      await sleep(1500);
-    }
+  // -------------------------------------------------------------------------
+  // Idle timeout cleanup
+  // -------------------------------------------------------------------------
 
-    const reachableAfterLaunch = await this.isCdpReachable(url);
-    if (!reachableAfterLaunch) {
-      throw createBrowserToolError(
-        'CAPABILITY_UNAVAILABLE',
-        `CDP endpoint ${url} is not reachable.`,
-        false,
-      );
-    }
-    return chromium.connectOverCDP(url);
-  }
+  private startIdleCleanup(): void {
+    if (this.idleTimer !== null) return;
+    if (this.config.idleTimeoutMs <= 0) return;
 
-  private async connectRemoteOrThrow(): Promise<Browser> {
-    if (!this.config.remoteUrl) {
-      throw createBrowserToolError('CAPABILITY_UNAVAILABLE', 'Remote browser URL is not configured.', false);
-    }
-    return chromium.connectOverCDP(this.config.remoteUrl);
-  }
-
-  private async connectHeadless(): Promise<Browser> {
-    return chromium.launch({
-      headless: true,
-      args: ['--disable-dev-shm-usage', '--no-sandbox'],
-    });
-  }
-
-  private async isCdpReachable(baseUrl: string): Promise<boolean> {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 1500);
-      try {
-        const response = await fetch(`${baseUrl}/json/version`, {
-          signal: controller.signal,
-        });
-        return response.ok;
-      } finally {
-        clearTimeout(timeout);
+    this.idleTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [sessionId, state] of this.sessions) {
+        if (now - state.lastAccessedAt > this.config.idleTimeoutMs) {
+          console.warn(`[BrowserAutomationManager] Closing idle session ${sessionId} (idle > ${this.config.idleTimeoutMs}ms)`);
+          this.closeSession(sessionId).catch((err) =>
+            console.warn(`[BrowserAutomationManager] Error closing idle session ${sessionId}:`, err),
+          );
+        }
       }
-    } catch {
-      return false;
+      // Stop the timer when there are no more sessions.
+      if (this.sessions.size === 0) {
+        this.stopIdleCleanup();
+      }
+    }, this.config.idleCheckIntervalMs);
+  }
+
+  private stopIdleCleanup(): void {
+    if (this.idleTimer !== null) {
+      clearInterval(this.idleTimer);
+      this.idleTimer = null;
     }
   }
 
-  private launchHostChrome(): void {
-    const binary = this.resolveChromeBinary();
-    if (!binary) {
-      throw createBrowserToolError(
-        'CAPABILITY_UNAVAILABLE',
-        'CDP launch requested but no Chrome executable could be resolved.',
-        false,
-      );
-    }
-
-    const userDataDir = join(process.cwd(), '.lydia-artifacts', 'chrome-profile');
-    const args = [
-      `--remote-debugging-port=${this.config.cdpPort}`,
-      '--no-first-run',
-      '--no-default-browser-check',
-      `--user-data-dir=${userDataDir}`,
-    ];
-
-    spawn(binary, args, {
-      detached: true,
-      stdio: 'ignore',
-      windowsHide: true,
-    }).unref();
-  }
-
-  private resolveChromeBinary(): string | null {
-    if (this.config.chromePath) {
-      return this.config.chromePath;
-    }
-
-    const os = platform();
-    if (os === 'win32') {
-      return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-    }
-    if (os === 'darwin') {
-      return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-    }
-    return 'google-chrome';
-  }
+  // -------------------------------------------------------------------------
+  // Download helpers
+  // -------------------------------------------------------------------------
 
   private async saveDownload(download: Download, requestedPath?: string): Promise<string> {
     const filename = requestedPath
@@ -502,44 +547,52 @@ export class BrowserAutomationManager implements BrowserToolRuntime {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Error normalization
+// ---------------------------------------------------------------------------
+
 export function normalizeBrowserRuntimeError(error: unknown): BrowserToolError {
-  if (error && typeof error === 'object' && 'code' in error && typeof (error as BrowserToolError).code === 'string') {
+  // Already a BrowserToolError (or any object with .code + .message + .retryable).
+  if (
+    error &&
+    typeof error === 'object' &&
+    typeof (error as { code?: unknown }).code === 'string' &&
+    typeof (error as { message?: unknown }).message === 'string' &&
+    typeof (error as { retryable?: unknown }).retryable === 'boolean'
+  ) {
     return error as BrowserToolError;
   }
 
   if (error instanceof Error) {
     const message = error.message || 'Unknown browser error';
     const lowered = message.toLowerCase();
+
     if (lowered.includes('timeout')) {
-      return createBrowserToolError('BROWSER_TIMEOUT', message, true);
+      return new BrowserToolError('BROWSER_TIMEOUT', message, true);
     }
     if (lowered.includes('not found') || lowered.includes('waiting for locator')) {
-      return createBrowserToolError('ELEMENT_NOT_FOUND', message, true);
+      return new BrowserToolError('ELEMENT_NOT_FOUND', message, true);
     }
     if (lowered.includes('not visible') || lowered.includes('not enabled') || lowered.includes('intercept')) {
-      return createBrowserToolError('ELEMENT_NOT_INTERACTABLE', message, true);
+      return new BrowserToolError('ELEMENT_NOT_INTERACTABLE', message, true);
     }
     if (lowered.includes('net::') || lowered.includes('navigation')) {
-      return createBrowserToolError('NAVIGATION_BLOCKED', message, true);
+      return new BrowserToolError('NAVIGATION_BLOCKED', message, true);
     }
     if (lowered.includes('download')) {
-      return createBrowserToolError('DOWNLOAD_FAILED', message, true);
+      return new BrowserToolError('DOWNLOAD_FAILED', message, true);
     }
     if (lowered.includes('upload') || lowered.includes('input files')) {
-      return createBrowserToolError('UPLOAD_FAILED', message, true);
+      return new BrowserToolError('UPLOAD_FAILED', message, true);
     }
     if (lowered.includes('target page, context or browser has been closed')) {
-      return createBrowserToolError('SESSION_CLOSED', message, true);
+      return new BrowserToolError('SESSION_CLOSED', message, true);
     }
     if (lowered.includes('executable') || lowered.includes('playwright')) {
-      return createBrowserToolError('CAPABILITY_UNAVAILABLE', message, false);
+      return new BrowserToolError('CAPABILITY_UNAVAILABLE', message, false);
     }
-    return createBrowserToolError('UNKNOWN', message, true);
+    return new BrowserToolError('UNKNOWN', message, true);
   }
 
-  return createBrowserToolError('UNKNOWN', String(error), true);
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+  return new BrowserToolError('UNKNOWN', String(error), true);
 }
