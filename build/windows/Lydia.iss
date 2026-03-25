@@ -48,83 +48,23 @@ begin
   Result := ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe');
 end;
 
-procedure ExecPowerShell(const Script: string);
-var
-  ResultCode: Integer;
-begin
-  Exec(
-    PowerShellExe(),
-    '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -Command "' + Script + '"',
-    '',
-    SW_HIDE,
-    ewWaitUntilTerminated,
-    ResultCode
-  );
-end;
-
 procedure ForceTerminateExistingLydia();
 var
-  AppPath: string;
-  EscapedAppPath: string;
   ResultCode: Integer;
 begin
-  AppPath := ExpandConstant('{app}');
-  EscapedAppPath := AppPath;
-  StringChangeEx(EscapedAppPath, '\', '\\', True);
-
-  // Gracefully signal tray shutdown first
-  if FileExists(ExpandConstant('{app}\lydia-tray.ps1')) then
+  // Run the dedicated kill script (handles graceful shutdown, taskkill /T tree
+  // kill, and orphaned node.exe cleanup — all via -File to avoid escaping issues).
+  if FileExists(ExpandConstant('{app}\lydia-kill.ps1')) then
   begin
     Exec(
       PowerShellExe(),
-      '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\lydia-tray.ps1') + '" -Shutdown',
+      '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ExpandConstant('{app}\lydia-kill.ps1') + '"',
       '',
       SW_HIDE,
       ewWaitUntilTerminated,
       ResultCode
     );
   end;
-
-  // Stop lydia service gracefully
-  if FileExists(ExpandConstant('{app}\lydia.cmd')) then
-  begin
-    Exec(
-      ExpandConstant('{app}\lydia.cmd'),
-      'stop',
-      '',
-      SW_HIDE,
-      ewWaitUntilTerminated,
-      ResultCode
-    );
-  end;
-
-  Sleep(2000);
-
-  // Force kill by matching ExecutablePath or CommandLine (covers orphaned child processes)
-  ExecPowerShell(
-    '$app = ''' + EscapedAppPath + '''; ' +
-    '$procs = Get-CimInstance Win32_Process | Where-Object { ' +
-      '(($_.ExecutablePath -ne $null) -and $_.ExecutablePath.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase)) ' +
-      '-or ' +
-      '(($_.CommandLine -ne $null) -and $_.CommandLine.IndexOf($app, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) ' +
-    '}; ' +
-    'foreach ($p in $procs) { try { Stop-Process -Id $p.ProcessId -Force -ErrorAction Stop } catch {} }'
-  );
-
-  Sleep(1500);
-
-  // Kill any orphaned node.exe directly under the app/runtime directory
-  ExecPowerShell(
-    '$app = ''' + EscapedAppPath + '''; ' +
-    'Get-Process node -ErrorAction SilentlyContinue | Where-Object { ' +
-      '($_.Path -ne $null -and $_.Path.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase)) ' +
-      '-or (Get-CimInstance Win32_Process -Filter "ProcessId=$($_.Id)" | Where-Object { ' +
-        '$_.ExecutablePath -ne $null -and $_.ExecutablePath.StartsWith($app, [System.StringComparison]::OrdinalIgnoreCase) ' +
-      '}) ' +
-    '} | Stop-Process -Force -ErrorAction SilentlyContinue'
-  );
-
-  Sleep(1000);
 end;
 
 procedure ShutdownExistingLydia();

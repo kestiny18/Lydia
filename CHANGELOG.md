@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## 0.1.10
+
+### Windows Installer Hotfix (Revisited)
+
+- Fixed the previous upgrade fix by moving kill logic to a dedicated `lydia-kill.ps1` bundle script, invoked via `-File` to eliminate Pascal→PowerShell double-quote escaping bugs that silently broke WMI process queries.
+- Uses `taskkill /T /F` to recursively kill the entire process tree (powershell.exe → cmd.exe → node.exe) before file replacement.
+
 ## 0.1.9
 
 ### Windows Installer Hotfix

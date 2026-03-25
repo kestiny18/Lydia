@@ -48,6 +48,42 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~d
 powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0lydia-tray.ps1" -Shutdown
 call "%~dp0lydia.cmd" stop >nul 2>&1
 '@;
+  "lydia-kill.ps1" = @'
+# Hard-kill all Lydia processes. Used by the installer before file replacement.
+$ErrorActionPreference = 'SilentlyContinue'
+$baseDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+# Step 1: Signal graceful shutdown via the tray event
+try {
+    $event = New-Object System.Threading.EventWaitHandle($false, [System.Threading.EventResetMode]::ManualReset, 'Local\LydiaTrayShutdown')
+    $null = $event.Set()
+    $event.Dispose()
+} catch {}
+Start-Sleep -Milliseconds 800
+
+# Step 2: Graceful lydia.cmd stop
+$lydiaCmd = Join-Path $baseDir 'lydia.cmd'
+if (Test-Path $lydiaCmd) {
+    Start-Process $lydiaCmd -ArgumentList 'stop' -WindowStyle Hidden -Wait
+}
+Start-Sleep -Milliseconds 1500
+
+# Step 3: taskkill /T kills the process tree (parent + all children).
+# Matches cmd.exe and powershell.exe that have the app path in their CommandLine.
+Get-CimInstance Win32_Process | Where-Object {
+    ($_.CommandLine -ne $null) -and ($_.CommandLine.IndexOf($baseDir, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+} | ForEach-Object {
+    Start-Process 'taskkill' -ArgumentList '/F', '/T', "/PID", $_.ProcessId -WindowStyle Hidden -Wait
+}
+Start-Sleep -Milliseconds 1500
+
+# Step 4: Hard-kill any orphaned node.exe whose binary path is under the app/runtime dir.
+# Catches processes reparented to init/smss after their cmd.exe parent was killed.
+Get-Process node -ErrorAction SilentlyContinue | Where-Object {
+    ($_.Path -ne $null) -and ($_.Path.StartsWith($baseDir, [System.StringComparison]::OrdinalIgnoreCase))
+} | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 1000
+'@;
   "lydia-tray.ps1" = @'
 param(
   [switch]$Shutdown,
